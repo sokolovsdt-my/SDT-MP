@@ -48,9 +48,16 @@ export default function Schedule({ session }) {
     return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
   }
 
-  const handleBook = (id) => {
-    if (booked.includes(id)) return
-    setBooked([...booked, id])
+ const handleBook = async (cls) => {
+    if (booked.includes(cls.id)) return
+    const { error } = await supabase
+      .from('bookings')
+      .insert({ 
+        student_id: session.user.id, 
+        schedule_id: cls.id,
+        status: 'booked'
+      })
+    if (!error) setBooked([...booked, cls.id])
   }
 
   return (
@@ -111,7 +118,7 @@ export default function Schedule({ session }) {
                 <div style={{fontSize:10,color:'#ccc',marginTop:3}}>{cls.hall}</div>
               </div>
               <button
-                onClick={() => handleBook(cls.id)}
+                onClick={() => handleBook(cls)}
                 style={{
                   background: booked.includes(cls.id) ? '#f5f5f5' : '#BFD900',
                   color: booked.includes(cls.id) ? '#BDBDBD' : '#2a2a2a',
