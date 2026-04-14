@@ -3,6 +3,7 @@ import { supabase } from '../supabase'
 
 export default function Home({ session }) {
   const [profile, setProfile] = useState(null)
+  const [news, setNews] = useState([])
 
   useEffect(() => {
     const getProfile = async () => {
@@ -13,10 +14,27 @@ export default function Home({ session }) {
         .single()
       setProfile(data)
     }
+
+    const getNews = async () => {
+      const { data } = await supabase
+        .from('news')
+        .select('*')
+        .eq('is_active', true)
+        .order('published_at', { ascending: false })
+        .limit(5)
+      setNews(data || [])
+    }
+
     getProfile()
+    getNews()
   }, [session])
 
   const name = profile?.full_name?.split(' ')[0] || session.user.email
+
+  const formatDate = (dateStr) => {
+    const date = new Date(dateStr)
+    return date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
+  }
 
   return (
     <div style={{padding:'16px 20px 0',fontFamily:'Inter,sans-serif'}}>
@@ -54,19 +72,19 @@ export default function Home({ session }) {
       </div>
 
       <div style={{fontSize:10,color:'#BDBDBD',letterSpacing:'0.12em',textTransform:'uppercase',marginBottom:8}}>Новости студии</div>
-      {[
-        {text:'Открыта запись на летний интенсив 2026!', date:'10 апр', active:true},
-        {text:'Мастер-класс с Сюзанной — 20 апреля, 18:00', date:'8 апр', active:false},
-        {text:'Расписание на май уже доступно', date:'5 апр', active:false},
-      ].map((n,i) => (
-        <div key={i} style={{display:'flex',gap:12,alignItems:'flex-start',padding:'10px 0',borderBottom:'1px solid #f2f2f2'}}>
-          <div style={{width:7,height:7,background:n.active?'#BFD900':'#e0e0e0',borderRadius:'50%',flexShrink:0,marginTop:5}}></div>
-          <div>
-            <div style={{fontSize:13,color:'#3a3a3a',lineHeight:1.5}}>{n.text}</div>
-            <div style={{fontSize:11,color:'#BDBDBD',marginTop:2}}>{n.date}</div>
+      {news.length === 0 ? (
+        <div style={{fontSize:13,color:'#BDBDBD',padding:'10px 0'}}>Новостей пока нет</div>
+      ) : (
+        news.map((n, i) => (
+          <div key={n.id} style={{display:'flex',gap:12,alignItems:'flex-start',padding:'10px 0',borderBottom:'1px solid #f2f2f2'}}>
+            <div style={{width:7,height:7,background: i===0 ? '#BFD900' : '#e0e0e0',borderRadius:'50%',flexShrink:0,marginTop:5}}></div>
+            <div>
+              <div style={{fontSize:13,color:'#3a3a3a',lineHeight:1.5}}>{n.title}</div>
+              <div style={{fontSize:11,color:'#BDBDBD',marginTop:2}}>{formatDate(n.published_at)}</div>
+            </div>
           </div>
-        </div>
-      ))}
+        ))
+      )}
     </div>
   )
 }
