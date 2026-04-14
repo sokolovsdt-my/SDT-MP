@@ -28,6 +28,7 @@ const CATS = [
 
 export default function Shop() {
   const [activeCat, setActiveCat] = useState('subscriptions')
+  const [selected, setSelected] = useState(null)
 
   return (
     <div style={{fontFamily:'Inter,sans-serif'}}>
@@ -35,39 +36,27 @@ export default function Shop() {
         <div style={{fontSize:18,color:'#2a2a2a',fontWeight:300,marginBottom:16,fontFamily:'sans-serif'}}>
           Магазин
         </div>
-
-        {/* Категории */}
         <div style={{display:'flex',gap:8,overflowX:'auto',scrollbarWidth:'none',marginBottom:16}}>
           {CATS.map(cat => (
-            <div
-              key={cat.id}
-              onClick={() => setActiveCat(cat.id)}
-              style={{
-                flexShrink:0, padding:'6px 14px', borderRadius:12,
-                border: activeCat === cat.id ? 'none' : '1px solid #e0e0e0',
-                background: activeCat === cat.id ? '#BFD900' : '#fff',
-                color: activeCat === cat.id ? '#2a2a2a' : '#BDBDBD',
-                fontSize:12, cursor:'pointer',
-                fontWeight: activeCat === cat.id ? 600 : 400
-              }}
-            >
-              {cat.label}
-            </div>
+            <div key={cat.id} onClick={() => setActiveCat(cat.id)} style={{
+              flexShrink:0, padding:'6px 14px', borderRadius:12,
+              border: activeCat === cat.id ? 'none' : '1px solid #e0e0e0',
+              background: activeCat === cat.id ? '#BFD900' : '#fff',
+              color: activeCat === cat.id ? '#2a2a2a' : '#BDBDBD',
+              fontSize:12, cursor:'pointer',
+              fontWeight: activeCat === cat.id ? 600 : 400
+            }}>{cat.label}</div>
           ))}
         </div>
       </div>
 
-      {/* Продукты */}
       <div style={{padding:'0 20px'}}>
         {PRODUCTS[activeCat].map(product => (
-          <div
-            key={product.id}
-            style={{
-              background: product.featured ? '#fafde8' : '#fff',
-              border: product.featured ? '1.5px solid #BFD900' : '1px solid #efefef',
-              borderRadius:20, padding:18, marginBottom:12
-            }}
-          >
+          <div key={product.id} style={{
+            background: product.featured ? '#fafde8' : '#fff',
+            border: product.featured ? '1.5px solid #BFD900' : '1px solid #efefef',
+            borderRadius:20, padding:18, marginBottom:12
+          }}>
             {product.featured && (
               <div style={{display:'inline-block',background:'#BFD900',color:'#2a2a2a',fontSize:9,fontWeight:700,letterSpacing:'0.08em',textTransform:'uppercase',padding:'3px 10px',borderRadius:8,marginBottom:10}}>
                 Популярный
@@ -79,20 +68,62 @@ export default function Shop() {
               <div style={{fontSize:18,color:'#2a2a2a',fontFamily:'sans-serif'}}>
                 {product.price.toLocaleString()} <span style={{fontSize:11,color:'#BDBDBD'}}>{product.unit}</span>
               </div>
-              <button style={{
-                background: product.featured ? '#BFD900' : 'transparent',
-                color: product.featured ? '#2a2a2a' : '#BDBDBD',
-                border: product.featured ? 'none' : '1.5px solid #e0e0e0',
-                borderRadius:12, padding:'9px 20px',
-                fontSize:12, fontWeight:700, cursor:'pointer',
-                fontFamily:'Inter,sans-serif'
-              }}>
+              <button
+                onClick={() => setSelected(product)}
+                style={{
+                  background: product.featured ? '#BFD900' : 'transparent',
+                  color: product.featured ? '#2a2a2a' : '#BDBDBD',
+                  border: product.featured ? 'none' : '1.5px solid #e0e0e0',
+                  borderRadius:12, padding:'9px 20px',
+                  fontSize:12, fontWeight:700, cursor:'pointer',
+                  fontFamily:'Inter,sans-serif'
+                }}>
                 Купить
               </button>
             </div>
           </div>
         ))}
       </div>
+
+      {/* Модальное окно */}
+      {selected && (
+        <div
+          onClick={() => setSelected(null)}
+          style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'rgba(0,0,0,0.5)',zIndex:200,display:'flex',alignItems:'flex-end',justifyContent:'center'}}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{background:'#fff',borderRadius:'24px 24px 0 0',padding:24,width:'100%',maxWidth:480,boxSizing:'border-box'}}
+          >
+            <div style={{width:40,height:4,background:'#e0e0e0',borderRadius:2,margin:'0 auto 20px'}}></div>
+            <div style={{fontSize:16,color:'#2a2a2a',fontWeight:500,marginBottom:6}}>{selected.name}</div>
+            <div style={{fontSize:13,color:'#BDBDBD',marginBottom:20,lineHeight:1.6}}>{selected.desc}</div>
+            <div style={{fontSize:24,color:'#2a2a2a',fontWeight:300,marginBottom:20}}>
+              {selected.price.toLocaleString()} <span style={{fontSize:14,color:'#BDBDBD'}}>{selected.unit}</span>
+            </div>
+            <button
+              onClick={() => alert('Оплата скоро будет доступна! Для оплаты свяжитесь с администратором.')}
+              style={{
+                width:'100%',padding:14,background:'#BFD900',border:'none',
+                borderRadius:14,fontSize:14,fontWeight:700,color:'#2a2a2a',
+                cursor:'pointer',fontFamily:'Inter,sans-serif',marginBottom:10
+              }}
+            >
+              Оплатить {selected.price.toLocaleString()} ₽
+            </button>
+            <button
+              onClick={() => setSelected(null)}
+              style={{
+                width:'100%',padding:14,background:'transparent',border:'1px solid #e0e0e0',
+                borderRadius:14,fontSize:14,color:'#BDBDBD',
+                cursor:'pointer',fontFamily:'Inter,sans-serif'
+              }}
+            >
+              Отмена
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
