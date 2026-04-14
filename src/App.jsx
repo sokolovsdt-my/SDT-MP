@@ -1,9 +1,12 @@
 import { useState, useEffect } from 'react'
 import { supabase } from './supabase'
+import Home from './pages/Home'
+import BottomNav from './components/BottomNav'
 
 function App() {
   const [session, setSession] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [page, setPage] = useState('home')
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -24,7 +27,15 @@ function App() {
 
   if (!session) return <Login />
 
-  return <div>Привет, {session.user.email}! Вы вошли ✅</div>
+  return (
+    <div style={{maxWidth:480, margin:'0 auto', background:'#F8F8F8', minHeight:'100vh', paddingBottom:80}}>
+      {page === 'home' && <Home session={session} />}
+      {page === 'schedule' && <div style={{padding:20, fontFamily:'Inter,sans-serif'}}>Расписание — скоро</div>}
+      {page === 'shop' && <div style={{padding:20, fontFamily:'Inter,sans-serif'}}>Магазин — скоро</div>}
+      {page === 'profile' && <div style={{padding:20, fontFamily:'Inter,sans-serif'}}>Профиль — скоро</div>}
+      <BottomNav active={page} onChange={setPage} />
+    </div>
+  )
 }
 
 function Login() {
