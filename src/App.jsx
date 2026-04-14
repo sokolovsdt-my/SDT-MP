@@ -3,6 +3,7 @@ import { supabase } from './supabase'
 import Home from './pages/Home'
 import Schedule from './pages/Schedule'
 import Shop from './pages/Shop'
+import Profile from './pages/Profile'
 import BottomNav from './components/BottomNav'
 
 function App() {
@@ -34,7 +35,7 @@ function App() {
       {page === 'home' && <Home session={session} />}
       {page === 'schedule' && <Schedule session={session} />}
       {page === 'shop' && <Shop session={session} />}
-      {page === 'profile' && <div style={{padding:20, fontFamily:'Inter,sans-serif'}}>Профиль — скоро</div>}
+      {page === 'profile' && <Profile session={session} />}
       <BottomNav active={page} onChange={setPage} />
     </div>
   )
