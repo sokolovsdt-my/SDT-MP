@@ -1,31 +1,52 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { supabase } from '../supabase'
 
-const DAYS = [
-  { name: 'пн', num: 7 },
-  { name: 'вт', num: 8 },
-  { name: 'ср', num: 9 },
-  { name: 'чт', num: 10 },
-  { name: 'пт', num: 11 },
-  { name: 'сб', num: 12 },
-  { name: 'вс', num: 13 },
-]
+const DAYS_RU = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб']
 
-const CLASSES = [
-  { id: 1, time: '17:00 — 18:00', name: 'Группа №4 (4–6 лет)', teacher: 'Кристина Ревина', hall: 'Малый зал' },
-  { id: 2, time: '18:00 — 19:00', name: 'Группа №5 (9–11 лет)', teacher: 'Мария Куликова', hall: 'Большой зал' },
-  { id: 3, time: '19:00 — 20:30', name: 'Группа №1 (14+)', teacher: 'Сюзанна Соколова', hall: 'Большой зал' },
-]
+function getDays(count = 30) {
+  const days = []
+  const today = new Date()
+  for (let i = 0; i < count; i++) {
+    const d = new Date(today)
+    d.setDate(today.getDate() + i)
+    days.push({
+      name: DAYS_RU[d.getDay()],
+      num: d.getDate(),
+      date: d.toISOString().split('T')[0]
+    })
+  }
+  return days
+}
 
-export default function Schedule() {
-  const [activeDay, setActiveDay] = useState(3)
-  const [activeFilter, setActiveFilter] = useState('all')
+const DAYS = getDays(30)
+
+export default function Schedule({ session }) {
+  const [activeDay, setActiveDay] = useState(0)
+  const [classes, setClasses] = useState([])
   const [booked, setBooked] = useState([])
+  const [loading, setLoading] = useState(true)
 
-  const filters = [
-    { id: 'all', label: 'Все' },
-    { id: 'morning', label: 'Утро' },
-    { id: 'evening', label: 'Вечер' },
-  ]
+  useEffect(() => {
+    const getClasses = async () => {
+      setLoading(true)
+      const from = DAYS[activeDay].date + 'T00:00:00'
+      const to = DAYS[activeDay].date + 'T23:59:59'
+      const { data } = await supabase
+        .from('schedule')
+        .select('*')
+        .gte('starts_at', from)
+        .lte('starts_at', to)
+        .order('starts_at')
+      setClasses(data || [])
+      setLoading(false)
+    }
+    getClasses()
+  }, [activeDay])
+
+  const formatTime = (dt) => {
+    const d = new Date(dt)
+    return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+  }
 
   const handleBook = (id) => {
     if (booked.includes(id)) return
@@ -39,8 +60,8 @@ export default function Schedule() {
           Расписание
         </div>
 
-        {/* Дни недели */}
-        <div style={{display:'flex',gap:6,overflowX:'auto',paddingBottom:4,scrollbarWidth:'none'}}>
+        {/* 30 дней */}
+        <div style={{display:'flex',gap:6,overflowX:'auto',paddingBottom:4,scrollbarWidth:'none',WebkitOverflowScrolling:'touch'}}>
           {DAYS.map((day, i) => (
             <div
               key={i}
@@ -64,58 +85,46 @@ export default function Schedule() {
         </div>
       </div>
 
-      {/* Фильтры */}
-      <div style={{display:'flex',gap:8,padding:'12px 20px',overflowX:'auto',scrollbarWidth:'none'}}>
-        {filters.map(f => (
-          <div
-            key={f.id}
-            onClick={() => setActiveFilter(f.id)}
-            style={{
-              flexShrink:0, padding:'5px 13px', borderRadius:10,
-              border: activeFilter === f.id ? '1px solid #BFD900' : '1px solid #e0e0e0',
-              background: activeFilter === f.id ? '#f5facc' : '#fff',
-              color: activeFilter === f.id ? '#6a7700' : '#BDBDBD',
-              fontSize:11, cursor:'pointer',
-              fontWeight: activeFilter === f.id ? 500 : 400
-            }}
-          >
-            {f.label}
-          </div>
-        ))}
-      </div>
-
       {/* Список занятий */}
-      <div style={{padding:'0 20px'}}>
-        {CLASSES.map(cls => (
-          <div
-            key={cls.id}
-            style={{
-              background:'#fff', borderRadius:16, padding:'14px 16px',
-              marginBottom:10, display:'flex', justifyContent:'space-between',
-              alignItems:'center', borderLeft:'3px solid #BFD900',
-              border:'1px solid #f0f0f0', borderLeft:'3px solid #BFD900'
-            }}
-          >
-            <div>
-              <div style={{fontSize:11,color:'#BFD900',fontWeight:600,marginBottom:4}}>{cls.time}</div>
-              <div style={{fontSize:14,color:'#2a2a2a',fontWeight:500,marginBottom:2}}>{cls.name}</div>
-              <div style={{fontSize:11,color:'#BDBDBD'}}>{cls.teacher}</div>
-              <div style={{fontSize:10,color:'#ccc',marginTop:3}}>{cls.hall}</div>
-            </div>
-            <button
-              onClick={() => handleBook(cls.id)}
+      <div style={{padding:'12px 20px 0'}}>
+        {loading ? (
+          <div style={{fontSize:13,color:'#BDBDBD',padding:'20px 0',textAlign:'center'}}>Загрузка...</div>
+        ) : classes.length === 0 ? (
+          <div style={{fontSize:13,color:'#BDBDBD',padding:'20px 0',textAlign:'center'}}>Занятий нет</div>
+        ) : (
+          classes.map(cls => (
+            <div
+              key={cls.id}
               style={{
-                background: booked.includes(cls.id) ? '#f5f5f5' : '#BFD900',
-                color: booked.includes(cls.id) ? '#BDBDBD' : '#2a2a2a',
-                border:'none', borderRadius:10, padding:'7px 13px',
-                fontSize:11, fontWeight:700, cursor:'pointer',
-                whiteSpace:'nowrap', fontFamily:'Inter,sans-serif'
+                background:'#fff', borderRadius:16, padding:'14px 16px',
+                marginBottom:10, display:'flex', justifyContent:'space-between',
+                alignItems:'center', border:'1px solid #f0f0f0',
+                borderLeft:'3px solid #BFD900'
               }}
             >
-              {booked.includes(cls.id) ? 'Записан ✓' : 'Записаться'}
-            </button>
-          </div>
-        ))}
+              <div>
+                <div style={{fontSize:11,color:'#BFD900',fontWeight:600,marginBottom:4}}>
+                  {formatTime(cls.starts_at)} — {formatTime(cls.ends_at)}
+                </div>
+                <div style={{fontSize:14,color:'#2a2a2a',fontWeight:500,marginBottom:2}}>{cls.title}</div>
+                <div style={{fontSize:11,color:'#BDBDBD'}}>{cls.description}</div>
+                <div style={{fontSize:10,color:'#ccc',marginTop:3}}>{cls.hall}</div>
+              </div>
+              <button
+                onClick={() => handleBook(cls.id)}
+                style={{
+                  background: booked.includes(cls.id) ? '#f5f5f5' : '#BFD900',
+                  color: booked.includes(cls.id) ? '#BDBDBD' : '#2a2a2a',
+                  border:'none', borderRadius:10, padding:'7px 13px',
+                  fontSize:11, fontWeight:700, cursor:'pointer',
+                  whiteSpace:'nowrap', fontFamily:'Inter,sans-serif'
+                }}
+              >
+                {booked.includes(cls.id) ? 'Записан ✓' : 'Записаться'}
+              </button>
+            </div>
+          ))
+        )}
       </div>
     </div>
   )
