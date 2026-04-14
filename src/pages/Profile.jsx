@@ -26,12 +26,11 @@ export default function Profile({ session }) {
     }
     getProfile()
   }, [session])
-
-  const handleSave = async () => {
+const handleSave = async () => {
     setSaving(true)
     const { error } = await supabase
       .from('profiles')
-      .upsert({ id: session.user.id, ...form })
+      .upsert({ id: session.user.id, email: session.user.email, ...form })
     if (!error) {
       setProfile({ ...profile, ...form })
       setSaved(true)
