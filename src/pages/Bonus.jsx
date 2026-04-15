@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { requestPermission } from '../firebase'
 import { supabase } from '../supabase'
 
 export default function Bonus({ session, onBack }) {
@@ -142,6 +143,31 @@ export default function Bonus({ session, onBack }) {
             ))}
           </div>
         )}
+
+        {/* Уведомления */}
+        <div style={{background:'#fff',border:'1px solid #f0f0f0',borderRadius:16,padding:16,margin:'16px 0'}}>
+          <div style={{fontSize:13,color:'#2a2a2a',fontWeight:500,marginBottom:6}}>
+            🔔 Узнавайте первыми об изменениях в расписании и отменах занятий
+          </div>
+          <button
+            onClick={async () => {
+              const token = await requestPermission()
+              if (token) {
+                await supabase.from('profiles').upsert({ id: session.user.id, push_token: token })
+                alert('Уведомления включены! ✅')
+              }
+            }}
+            style={{
+              width:'100%', padding:'10px', background:'#BFD900',
+              border:'none', borderRadius:12, fontSize:13,
+              fontWeight:700, color:'#2a2a2a', cursor:'pointer',
+              fontFamily:'Inter,sans-serif', marginTop:8
+            }}
+          >
+            Включить уведомления
+          </button>
+        </div>
+
       </div>
     </div>
   )

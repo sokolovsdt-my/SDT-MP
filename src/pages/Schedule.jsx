@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
-
+import { requestPermission } from '../firebase'
 const DAYS_RU = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб']
 
 function getDays(count = 30) {
@@ -24,6 +24,7 @@ export default function Schedule({ session }) {
   const [activeDay, setActiveDay] = useState(0)
   const [classes, setClasses] = useState([])
   const [booked, setBooked] = useState([])
+  const [showPushBanner, setShowPushBanner] = useState(false)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -57,7 +58,10 @@ export default function Schedule({ session }) {
         schedule_id: cls.id,
         status: 'booked'
       })
-    if (!error) setBooked([...booked, cls.id])
+    if (!error) {
+  setBooked([...booked, cls.id])
+  setShowPushBanner(true)
+}
   }
 
   return (
@@ -133,6 +137,33 @@ export default function Schedule({ session }) {
           ))
         )}
       </div>
+      {showPushBanner && (
+  <div style={{margin:'16px 20px',background:'#fff',border:'1px solid #f0f0f0',borderRadius:16,padding:16}}>
+    <div style={{fontSize:13,color:'#2a2a2a',fontWeight:500,marginBottom:6}}>
+      🔔 Узнавайте первыми об изменениях в расписании и отменах занятий
+    </div>
+    <div style={{display:'flex',gap:8,marginTop:8}}>
+      <button
+        onClick={async () => {
+          const token = await requestPermission()
+          if (token) {
+            await supabase.from('profiles').upsert({ id: session.user.id, push_token: token })
+          }
+          setShowPushBanner(false)
+        }}
+        style={{flex:1,padding:'10px',background:'#BFD900',border:'none',borderRadius:12,fontSize:13,fontWeight:700,color:'#2a2a2a',cursor:'pointer',fontFamily:'Inter,sans-serif'}}
+      >
+        Включить
+      </button>
+      <button
+        onClick={() => setShowPushBanner(false)}
+        style={{padding:'10px 16px',background:'transparent',border:'1px solid #e0e0e0',borderRadius:12,fontSize:13,color:'#BDBDBD',cursor:'pointer',fontFamily:'Inter,sans-serif'}}
+      >
+        Не сейчас
+      </button>
+    </div>
+  </div>
+)}
     </div>
   )
 }
