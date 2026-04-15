@@ -1,0 +1,17 @@
+{
+  "name": "Sokolov Dance Theatre",
+  "short_name": "SDT",
+  "description": "Приложение студии танца SDT",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F8F8F8",
+  "theme_color": "#BFD900",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "64x64",
+      "type": "image/x-icon"
+    }
+  ]
+}
