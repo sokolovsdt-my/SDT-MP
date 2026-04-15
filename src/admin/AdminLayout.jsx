@@ -23,6 +23,7 @@ export default function AdminLayout({ session }) {
     { to: '/admin/clients',    label: 'Клиенты',    roles: ['admin','manager','owner'] },
     { to: '/admin/schedule',   label: 'Расписание', roles: ['teacher','admin','manager','owner'] },
     { to: '/admin/tasks',      label: 'Задачи',     roles: ['teacher','admin','manager','owner'] },
+    { to: '/admin/catalog',    label: 'Каталог',    roles: ['admin','manager','owner'] },
     { to: '/admin/broadcasts', label: 'Рассылки',   roles: ['admin','manager','owner'] },
     { to: '/admin/finance',    label: 'Финансы',    roles: ['owner'] },
     { to: '/admin/staff',      label: 'Сотрудники', roles: ['manager','owner'] },

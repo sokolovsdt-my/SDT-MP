@@ -11,6 +11,7 @@ import AdminDashboard from './admin/AdminDashboard'
 import AdminClients from './admin/AdminClients'
 import AdminClientCard from './admin/AdminClientCard'
 import AdminTasks from './admin/AdminTasks'
+import AdminCatalog from './admin/AdminCatalog'
 import { RequireRole } from './components/RequireRole'
 import { useUserRole } from './hooks/useUserRole'
 
@@ -75,6 +76,7 @@ function App() {
           <Route path="clients" element={<AdminClients />} />
           <Route path="clients/:id" element={<AdminClientCard />} />
           <Route path="tasks" element={<AdminTasks session={session} />} />
+          <Route path="catalog" element={<AdminCatalog />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
