@@ -1,9 +1,11 @@
+import Bonus from './Bonus'
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
 
 export default function Profile({ session }) {
   const [profile, setProfile] = useState(null)
   const [editing, setEditing] = useState(false)
+  const [showBonus, setShowBonus] = useState(false)
   const [form, setForm] = useState({ full_name: '', phone: '', birth_date: '' })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -46,6 +48,7 @@ const handleSave = async () => {
   const name = profile?.full_name || session.user.email
   const initials = name[0].toUpperCase()
 
+  if (showBonus) return <Bonus session={session} onBack={() => setShowBonus(false)} />
   if (editing) return (
     <div style={{fontFamily:'Inter,sans-serif',padding:20}}>
       <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:24}}>
@@ -128,9 +131,9 @@ const handleSave = async () => {
       {[
         { label: 'Мои записи' },
         { label: 'Моя статистика' },
-        { label: 'Привести друга ✦', accent: true },
+        { label: 'Привести друга ✦', accent: true, action: () => setShowBonus(true) },
       ].map((item, i) => (
-        <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 20px',borderBottom:'1px solid #f5f5f5',cursor:'pointer'}}>
+        <div key={i} onClick={item.action || (() => {})} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 20px',borderBottom:'1px solid #f5f5f5',cursor:'pointer'}}>
           <div style={{fontSize:14,color:item.accent?'#6a7700':'#3a3a3a',fontWeight:item.accent?600:400}}>{item.label}</div>
           <div style={{color:'#d0d0d0',fontSize:16}}>›</div>
         </div>
