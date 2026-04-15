@@ -8,6 +8,7 @@ import Profile from './pages/Profile'
 import BottomNav from './components/BottomNav'
 import AdminLayout from './admin/AdminLayout'
 import AdminDashboard from './admin/AdminDashboard'
+import AdminClients from './admin/AdminClients'
 import { RequireRole } from './components/RequireRole'
 import { useUserRole } from './hooks/useUserRole'
 
@@ -69,6 +70,7 @@ function App() {
           </RequireRole>
         }>
           <Route path="dashboard" element={<AdminDashboard />} />
+          <Route path="clients" element={<AdminClients />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
