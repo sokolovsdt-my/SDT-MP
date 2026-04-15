@@ -1,22 +1,51 @@
 import { useState, useEffect } from 'react'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { supabase } from './supabase'
 import Home from './pages/Home'
 import Schedule from './pages/Schedule'
 import Shop from './pages/Shop'
 import Profile from './pages/Profile'
 import BottomNav from './components/BottomNav'
+import AdminLayout from './admin/AdminLayout'
+import AdminDashboard from './admin/AdminDashboard'
+import { RequireRole } from './components/RequireRole'
+import { useUserRole } from './hooks/useUserRole'
+
+function ClientApp({ session }) {
+  const [page, setPage] = useState('home')
+  return (
+    <div style={{maxWidth:480, margin:'0 auto', background:'#F8F8F8', minHeight:'100vh', paddingBottom:80}}>
+      {page === 'home' && <Home session={session} />}
+      {page === 'schedule' && <Schedule session={session} />}
+      {page === 'shop' && <Shop session={session} />}
+      {page === 'profile' && <Profile session={session} />}
+      <BottomNav active={page} onChange={setPage} />
+    </div>
+  )
+}
+
+function RootRedirect({ session }) {
+  const { role, loading } = useUserRole(session)
+  if (loading) return (
+    <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',background:'#F8F8F8',fontFamily:'Inter,sans-serif',color:'#BDBDBD'}}>
+      Загрузка...
+    </div>
+  )
+  if (role && ['teacher','admin','manager','owner'].includes(role)) {
+    return <Navigate to="/admin/dashboard" replace />
+  }
+  return <ClientApp session={session} />
+}
 
 function App() {
   const [session, setSession] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [page, setPage] = useState('home')
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
       setLoading(false)
     })
-
     supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)
     })
@@ -31,13 +60,19 @@ function App() {
   if (!session) return <Login />
 
   return (
-    <div style={{maxWidth:480, margin:'0 auto', background:'#F8F8F8', minHeight:'100vh', paddingBottom:80}}>
-      {page === 'home' && <Home session={session} />}
-      {page === 'schedule' && <Schedule session={session} />}
-      {page === 'shop' && <Shop session={session} />}
-      {page === 'profile' && <Profile session={session} />}
-      <BottomNav active={page} onChange={setPage} />
-    </div>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<RootRedirect session={session} />} />
+        <Route path="/admin" element={
+          <RequireRole session={session} allow={['teacher','admin','manager','owner']}>
+            <AdminLayout session={session} />
+          </RequireRole>
+        }>
+          <Route path="dashboard" element={<AdminDashboard />} />
+        </Route>
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </BrowserRouter>
   )
 }
 
@@ -65,26 +100,17 @@ function Login() {
           <div style={{fontSize:12,color:'#BDBDBD',marginTop:4}}>Войдите в аккаунт</div>
         </div>
         <form onSubmit={handleLogin}>
-          <input
-            type="email"
-            placeholder="Email"
-            value={email}
+          <input type="email" placeholder="Email" value={email}
             onChange={e => setEmail(e.target.value)}
             style={{width:'100%',padding:'12px 14px',border:'1px solid #e8e8e8',borderRadius:12,fontSize:14,marginBottom:10,boxSizing:'border-box',fontFamily:'Inter,sans-serif'}}
           />
-          <input
-            type="password"
-            placeholder="Пароль"
-            value={password}
+          <input type="password" placeholder="Пароль" value={password}
             onChange={e => setPassword(e.target.value)}
             style={{width:'100%',padding:'12px 14px',border:'1px solid #e8e8e8',borderRadius:12,fontSize:14,marginBottom:16,boxSizing:'border-box',fontFamily:'Inter,sans-serif'}}
           />
           {error && <div style={{color:'#e74c3c',fontSize:12,marginBottom:12}}>{error}</div>}
-          <button
-            type="submit"
-            disabled={loading}
-            style={{width:'100%',padding:'13px',background:'#BFD900',border:'none',borderRadius:12,fontSize:14,fontWeight:700,color:'#2a2a2a',cursor:'pointer',fontFamily:'Inter,sans-serif'}}
-          >
+          <button type="submit" disabled={loading}
+            style={{width:'100%',padding:'13px',background:'#BFD900',border:'none',borderRadius:12,fontSize:14,fontWeight:700,color:'#2a2a2a',cursor:'pointer',fontFamily:'Inter,sans-serif'}}>
             {loading ? 'Входим...' : 'Войти'}
           </button>
         </form>
