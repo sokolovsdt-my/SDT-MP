@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
+import AttendancePanel from './AttendancePanel'
 
 const GROUP_COLORS = [
   { bg: '#EDF4F0', border: '#7C9885', text: '#3d5c45' },
@@ -280,6 +281,7 @@ export default function AdminSchedule({ session }) {
   const [pendingDelete, setPendingDelete] = useState(null)
   const [filterTeacher, setFilterTeacher] = useState('all')
   const [filterHall, setFilterHall] = useState('all')
+  const [attendanceLesson, setAttendanceLesson] = useState(null)
 
   useEffect(() => { loadAll() }, [currentDate, view])
 
@@ -380,15 +382,27 @@ export default function AdminSchedule({ session }) {
     const { top, height } = getEventStyle(ev)
     const title = ev.groups?.name || ev.title || (ev.student ? `Индив: ${ev.student.full_name}` : 'Занятие')
     const isShort = height < 36
+    const isCancelled = ev.is_cancelled
     return (
       <div onClick={() => handleEventClick(ev)} style={{
         position:'absolute', top, left, width, height,
-        background: color.bg, border:`1.5px solid ${color.border}`,
+        background: color.bg,
+        border: isCancelled ? '2px solid #e74c3c' : `1.5px solid ${color.border}`,
         borderRadius:6, padding: isShort?'1px 5px':'4px 7px',
         cursor:'pointer', overflow:'hidden', zIndex:2, boxSizing:'border-box',
         boxShadow:'0 1px 3px rgba(0,0,0,0.06)'
       }}>
-        <div style={{fontSize:11, fontWeight:700, color:color.text}}>
+        {isCancelled && (
+          <div style={{
+            position:'absolute', top:0, left:0, right:0,
+            background:'#e74c3c', color:'#fff',
+            fontSize:9, fontWeight:700, letterSpacing:'0.05em',
+            padding:'2px 6px', textAlign:'center'
+          }}>
+            ОТМЕНЕНО
+          </div>
+        )}
+        <div style={{fontSize:11, fontWeight:700, color: color.text, marginTop: isCancelled ? 14 : 0}}>
           <div style={{whiteSpace:'nowrap'}}>{formatTime(ev.starts_at)}–{formatTime(ev.ends_at)}</div>
           <div style={{wordBreak:'break-word', lineHeight:1.3}}>{title}</div>
         </div>
@@ -438,6 +452,7 @@ export default function AdminSchedule({ session }) {
                 <button onClick={() => setEditingEvent(null)} style={{fontSize:20, color:'#BDBDBD', background:'none', border:'none', cursor:'pointer', lineHeight:1}}>×</button>
               </div>
               <div style={{display:'flex', gap:8}}>
+                <button onClick={() => { setAttendanceLesson(editingEvent); setEditingEvent(null) }} style={{padding:'7px 16px', background:'#e8f4fd', border:'none', borderRadius:8, fontSize:12, color:'#2980b9', cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight:600}}>👥 Отметить</button>
                 <button onClick={() => setShowEditForm(true)} style={{padding:'7px 16px', background:'#fafde8', border:'1px solid #BFD900', borderRadius:8, fontSize:12, color:'#6a7700', cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight:600}}>Редактировать</button>
                 <button onClick={() => handleDeleteEvent(editingEvent)} style={{padding:'7px 16px', background:'#fdecea', border:'none', borderRadius:8, fontSize:12, color:'#e74c3c', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>Удалить</button>
               </div>
@@ -566,6 +581,15 @@ export default function AdminSchedule({ session }) {
           )}
         </div>
       )}
+    {attendanceLesson && (
+ <AttendancePanel
+  lesson={attendanceLesson}
+  session={session}
+  teachers={teachers}
+  onClose={() => setAttendanceLesson(null)}
+  onLessonUpdate={() => { loadAll(); setAttendanceLesson(null) }}
+/>
+)}
     </div>
   )
 }
