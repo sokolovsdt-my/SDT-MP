@@ -75,7 +75,7 @@ function App() {
         }>
           <Route path="dashboard" element={<AdminDashboard />} />
           <Route path="clients" element={<AdminClients />} />
-          <Route path="clients/:id" element={<AdminClientCard />} />
+          <Route path="clients/:id" element={<AdminClientCard session={session} />} />
           <Route path="tasks" element={<AdminTasks session={session} />} />
           <Route path="catalog" element={<AdminCatalog />} />
           <Route path="schedule" element={<AdminSchedule session={session} />} />

@@ -21,10 +21,17 @@ function RepresentativesTab({ clientId }) {
 
   const handleSave = async () => {
     if (!form.full_name || !form.role) return
+    const dataToSave = {
+      ...form,
+      birth_date: form.birth_date || null,
+      phone: form.phone || null,
+      contact: form.contact || null,
+      comment: form.comment || null,
+    }
     if (editing) {
-      await supabase.from('client_representatives').update(form).eq('id', editing)
+      await supabase.from('client_representatives').update(dataToSave).eq('id', editing)
     } else {
-      await supabase.from('client_representatives').insert({ ...form, client_id: clientId })
+      await supabase.from('client_representatives').insert({ ...dataToSave, client_id: clientId })
     }
     resetForm()
     setEditing(null)
@@ -290,7 +297,196 @@ function CommentsTab({ clientId }) {
   )
 }
 
-export default function AdminClientCard() {
+const TASK_STATUS = {
+  new: { label: 'Новая', color: '#2980b9', bg: '#e8f4fd' },
+  in_progress: { label: 'В работе', color: '#f39c12', bg: '#fef9e7' },
+  done: { label: 'Выполнена', color: '#27ae60', bg: '#eafaf1' },
+  cancelled: { label: 'Отменена', color: '#BDBDBD', bg: '#f5f5f5' },
+  postponed: { label: 'Перенесена', color: '#8e44ad', bg: '#f5eef8' },
+  problem: { label: 'Есть трудности', color: '#e74c3c', bg: '#fdecea' },
+}
+const TASK_PRIORITY = {
+  low: { label: 'Низкий', color: '#BDBDBD' },
+  normal: { label: 'Средний', color: '#f39c12' },
+  high: { label: 'Высокий', color: '#e74c3c' },
+}
+const ACTIVE = ['new','in_progress','postponed','problem']
+
+function ClientTasksTab({ clientId, session }) {
+  const [tasks, setTasks] = useState([])
+  const [reps, setReps] = useState([])
+  const [staff, setStaff] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [view, setView] = useState('active')
+  const [showForm, setShowForm] = useState(false)
+  const [form, setForm] = useState({ title:'', description:'', priority:'normal', deadline:'' })
+  const [assignees, setAssignees] = useState([])
+  const [selectedReps, setSelectedReps] = useState([])
+
+  useEffect(() => { loadAll() }, [clientId])
+
+  const loadAll = async () => {
+    setLoading(true)
+    const { data: tcs } = await supabase.from('task_clients').select('task_id').eq('client_id', clientId)
+    const taskIds = (tcs || []).map(tc => tc.task_id)
+    if (taskIds.length === 0) {
+      setTasks([])
+    } else {
+      const { data: t } = await supabase.from('tasks')
+        .select('*, task_history(*), task_assignees(*, profiles(full_name, email))')
+        .in('id', taskIds)
+        .order('created_at', { ascending:false })
+      setTasks(t || [])
+    }
+    const { data: r } = await supabase.from('client_representatives').select('*').eq('client_id', clientId)
+    setReps(r || [])
+    const { data: s } = await supabase.from('profiles').select('id, full_name, email, role').in('role', ['teacher','admin','manager','owner'])
+    setStaff(s || [])
+    setLoading(false)
+  }
+
+  const toggleAssignee = (id) => setAssignees(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id])
+  const toggleRep = (id) => setSelectedReps(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id])
+
+  const handleCreate = async () => {
+    if (!form.title) return
+    const { data: task } = await supabase.from('tasks').insert({
+      ...form, created_by: session.user.id,
+      deadline: form.deadline || null, is_group: false
+    }).select().single()
+    if (assignees.length > 0) {
+      await supabase.from('task_assignees').insert(assignees.map(uid => ({ task_id: task.id, user_id: uid })))
+    }
+    await supabase.from('task_clients').insert({ task_id: task.id, client_id: clientId })
+    if (selectedReps.length > 0) {
+      await supabase.from('task_client_representatives').insert(
+        selectedReps.map(rid => ({ task_id: task.id, client_id: clientId, representative_id: rid }))
+      )
+    }
+    await supabase.from('task_history').insert({ task_id: task.id, author_id: session.user.id, action:'created', comment:'Задача создана' })
+    setForm({ title:'', description:'', priority:'normal', deadline:'' })
+    setAssignees([]); setSelectedReps([]); setShowForm(false)
+    loadAll()
+  }
+
+  const handleStatusChange = async (task, newStatus) => {
+    await supabase.from('tasks').update({
+      status: newStatus,
+      completed_at: newStatus === 'done' ? new Date().toISOString() : null
+    }).eq('id', task.id)
+    await supabase.from('task_history').insert({
+      task_id: task.id, author_id: session.user.id,
+      action:'status_changed', comment:`Статус изменён на: ${TASK_STATUS[newStatus].label}`
+    })
+    loadAll()
+  }
+
+  const formatDT = (dt) => dt ? new Date(dt).toLocaleString('ru-RU', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'}) : '—'
+
+  const filtered = tasks.filter(t => view === 'active' ? ACTIVE.includes(t.status) : !ACTIVE.includes(t.status))
+
+  const inputStyle = { width:'100%', padding:'8px 12px', border:'1px solid #e8e8e8', borderRadius:8, fontSize:13, boxSizing:'border-box', fontFamily:'Inter,sans-serif', marginBottom:8 }
+
+  return (
+    <div>
+      <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12}}>
+        <div style={{display:'flex', gap:4, background:'#f5f5f5', borderRadius:10, padding:3}}>
+          {[['active','Текущие'], ['done','Выполненные']].map(([v,l]) => (
+            <button key={v} onClick={() => setView(v)} style={{padding:'6px 16px', borderRadius:8, border:'none', fontSize:12, cursor:'pointer', fontFamily:'Inter,sans-serif', background: view===v ? '#fff' : 'transparent', color: view===v ? '#2a2a2a' : '#888', fontWeight: view===v ? 600 : 400}}>
+              {l}
+            </button>
+          ))}
+        </div>
+        <button onClick={() => setShowForm(!showForm)}
+          style={{padding:'7px 14px', background:'#BFD900', border:'none', borderRadius:8, fontSize:12, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+          {showForm ? 'Закрыть' : '+ Новая задача'}
+        </button>
+      </div>
+
+      {showForm && (
+        <div style={{background:'#f9f9f9', borderRadius:12, padding:14, marginBottom:14}}>
+          <input value={form.title} onChange={e => setForm({...form, title:e.target.value})} placeholder="Название задачи *" style={inputStyle} />
+          <textarea value={form.description} onChange={e => setForm({...form, description:e.target.value})} placeholder="Описание (необязательно)" style={{...inputStyle, resize:'vertical', minHeight:50}} />
+          <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8}}>
+            <select value={form.priority} onChange={e => setForm({...form, priority:e.target.value})} style={inputStyle}>
+              <option value="low">Низкий приоритет</option>
+              <option value="normal">Средний приоритет</option>
+              <option value="high">Высокий приоритет</option>
+            </select>
+            <input value={form.deadline} onChange={e => setForm({...form, deadline:e.target.value})} type="datetime-local" style={inputStyle} />
+          </div>
+          <div style={{marginBottom:8}}>
+            <div style={{fontSize:12, color:'#888', marginBottom:6, fontWeight:600}}>Ответственные</div>
+            <div style={{display:'flex', flexWrap:'wrap', gap:6}}>
+              {staff.map(s => (
+                <label key={s.id} style={{display:'flex', alignItems:'center', gap:6, padding:'4px 10px', background: assignees.includes(s.id) ? '#fafde8' : '#f5f5f5', border: assignees.includes(s.id) ? '1px solid #BFD900' : '1px solid #e0e0e0', borderRadius:8, fontSize:12, cursor:'pointer'}}>
+                  <input type="checkbox" checked={assignees.includes(s.id)} onChange={() => toggleAssignee(s.id)} />
+                  {s.full_name || s.email}
+                </label>
+              ))}
+            </div>
+          </div>
+          {reps.length > 0 && (
+            <div style={{marginBottom:8}}>
+              <div style={{fontSize:12, color:'#888', marginBottom:6, fontWeight:600}}>Представители</div>
+              <div style={{display:'flex', flexWrap:'wrap', gap:6}}>
+                {reps.map(r => (
+                  <label key={r.id} style={{display:'flex', alignItems:'center', gap:6, padding:'4px 10px', background: selectedReps.includes(r.id) ? '#fafde8' : '#f5f5f5', border: selectedReps.includes(r.id) ? '1px solid #BFD900' : '1px solid #e0e0e0', borderRadius:8, fontSize:12, cursor:'pointer'}}>
+                    <input type="checkbox" checked={selectedReps.includes(r.id)} onChange={() => toggleRep(r.id)} />
+                    {r.full_name} ({r.role})
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+          <button onClick={handleCreate}
+            style={{width:'100%', padding:'9px', background:'#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+            Создать задачу
+          </button>
+        </div>
+      )}
+
+      {loading ? (
+        <div style={{textAlign:'center', color:'#BDBDBD', padding:30}}>Загрузка...</div>
+      ) : filtered.length === 0 ? (
+        <div style={{textAlign:'center', color:'#BDBDBD', padding:30}}>Задач нет</div>
+      ) : (
+        filtered.map(task => {
+          const isOverdue = task.deadline && ACTIVE.includes(task.status) && new Date(task.deadline) < new Date()
+          return (
+            <div key={task.id} style={{background:'#fff', borderRadius:12, border:'1px solid #f0f0f0', borderLeft:`4px solid ${TASK_PRIORITY[task.priority].color}`, padding:'12px 14px', marginBottom:10}}>
+              <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:10}}>
+                <div style={{flex:1}}>
+                  <div style={{display:'flex', alignItems:'center', gap:8, marginBottom:4, flexWrap:'wrap'}}>
+                    <span style={{fontSize:14, fontWeight:600, color: isOverdue ? '#e74c3c' : '#2a2a2a'}}>{task.title}</span>
+                    <span style={{background: TASK_STATUS[task.status].bg, color: TASK_STATUS[task.status].color, padding:'2px 8px', borderRadius:6, fontSize:11, fontWeight:600}}>
+                      {TASK_STATUS[task.status].label}
+                    </span>
+                    {isOverdue && <span style={{background:'#fdecea', color:'#e74c3c', padding:'2px 8px', borderRadius:6, fontSize:11, fontWeight:600}}>⚠️ Просрочена</span>}
+                  </div>
+                  {task.description && <div style={{fontSize:12, color:'#888', marginBottom:6}}>{task.description}</div>}
+                  <div style={{display:'flex', gap:12, flexWrap:'wrap'}}>
+                    {task.task_assignees?.length > 0 && (
+                      <span style={{fontSize:11, color:'#BDBDBD'}}>
+                        👤 {task.task_assignees.map(a => a.profiles?.full_name || a.profiles?.email).join(', ')}
+                      </span>
+                    )}
+                    {task.deadline && <span style={{fontSize:11, color: isOverdue ? '#e74c3c' : '#BDBDBD'}}>⏰ {formatDT(task.deadline)}</span>}
+                  </div>
+                </div>
+                <select value={task.status} onChange={e => handleStatusChange(task, e.target.value)}
+                  style={{padding:'5px 10px', border:'1px solid #e8e8e8', borderRadius:8, fontSize:12, fontFamily:'Inter,sans-serif', background:'#fff', cursor:'pointer', flexShrink:0}}>
+                  {Object.entries(TASK_STATUS).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}
+                </select>
+              </div>
+            </div>
+          )
+        })
+      )}
+    </div>
+  )
+}
+export default function AdminClientCard({ session }) {
   const { id } = useParams()
   const navigate = useNavigate()
   const [client, setClient] = useState(null)
@@ -445,11 +641,7 @@ export default function AdminClientCard() {
         {tab === 'Комментарии' && <CommentsTab clientId={id} />}
 
         {tab === 'Представители' && <RepresentativesTab clientId={id} />}
-        {tab === 'Задачи' && (
-          <div style={{textAlign:'center', color:'#BDBDBD', padding:30}}>
-            Задачи будут здесь — делаем в следующем разделе
-          </div>
-        )}
+        {tab === 'Задачи' && <ClientTasksTab clientId={id} session={session} />}
 
         {tab === 'Бонусы' && (
           <div>
