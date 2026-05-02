@@ -663,7 +663,7 @@ function FinanceDetail() {
               </div>
             )}
           </div>
-          
+
           {/* По категориям расходов */}
           <div style={cardStyle}>
             <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a', marginBottom:16}}>Расходы по категориям</div>
@@ -1084,6 +1084,282 @@ function FinanceExpenses({ session }) {
     </div>
   )
 }
+function FinanceLoyalty({ session }) {
+  const [loading, setLoading] = useState(true)
+  const [metrics, setMetrics] = useState({ active: 0, expiringSoon: 0, expired30: 0, avgLifetimeMonths: 0 })
+  const [loyaltyLevels, setLoyaltyLevels] = useState([])
+  const [expiringSoonList, setExpiringSoonList] = useState([])
+  const [notVisiting, setNotVisiting] = useState([])
+  const [groupAttendance, setGroupAttendance] = useState([])
+  const [creatingTaskFor, setCreatingTaskFor] = useState(null)
+  const [staff, setStaff] = useState([])
+  const [taskAssignee, setTaskAssignee] = useState('')
+  const [taskSaving, setTaskSaving] = useState(false)
+
+  useEffect(() => { load() }, [])
+
+  const load = async () => {
+    setLoading(true)
+    const today = toLocalStr(new Date())
+    const in7days = toLocalStr(new Date(Date.now() + 7 * 86400000))
+    const ago30 = toLocalStr(new Date(Date.now() - 30 * 86400000))
+    const ago10 = toLocalStr(new Date(Date.now() - 10 * 86400000))
+
+    // Активные абонементы
+    const { data: activeSubs } = await supabase.from('subscriptions')
+      .select('id, student_id, type, expires_at, activated_at, visits_used, visits_total, profiles:student_id(full_name, email, phone)')
+      .gte('expires_at', today)
+      .eq('is_frozen', false)
+
+    // Истекают в ближайшие 7 дней
+    const expiring = (activeSubs || []).filter(s => s.expires_at >= today && s.expires_at <= in7days)
+    setExpiringSoonList(expiring.map(s => ({
+      id: s.id,
+      clientId: s.student_id,
+      name: s.profiles?.full_name || s.profiles?.email || '—',
+      phone: s.profiles?.phone || '—',
+      type: s.type,
+      expiresAt: s.expires_at,
+      daysLeft: Math.ceil((new Date(s.expires_at) - new Date()) / 86400000),
+    })))
+
+    // Истекли за последние 30 дней
+    const { data: expiredSubs } = await supabase.from('subscriptions')
+      .select('id, student_id, activated_at, expires_at')
+      .lt('expires_at', today)
+      .gte('expires_at', ago30)
+
+    // Средний срок жизни клиента
+    const allSubs = [...(activeSubs || []), ...(expiredSubs || [])]
+    const lifetimes = allSubs
+      .filter(s => s.activated_at && s.expires_at)
+      .map(s => (new Date(s.expires_at) - new Date(s.activated_at)) / (1000 * 60 * 60 * 24 * 30))
+    const avgLifetime = lifetimes.length > 0 ? Math.round(lifetimes.reduce((a, b) => a + b, 0) / lifetimes.length * 10) / 10 : 0
+
+    setMetrics({
+      active: (activeSubs || []).length,
+      expiringSoon: expiring.length,
+      expired30: (expiredSubs || []).length,
+      avgLifetimeMonths: avgLifetime,
+    })
+
+    // Уровни лояльности
+    const { data: loyaltyData } = await supabase.from('client_loyalty')
+      .select('loyalty_level, profiles:client_id(full_name)')
+    const levels = { adept: 0, loyal: 0, edge: 0, risk: 0 }
+    ;(loyaltyData || []).forEach(l => { if (levels[l.loyalty_level] !== undefined) levels[l.loyalty_level]++ })
+    setLoyaltyLevels([
+      { key: 'adept', label: '🔥 Адепт', color: '#27ae60', bg: '#eafaf1', count: levels.adept },
+      { key: 'loyal', label: '💚 Лояльный', color: '#82c99a', bg: '#f0faf3', count: levels.loyal },
+      { key: 'edge', label: '🤔 На грани', color: '#f39c12', bg: '#fef9e7', count: levels.edge },
+      { key: 'risk', label: '⚠️ Риск ухода', color: '#e74c3c', bg: '#fdecea', count: levels.risk },
+    ])
+
+    // Клиенты с активным абонементом, не посещавшие 10+ дней
+    const { data: recentAttendance } = await supabase.from('attendance')
+      .select('student_id, marked_at')
+      .gte('marked_at', ago10 + 'T00:00:00')
+      .eq('status', 'present')
+
+    const recentStudentIds = new Set((recentAttendance || []).map(a => a.student_id))
+
+    const noVisit = (activeSubs || []).filter(s => {
+      const activatedAgo = (new Date() - new Date(s.activated_at)) / 86400000
+      return activatedAgo >= 10 && !recentStudentIds.has(s.student_id)
+    })
+    setNotVisiting(noVisit.map(s => ({
+      clientId: s.student_id,
+      name: s.profiles?.full_name || s.profiles?.email || '—',
+      phone: s.profiles?.phone || '—',
+      type: s.type,
+      activatedAt: s.activated_at,
+      daysSince: Math.floor((new Date() - new Date(s.activated_at)) / 86400000),
+    })))
+
+    // Посещаемость по группам (последние 30 дней)
+    const { data: groups } = await supabase.from('groups').select('id, name')
+    const { data: scheduleData } = await supabase.from('schedule')
+      .select('id, group_id, starts_at')
+      .gte('starts_at', ago30 + 'T00:00:00')
+      .lte('starts_at', today + 'T23:59:59')
+    const { data: attendanceData } = await supabase.from('attendance')
+      .select('schedule_id, student_id, status')
+      .eq('status', 'present')
+
+    const scheduleByGroup = {}
+    ;(scheduleData || []).forEach(s => {
+      if (!scheduleByGroup[s.group_id]) scheduleByGroup[s.group_id] = []
+      scheduleByGroup[s.group_id].push(s.id)
+    })
+
+    const groupStats = (groups || []).map(g => {
+      const scheduleIds = scheduleByGroup[g.id] || []
+      const lessonCount = scheduleIds.length
+      const visits = (attendanceData || []).filter(a => scheduleIds.includes(a.schedule_id))
+      const uniqueStudents = new Set(visits.map(v => v.student_id)).size
+      const avgPerLesson = lessonCount > 0 ? Math.round(visits.length / lessonCount * 10) / 10 : 0
+      return { id: g.id, name: g.name, lessonCount, uniqueStudents, avgPerLesson }
+    }).filter(g => g.lessonCount > 0).sort((a, b) => b.avgPerLesson - a.avgPerLesson)
+    setGroupAttendance(groupStats)
+
+    // Сотрудники для задач
+    const { data: staffData } = await supabase.from('profiles')
+      .select('id, full_name, email')
+      .in('role', ['admin', 'manager', 'owner'])
+    setStaff(staffData || [])
+
+    setLoading(false)
+  }
+
+  const handleCreateTask = async (client) => {
+    if (!taskAssignee) { alert('Выбери ответственного'); return }
+    setTaskSaving(true)
+    const { data: task } = await supabase.from('tasks').insert({
+      title: `Позвонить клиенту: ${client.name}`,
+      description: `Абонемент истекает ${fmtDate(client.expiresAt)}. Предложить продление.`,
+      priority: 'high',
+      created_by: session.user.id,
+    }).select().single()
+
+    if (task) {
+      await supabase.from('task_assignees').insert({ task_id: task.id, user_id: taskAssignee })
+      await supabase.from('task_clients').insert({ task_id: task.id, client_id: client.clientId })
+      await supabase.from('task_history').insert({ task_id: task.id, author_id: session.user.id, action: 'created', comment: 'Задача создана из раздела Лояльность' })
+    }
+    setCreatingTaskFor(null)
+    setTaskAssignee('')
+    setTaskSaving(false)
+    alert('✅ Задача создана!')
+  }
+
+  if (loading) return <div style={{textAlign:'center', color:'#BDBDBD', padding:40}}>Загрузка...</div>
+
+  return (
+    <div>
+      {/* Метрики */}
+      <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:12, marginBottom:16}}>
+        {[
+          { label: 'Активных абонементов', value: metrics.active, color: '#27ae60', bg: '#eafaf1' },
+          { label: 'Истекают за 7 дней', value: metrics.expiringSoon, color: '#f39c12', bg: '#fef9e7' },
+          { label: 'Истекло за 30 дней', value: metrics.expired30, color: '#e74c3c', bg: '#fdecea' },
+          { label: 'Средний срок жизни', value: `${metrics.avgLifetimeMonths} мес`, color: '#2980b9', bg: '#eaf4fd', noFmt: true },
+        ].map(({ label, value, color, bg, noFmt }) => (
+          <div key={label} style={{background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', padding:20}}>
+            <div style={{fontSize:11, color:'#888', marginBottom:8, fontWeight:600}}>{label}</div>
+            <div style={{fontSize:24, fontWeight:700, color}}>{value}</div>
+            <div style={{height:3, background:bg, borderRadius:4, marginTop:10}}>
+              <div style={{height:3, background:color, borderRadius:4, width:'60%', opacity:0.5}} />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Уровни лояльности */}
+      <div style={cardStyle}>
+        <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a', marginBottom:14}}>Уровни лояльности</div>
+        <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:10}}>
+          {loyaltyLevels.map(l => (
+            <div key={l.key} style={{background:l.bg, borderRadius:12, padding:'14px 16px', textAlign:'center', border:`1px solid ${l.color}22`}}>
+              <div style={{fontSize:22, fontWeight:700, color:l.color}}>{l.count}</div>
+              <div style={{fontSize:12, color:l.color, fontWeight:600, marginTop:4}}>{l.label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Позвонить сегодня */}
+      <div style={cardStyle}>
+        <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a', marginBottom:4}}>📞 Позвонить сегодня</div>
+        <div style={{fontSize:12, color:'#888', marginBottom:14}}>Абонемент истекает в ближайшие 7 дней</div>
+        {expiringSoonList.length === 0 ? (
+          <div style={{fontSize:12, color:'#BDBDBD'}}>Истекающих абонементов нет — всё хорошо 🎉</div>
+        ) : expiringSoonList.map(c => (
+          <div key={c.id} style={{padding:'12px 0', borderBottom:'1px solid #f8f8f8'}}>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start'}}>
+              <div style={{flex:1}}>
+                <div style={{fontSize:13, fontWeight:600, color:'#2a2a2a'}}>{c.name}</div>
+                <div style={{fontSize:12, color:'#888', marginTop:2}}>{c.phone} · {c.type}</div>
+                <div style={{fontSize:11, marginTop:4}}>
+                  <span style={{background: c.daysLeft <= 2 ? '#fdecea' : '#fef9e7', color: c.daysLeft <= 2 ? '#e74c3c' : '#f39c12', padding:'2px 8px', borderRadius:6, fontWeight:600}}>
+                    Истекает {fmtDate(c.expiresAt)} · осталось {c.daysLeft} {c.daysLeft === 1 ? 'день' : 'дней'}
+                  </span>
+                </div>
+              </div>
+              <div style={{flexShrink:0, marginLeft:12}}>
+                {creatingTaskFor === c.id ? (
+                  <div style={{display:'flex', gap:6, alignItems:'center'}}>
+                    <select value={taskAssignee} onChange={e => setTaskAssignee(e.target.value)}
+                      style={{...inputStyle, width:160, padding:'6px 10px'}}>
+                      <option value="">Ответственный</option>
+                      {staff.map(s => <option key={s.id} value={s.id}>{s.full_name || s.email}</option>)}
+                    </select>
+                    <button onClick={() => handleCreateTask(c)} disabled={taskSaving}
+                      style={{padding:'6px 12px', background:'#BFD900', border:'none', borderRadius:8, fontSize:12, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif', whiteSpace:'nowrap'}}>
+                      {taskSaving ? '...' : 'Создать'}
+                    </button>
+                    <button onClick={() => { setCreatingTaskFor(null); setTaskAssignee('') }}
+                      style={{padding:'6px 10px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:8, fontSize:12, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+                      ✕
+                    </button>
+                  </div>
+                ) : (
+                  <button onClick={() => setCreatingTaskFor(c.id)}
+                    style={{padding:'6px 14px', background:'#f5f5f5', border:'none', borderRadius:8, fontSize:12, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif', whiteSpace:'nowrap'}}>
+                    + Задача
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Не ходят 10+ дней */}
+      <div style={cardStyle}>
+        <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a', marginBottom:4}}>😴 Купили, но не ходят</div>
+        <div style={{fontSize:12, color:'#888', marginBottom:14}}>Активный абонемент, но нет визитов 10+ дней</div>
+        {notVisiting.length === 0 ? (
+          <div style={{fontSize:12, color:'#BDBDBD'}}>Таких клиентов нет — все активны 👍</div>
+        ) : notVisiting.map(c => (
+          <div key={c.clientId} style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 0', borderBottom:'1px solid #f8f8f8'}}>
+            <div>
+              <div style={{fontSize:13, fontWeight:600, color:'#2a2a2a'}}>{c.name}</div>
+              <div style={{fontSize:12, color:'#888', marginTop:2}}>{c.phone} · {c.type}</div>
+              <div style={{fontSize:11, color:'#e74c3c', marginTop:2}}>Не было {c.daysSince} дней с даты активации</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Посещаемость по группам */}
+      {groupAttendance.length > 0 && (
+        <div style={cardStyle}>
+          <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a', marginBottom:4}}>📊 Посещаемость по группам</div>
+          <div style={{fontSize:12, color:'#888', marginBottom:14}}>За последние 30 дней</div>
+          <table style={{width:'100%', borderCollapse:'collapse'}}>
+            <thead>
+              <tr style={{borderBottom:'2px solid #f0f0f0'}}>
+                {['Группа', 'Занятий', 'Уник. учеников', 'Ср. на занятие'].map((h, i) => (
+                  <th key={i} style={{textAlign: i > 0 ? 'right' : 'left', padding:'8px 12px', fontSize:11, color:'#BDBDBD', fontWeight:400, textTransform:'uppercase', letterSpacing:'0.06em'}}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {groupAttendance.map(g => (
+                <tr key={g.id} style={{borderBottom:'1px solid #f8f8f8'}}>
+                  <td style={{padding:'10px 12px', fontSize:13, fontWeight:500, color:'#2a2a2a'}}>{g.name}</td>
+                  <td style={{padding:'10px 12px', fontSize:13, color:'#888', textAlign:'right'}}>{g.lessonCount}</td>
+                  <td style={{padding:'10px 12px', fontSize:13, color:'#888', textAlign:'right'}}>{g.uniqueStudents}</td>
+                  <td style={{padding:'10px 12px', fontSize:13, fontWeight:600, color:'#2a2a2a', textAlign:'right'}}>{g.avgPerLesson}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function AdminFinance({ session }) {
   const [tab, setTab] = useState('overview')
@@ -1118,7 +1394,7 @@ export default function AdminFinance({ session }) {
       {tab === 'sales' && <FinanceSales session={session} />}
       {tab === 'expenses' && <FinanceExpenses session={session} />}
       {tab === 'detail' && <FinanceDetail />}
-      {tab === 'loyalty' && empty('Метрики лояльности')}
+      {tab === 'loyalty' && <FinanceLoyalty session={session} />}
       {tab === 'settings' && <FinanceSettings />}
     </div>
   )
