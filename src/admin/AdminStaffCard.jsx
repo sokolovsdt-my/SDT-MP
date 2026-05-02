@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import AvatarUpload from '../components/AvatarUpload'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../supabase'
 
@@ -29,6 +30,7 @@ export default function AdminStaffCard({ session }) {
   const [staff, setStaff] = useState(null)
   const [tab, setTab] = useState('main')
   const [loading, setLoading] = useState(true)
+  const [avatarUrl, setAvatarUrl] = useState(null)
 
   useEffect(() => { loadStaff() }, [id])
 
@@ -40,6 +42,7 @@ export default function AdminStaffCard({ session }) {
       .eq('id', id)
       .single()
     setStaff(data)
+    setAvatarUrl(data?.avatar_url || null)
     setLoading(false)
   }
 
@@ -90,9 +93,12 @@ export default function AdminStaffCard({ session }) {
 
       <div style={{background:'#fff', borderRadius:16, border:'1px solid #f0f0f0', padding:20, marginBottom:16}}>
         <div style={{display:'flex', alignItems:'flex-start', gap:16, marginBottom:16}}>
-          <div style={{width:60, height:60, background:'#fafde8', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, fontWeight:700, color:'#6a7700', flexShrink:0}}>
-            {initials}
-          </div>
+          <AvatarUpload
+  userId={staff.id}
+  currentUrl={avatarUrl}
+  size={60}
+  onUpload={(url) => setAvatarUrl(url)}
+/>
           <div style={{flex:1}}>
             <div style={{fontSize:20, fontWeight:600, color:'#1f2024', marginBottom:4}}>{staff.full_name || '—'}</div>
             <div style={{fontSize:13, color:'#888', marginBottom:8}}>

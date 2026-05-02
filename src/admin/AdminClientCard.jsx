@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import AvatarUpload from '../components/AvatarUpload'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../supabase'
 
@@ -520,6 +521,7 @@ export default function AdminClientCard({ session }) {
   const [tab, setTab] = useState('Основное')
   const [loading, setLoading] = useState(true)
   const [bookings, setBookings] = useState([])
+  const [avatarUrl, setAvatarUrl] = useState(null)
   const [bonusHistory, setBonusHistory] = useState([])
   const [visibleBonus, setVisibleBonus] = useState(2)
   const [bonusAmount, setBonusAmount] = useState('')
@@ -531,6 +533,7 @@ export default function AdminClientCard({ session }) {
       setLoading(true)
       const { data: profile } = await supabase.from('profiles').select('*').eq('id', id).single()
       setClient(profile)
+      setAvatarUrl(profile?.avatar_url || null)
       const { data: books } = await supabase.from('bookings').select('*, schedule(title, starts_at, hall)').eq('student_id', id).order('created_at', { ascending: false })
       setBookings(books || [])
       const { data: hist } = await supabase.from('bonus_history').select('*').eq('student_id', id).order('created_at', { ascending: false })
@@ -570,9 +573,12 @@ export default function AdminClientCard({ session }) {
       </div>
 
       <div style={{background:'#fff', borderRadius:16, border:'1px solid #f0f0f0', padding:'20px 24px', marginBottom:16, display:'flex', alignItems:'center', gap:16, flexWrap:'wrap'}}>
-        <div style={{width:52, height:52, background:'#BFD900', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, fontWeight:700, color:'#2a2a2a', flexShrink:0}}>
-          {initials(client)}
-        </div>
+        <AvatarUpload
+  userId={client.id}
+  currentUrl={avatarUrl}
+  size={52}
+  onUpload={(url) => setAvatarUrl(url)}
+/>
         <div style={{flex:1}}>
           <div style={{fontSize:18, fontWeight:600, color:'#2a2a2a', marginBottom:2}}>{client.full_name || '—'}</div>
           <div style={{fontSize:12, color:'#BDBDBD'}}>{client.email} · {client.phone || 'телефон не указан'}</div>
