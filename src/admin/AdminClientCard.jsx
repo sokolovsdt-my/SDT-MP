@@ -527,6 +527,8 @@ export default function AdminClientCard({ session }) {
   const [bonusAmount, setBonusAmount] = useState('')
   const [bonusType, setBonusType] = useState('rubles')
   const [bonusReason, setBonusReason] = useState('')
+  const [loyaltyLevel, setLoyaltyLevel] = useState(null)
+  const [userRole, setUserRole] = useState(null)
 
   useEffect(() => {
     const load = async () => {
@@ -536,6 +538,11 @@ export default function AdminClientCard({ session }) {
       setAvatarUrl(profile?.avatar_url || null)
       const { data: books } = await supabase.from('bookings').select('*, schedule(title, starts_at, hall)').eq('student_id', id).order('created_at', { ascending: false })
       setBookings(books || [])
+      const { data: loyalty } = await supabase.from('client_loyalty').select('level').eq('client_id', id).single()
+      setLoyaltyLevel(loyalty?.level || null)
+      const { data: { user } } = await supabase.auth.getUser()
+      const { data: me } = await supabase.from('profiles').select('role').eq('id', user.id).single()
+      setUserRole(me?.role)
       const { data: hist } = await supabase.from('bonus_history').select('*').eq('student_id', id).order('created_at', { ascending: false })
       setBonusHistory(hist || [])
       setLoading(false)
@@ -556,6 +563,22 @@ export default function AdminClientCard({ session }) {
     setBonusAmount(''); setBonusReason('')
   }
 
+  const LOYALTY = {
+    adept:  { label: '🔥 Адепт',      color: '#27ae60', bg: '#eafaf1' },
+    loyal:  { label: '💚 Лояльный',   color: '#82c99a', bg: '#f0faf3' },
+    edge:   { label: '🤔 На грани',   color: '#f39c12', bg: '#fef9e7' },
+    risk:   { label: '⚠️ Риск ухода', color: '#e74c3c', bg: '#fdecea' },
+  }
+
+  const handleSetLoyalty = async (level) => {
+    const newLevel = loyaltyLevel === level ? null : level
+    if (newLevel) {
+      await supabase.from('client_loyalty').upsert({ client_id: id, level: newLevel, updated_by: session.user.id, updated_at: new Date().toISOString() }, { onConflict: 'client_id' })
+    } else {
+      await supabase.from('client_loyalty').delete().eq('client_id', id)
+    }
+    setLoyaltyLevel(newLevel)
+  }
   const formatDate = (dt) => new Date(dt).toLocaleDateString('ru-RU', { day:'numeric', month:'short', year:'numeric' })
   const formatDT = (dt) => new Date(dt).toLocaleString('ru-RU', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })
   const initials = (c) => {
@@ -583,6 +606,16 @@ export default function AdminClientCard({ session }) {
           <div style={{fontSize:18, fontWeight:600, color:'#2a2a2a', marginBottom:2}}>{client.full_name || '—'}</div>
           <div style={{fontSize:12, color:'#BDBDBD'}}>{client.email} · {client.phone || 'телефон не указан'}</div>
         </div>
+        {['admin','manager','owner'].includes(userRole) && (
+          <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
+            {Object.entries(LOYALTY).map(([key, l]) => (
+              <button key={key} onClick={() => handleSetLoyalty(key)}
+                style={{padding:'5px 12px', borderRadius:8, border: loyaltyLevel === key ? 'none' : '1px solid #e0e0e0', background: loyaltyLevel === key ? l.bg : '#fff', color: loyaltyLevel === key ? l.color : '#888', fontSize:12, cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight: loyaltyLevel === key ? 700 : 400}}>
+                {l.label}
+              </button>
+            ))}
+          </div>
+        )}
         <div style={{display:'flex', gap:8}}>
           <div style={{textAlign:'center', background:'#fafde8', borderRadius:12, padding:'8px 16px'}}>
             <div style={{fontSize:16, fontWeight:600, color:'#6a7700'}}>{client.bonus_rubles || 0} ₽</div>
