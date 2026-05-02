@@ -496,6 +496,198 @@ function FinanceSales({ session }) {
     </div>
   )
 }
+function FinanceDetail() {
+  const [period, setPeriod] = useState('month')
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo, setCustomTo] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [teachers, setTeachers] = useState([])
+  const [groups, setGroups] = useState([])
+  const [expenseCategories, setExpenseCategories] = useState([])
+
+  useEffect(() => { load() }, [period, customFrom, customTo])
+
+  const getRange = () => {
+    if (period === 'custom') {
+      if (!customFrom || !customTo) return null
+      return { from: customFrom, to: customTo }
+    }
+    return getPeriodRange(period)
+  }
+
+  const load = async () => {
+    const range = getRange()
+    if (!range) { setLoading(false); return }
+    setLoading(true)
+    const { from, to } = range
+
+    // Продажи индивов по преподавателям
+    const { data: indivSales } = await supabase.from('sales')
+      .select('teacher_id, amount_paid, total_net, product_name')
+      .eq('product_type', 'indiv')
+      .eq('is_cancelled', false)
+      .gte('sale_date', from + 'T00:00:00')
+      .lte('sale_date', to + 'T23:59:59')
+
+    // Все преподаватели с настройками зарплат
+    const { data: staffProfiles } = await supabase.from('profiles')
+      .select('id, full_name, email')
+      .eq('role', 'teacher')
+
+    const { data: salarySettings } = await supabase.from('staff_salary_settings')
+      .select('*')
+      .eq('is_active', true)
+
+    // Считаем ФОТ за период (пропорционально дням)
+    const fromDate = new Date(from)
+    const toDate = new Date(to)
+    const periodDays = Math.round((toDate - fromDate) / (1000 * 60 * 60 * 24)) + 1
+    const monthDays = 30
+
+    const teacherData = (staffProfiles || []).map(t => {
+      const sales = (indivSales || []).filter(s => s.teacher_id === t.id)
+      const indivCount = sales.length
+      const indivRevenue = sales.reduce((s, x) => s + Number(x.total_net), 0)
+
+      const salary = salarySettings?.find(s => s.staff_id === t.id && s.type === 'salary')
+      const perLesson = salarySettings?.find(s => s.staff_id === t.id && s.type === 'per_lesson')
+
+      const fixedFOT = salary ? Math.round(Number(salary.amount) * periodDays / monthDays) : 0
+      const variableFOT = perLesson ? Math.round(Number(perLesson.amount) * indivCount) : 0
+      const totalFOT = fixedFOT + variableFOT
+      const margin = indivRevenue - totalFOT
+
+      return { id: t.id, name: t.full_name || t.email, indivCount, indivRevenue, fixedFOT, variableFOT, totalFOT, margin }
+    }).filter(t => t.indivCount > 0 || t.fixedFOT > 0)
+
+    setTeachers(teacherData)
+
+    // Группы — выручка через subscription_allowed_groups
+    const { data: groupsList } = await supabase.from('groups').select('id, name').order('name')
+
+    const { data: subGroups } = await supabase.from('subscription_allowed_groups')
+      .select('group_id, subscription:subscription_id(sale_id)')
+
+    const { data: periodSales } = await supabase.from('sales')
+      .select('id, total_net')
+      .eq('is_cancelled', false)
+      .gte('sale_date', from + 'T00:00:00')
+      .lte('sale_date', to + 'T23:59:59')
+
+    const saleNetMap = {}
+    ;(periodSales || []).forEach(s => { saleNetMap[s.id] = Number(s.total_net) })
+
+    const groupRevenue = {}
+    const groupCount = {}
+    ;(subGroups || []).forEach(sg => {
+      const saleId = sg.subscription?.sale_id
+      if (saleId && saleNetMap[saleId] !== undefined) {
+        groupRevenue[sg.group_id] = (groupRevenue[sg.group_id] || 0) + saleNetMap[saleId]
+        groupCount[sg.group_id] = (groupCount[sg.group_id] || 0) + 1
+      }
+    })
+
+    const groupData = (groupsList || [])
+      .map(g => ({ id: g.id, name: g.name, revenue: groupRevenue[g.id] || 0, count: groupCount[g.id] || 0 }))
+      .filter(g => g.revenue > 0)
+      .sort((a, b) => b.revenue - a.revenue)
+
+    setGroups(groupData)
+
+    // Расходы по категориям
+    const { data: expData } = await supabase.from('expenses')
+      .select('category, amount')
+      .gte('expense_date', from)
+      .lte('expense_date', to)
+
+    const catMap = {}
+    ;(expData || []).forEach(e => { catMap[e.category] = (catMap[e.category] || 0) + Number(e.amount) })
+    const totalExp = Object.values(catMap).reduce((s, v) => s + v, 0)
+    setExpenseCategories(Object.entries(catMap).sort((a, b) => b[1] - a[1]).map(([cat, sum]) => ({ cat, sum, pct: totalExp > 0 ? Math.round(sum / totalExp * 100) : 0 })))
+
+    setLoading(false)
+  }
+
+  return (
+    <div>
+      {/* Период */}
+      <div style={cardStyle}>
+        <div style={{display:'flex', gap:6, flexWrap:'wrap', marginBottom: period === 'custom' ? 12 : 0}}>
+          {PERIODS.map(([v, l]) => <button key={v} onClick={() => setPeriod(v)} style={chipStyle(period === v)}>{l}</button>)}
+        </div>
+        {period === 'custom' && (
+          <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, maxWidth:400, marginTop:12}}>
+            <div><label style={labelStyle}>С</label><input value={customFrom} onChange={e => setCustomFrom(e.target.value)} type="date" style={inputStyle} /></div>
+            <div><label style={labelStyle}>По</label><input value={customTo} onChange={e => setCustomTo(e.target.value)} type="date" style={inputStyle} /></div>
+          </div>
+        )}
+      </div>
+
+      {loading ? <div style={{textAlign:'center', color:'#BDBDBD', padding:40}}>Загрузка...</div> : (
+        <>
+          {/* По преподавателям */}
+          <div style={cardStyle}>
+            <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a', marginBottom:4}}>По преподавателям</div>
+            <div style={{fontSize:12, color:'#888', marginBottom:16}}>Индивы, ФОТ и маржа за период</div>
+            {teachers.length === 0 ? (
+              <div style={{fontSize:12, color:'#BDBDBD'}}>Нет данных за период</div>
+            ) : (
+              <div style={{overflowX:'auto'}}>
+                <table style={{width:'100%', borderCollapse:'collapse', minWidth:600}}>
+                  <thead>
+                    <tr style={{borderBottom:'2px solid #f0f0f0'}}>
+                      {['Преподаватель', 'Индивов', 'Выручка с индивов', 'ФОТ фикс', 'ФОТ переменный', 'Итого ФОТ', 'Маржа'].map((h, i) => (
+                        <th key={i} style={{textAlign: i > 0 ? 'right' : 'left', padding:'10px 12px', fontSize:11, color:'#BDBDBD', fontWeight:400, textTransform:'uppercase', letterSpacing:'0.06em', whiteSpace:'nowrap'}}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {teachers.map(t => (
+                      <tr key={t.id} style={{borderBottom:'1px solid #f8f8f8'}}>
+                        <td style={{padding:'12px 12px', fontSize:13, fontWeight:600, color:'#2a2a2a'}}>{t.name}</td>
+                        <td style={{padding:'12px 12px', fontSize:13, color:'#2a2a2a', textAlign:'right'}}>{t.indivCount}</td>
+                        <td style={{padding:'12px 12px', fontSize:13, color:'#2a2a2a', textAlign:'right', fontWeight:500}}>{fmtMoney(t.indivRevenue)}</td>
+                        <td style={{padding:'12px 12px', fontSize:13, color:'#888', textAlign:'right'}}>{fmtMoney(t.fixedFOT)}</td>
+                        <td style={{padding:'12px 12px', fontSize:13, color:'#888', textAlign:'right'}}>{fmtMoney(t.variableFOT)}</td>
+                        <td style={{padding:'12px 12px', fontSize:13, color:'#e74c3c', textAlign:'right', fontWeight:600}}>{fmtMoney(t.totalFOT)}</td>
+                        <td style={{padding:'12px 12px', fontSize:13, fontWeight:700, color: t.margin >= 0 ? '#27ae60' : '#e74c3c', textAlign:'right'}}>
+                          {t.margin >= 0 ? '+' : ''}{fmtMoney(t.margin)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div style={{fontSize:11, color:'#BDBDBD', padding:'10px 12px'}}>
+                  * ФОТ фикс рассчитан пропорционально дням периода от месячной ставки
+                </div>
+              </div>
+            )}
+          </div>
+          
+          {/* По категориям расходов */}
+          <div style={cardStyle}>
+            <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a', marginBottom:16}}>Расходы по категориям</div>
+            {expenseCategories.length === 0 ? (
+              <div style={{fontSize:12, color:'#BDBDBD'}}>Нет расходов за период</div>
+            ) : (
+              expenseCategories.map(({ cat, sum, pct }) => (
+                <div key={cat} style={{marginBottom:12}}>
+                  <div style={{display:'flex', justifyContent:'space-between', marginBottom:4}}>
+                    <span style={{fontSize:13, color:'#2a2a2a'}}>{cat}</span>
+                    <span style={{fontSize:13, fontWeight:600, color:'#2a2a2a'}}>{fmtMoney(sum)} <span style={{fontSize:11, color:'#BDBDBD', fontWeight:400}}>({pct}%)</span></span>
+                  </div>
+                  <div style={{height:6, background:'#f0f0f0', borderRadius:4}}>
+                    <div style={{height:6, background:'#e74c3c', borderRadius:4, width:`${pct}%`, opacity:0.75}} />
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
 
 function FinanceSettings() {
   const [loading, setLoading] = useState(true)
@@ -925,7 +1117,7 @@ export default function AdminFinance({ session }) {
       {tab === 'overview' && <FinanceOverview />}
       {tab === 'sales' && <FinanceSales session={session} />}
       {tab === 'expenses' && <FinanceExpenses session={session} />}
-      {tab === 'detail' && empty('Детализация')}
+      {tab === 'detail' && <FinanceDetail />}
       {tab === 'loyalty' && empty('Метрики лояльности')}
       {tab === 'settings' && <FinanceSettings />}
     </div>
