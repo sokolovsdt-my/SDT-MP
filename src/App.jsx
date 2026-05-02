@@ -16,6 +16,7 @@ import AdminSchedule from './admin/AdminSchedule'
 import AdminStaff from './admin/AdminStaff'
 import AdminStaffCard from './admin/AdminStaffCard'
 import AdminFinance from './admin/AdminFinance'
+import AdminCashbox from './admin/AdminCashbox'
 import { RequireRole } from './components/RequireRole'
 import { useUserRole } from './hooks/useUserRole'
 
@@ -85,6 +86,7 @@ function App() {
           <Route path="staff" element={<AdminStaff />} />
           <Route path="staff/:id" element={<AdminStaffCard session={session} />} />
           <Route path="finance" element={<AdminFinance session={session} />} />
+          <Route path="cashbox" element={<AdminCashbox session={session} />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
