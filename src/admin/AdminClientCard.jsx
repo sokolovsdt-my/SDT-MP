@@ -34,10 +34,22 @@ function PurchasesTab({ clientId }) {
   const load = async () => {
     setLoading(true)
     const { data } = await supabase.from('sales')
-      .select('*, creator:created_by(full_name, email), subscription:subscriptions!subscriptions_sale_id_fkey(activated_at, expires_at, visits_total, visits_used)')
+      .select(`
+        *,
+        creator:created_by(full_name, email),
+        subscription:subscriptions!subscriptions_sale_id_fkey(
+          id, activated_at, expires_at, visits_total, visits_used,
+          subscription_allowed_groups(groups(id, name, is_closed))
+        )
+      `)
       .eq('client_id', clientId)
       .order('sale_date', { ascending: false })
-    setPurchases((data || []).map(p => ({...p, subscription: p.subscription?.[0] || null})))
+
+    setPurchases((data || []).map(p => {
+      const sub = p.subscription?.[0] || null
+      const groups = sub?.subscription_allowed_groups?.map(sag => sag.groups).filter(Boolean) || []
+      return { ...p, subscription: sub, allowedGroups: groups }
+    }))
     setLoading(false)
   }
 
@@ -68,7 +80,6 @@ function PurchasesTab({ clientId }) {
               </div>
             </div>
 
-            {/* Краткая инфо */}
             <div style={{display:'flex', gap:8, marginTop:8, flexWrap:'wrap'}}>
               <span style={{fontSize:11, color:'#888', background:'#f0f0f0', padding:'2px 8px', borderRadius:6}}>
                 {PAYMENT_LABELS[p.payment_method] || p.payment_method}
@@ -85,14 +96,12 @@ function PurchasesTab({ clientId }) {
               )}
             </div>
 
-            {/* Кнопка подробнее */}
             <button
               onClick={() => setExpandedId(isExpanded ? null : p.id)}
               style={{marginTop:8, background:'none', border:'none', color:'#2980b9', fontSize:11, cursor:'pointer', fontFamily:'Inter,sans-serif', padding:0}}>
               {isExpanded ? 'Скрыть детали ▲' : 'Подробнее ▼'}
             </button>
 
-            {/* Детали */}
             {isExpanded && (
               <div style={{marginTop:10, paddingTop:10, borderTop:'1px solid #e8f0aa'}}>
                 {[
@@ -106,15 +115,29 @@ function PurchasesTab({ clientId }) {
                   ['Чистая выручка', fmtMoney(p.total_net)],
                   p.payer_type && p.payer_type !== 'client' ? ['Плательщик', p.payer_type === 'representative' ? 'Представитель' : p.payer_name || 'Другой человек'] : null,
                   p.subscription?.activated_at ? ['Действует с', fmtDate(p.subscription.activated_at)] : null,
-p.subscription?.expires_at ? ['Действует до', fmtDate(p.subscription.expires_at)] : null,
-p.subscription?.visits_total ? ['Занятий', `использовано ${p.subscription.visits_used || 0} из ${p.subscription.visits_total}`] : null,
-p.comment ? ['Комментарий', p.comment] : null,
+                  p.subscription?.expires_at ? ['Действует до', fmtDate(p.subscription.expires_at)] : null,
+                  p.subscription?.visits_total ? ['Занятий', `использовано ${p.subscription.visits_used || 0} из ${p.subscription.visits_total}`] : null,
+                  p.comment ? ['Комментарий', p.comment] : null,
                 ].filter(Boolean).map(([label, value]) => (
                   <div key={label} style={{display:'flex', justifyContent:'space-between', padding:'5px 0', fontSize:12, borderBottom:'1px solid #f0f0f0'}}>
                     <span style={{color:'#888'}}>{label}</span>
                     <span style={{color:'#2a2a2a', fontWeight:500, maxWidth:'60%', textAlign:'right'}}>{value}</span>
                   </div>
                 ))}
+
+                {/* Доступные группы */}
+                {p.allowedGroups.length > 0 && (
+                  <div style={{paddingTop:8}}>
+                    <div style={{fontSize:11, color:'#888', marginBottom:6, fontWeight:600}}>Доступные группы</div>
+                    <div style={{display:'flex', flexWrap:'wrap', gap:4}}>
+                      {p.allowedGroups.map(g => (
+                        <span key={g.id} style={{fontSize:11, color: g.is_closed ? '#e74c3c' : '#27ae60', background: g.is_closed ? '#fdecea' : '#eafaf1', padding:'3px 10px', borderRadius:8, fontWeight:500}}>
+                          {g.is_closed ? '🔒 ' : ''}{g.name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

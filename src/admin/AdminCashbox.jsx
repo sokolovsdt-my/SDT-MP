@@ -26,6 +26,13 @@ const fmtMoney = (n) => (Number(n) || 0).toLocaleString('ru-RU') + ' ₽'
 const fmtDate = (d) => new Date(d).toLocaleDateString('ru-RU', { day:'numeric', month:'short', year:'numeric' })
 const fmtDateTime = (d) => new Date(d).toLocaleString('ru-RU', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })
 
+const toLocalDateStr = (d) => {
+  const y = d.getFullYear()
+  const mo = String(d.getMonth() + 1).padStart(2, '0')
+  const dy = String(d.getDate()).padStart(2, '0')
+  return `${y}-${mo}-${dy}`
+}
+
 function ClientSearch({ onSelect }) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
@@ -159,6 +166,8 @@ export default function AdminCashbox({ session }) {
   const [client, setClient] = useState(null)
   const [representatives, setRepresentatives] = useState([])
   const [items, setItems] = useState([])
+  const [groups, setGroups] = useState([])
+  const [selectedGroupIds, setSelectedGroupIds] = useState([])
   const [payerType, setPayerType] = useState('client')
   const [payerRepId, setPayerRepId] = useState('')
   const [payerName, setPayerName] = useState('')
@@ -175,8 +184,21 @@ export default function AdminCashbox({ session }) {
   const [loadingSales, setLoadingSales] = useState(true)
   const [expandedSaleId, setExpandedSaleId] = useState(null)
 
-  useEffect(() => { loadAcquiring(); loadTodaySales() }, [])
+  // Есть ли в чеке абонементы/услуги (для которых нужен выбор групп)
+  const hasSubItems = items.some(i => i.product_type === 'subscription' || i.product_type === 'service')
+
+  useEffect(() => { loadAcquiring(); loadTodaySales(); loadGroups() }, [])
   useEffect(() => { if (client) loadRepresentatives(); else setRepresentatives([]) }, [client])
+
+  // Когда в чеке появляются абонементы — автоматически выбираем все открытые группы
+  useEffect(() => {
+    if (!hasSubItems) setSelectedGroupIds([])
+  }, [hasSubItems])
+
+  const loadGroups = async () => {
+    const { data } = await supabase.from('groups').select('*').order('name')
+    setGroups(data || [])
+  }
 
   const loadAcquiring = async () => {
     const { data } = await supabase.from('finance_settings').select('value').eq('key', 'acquiring_fee_percent').single()
@@ -200,6 +222,10 @@ export default function AdminCashbox({ session }) {
     setLoadingSales(false)
   }
 
+  const toggleGroup = (id) => {
+    setSelectedGroupIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+  }
+
   const subtotal = items.reduce((sum, item) => sum + item.price, 0)
   const getDiscountAmount = () => {
     if (!discountValue) return 0
@@ -221,12 +247,6 @@ export default function AdminCashbox({ session }) {
 
     const receiptId = crypto.randomUUID()
     const perItem = items.length
-    const discountPerItem = discountAmount / perItem
-    const bonusPerItem = bonusRublesUsed / perItem
-    const amountPerItem = afterDiscount / perItem
-    const acquiringPerItem = acquiringFee / perItem
-    const netPerItem = totalNet / perItem
-
     const rows = items.map(item => ({
       receipt_id: receiptId,
       client_id: client.id,
@@ -236,14 +256,14 @@ export default function AdminCashbox({ session }) {
       teacher_id: item.teacher_id || null,
       price_original: item.price,
       discount_percent: discountMode === 'percent' ? (parseFloat(discountValue) || 0) : 0,
-      discount_amount: discountPerItem,
+      discount_amount: discountAmount / perItem,
       discount_reason: discountReason || null,
-      bonus_rubles_used: bonusPerItem,
+      bonus_rubles_used: bonusRublesUsed / perItem,
       bonus_coins_used: 0,
       payment_method: paymentMethod,
-      amount_paid: amountPerItem,
-      acquiring_fee: acquiringPerItem,
-      total_net: netPerItem,
+      amount_paid: afterDiscount / perItem,
+      acquiring_fee: acquiringFee / perItem,
+      total_net: totalNet / perItem,
       payer_type: payerType,
       payer_representative_id: payerType === 'representative' ? payerRepId || null : null,
       payer_name: payerType === 'other' ? payerName || null : null,
@@ -271,29 +291,22 @@ export default function AdminCashbox({ session }) {
         .in('product_id', productIds)
 
       const today = new Date()
-      const todayStr = today.toISOString().split('T')[0]
+      const todayStr = toLocalDateStr(today)
 
-      const toLocalDateStr = (d) => {
-  const y = d.getFullYear()
-  const mo = String(d.getMonth() + 1).padStart(2, '0')
-  const dy = String(d.getDate()).padStart(2, '0')
-  return `${y}-${mo}-${dy}`
-}
+      const calcExpiresAt = (ps) => {
+        if (ps?.fixed_end_day) {
+          const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, ps.fixed_end_day)
+          return toLocalDateStr(nextMonth)
+        }
+        if (ps?.duration_days) {
+          const exp = new Date(today)
+          exp.setDate(exp.getDate() + ps.duration_days)
+          return toLocalDateStr(exp)
+        }
+        return null
+      }
 
-const calcExpiresAt = (ps) => {
-  if (ps?.fixed_end_day) {
-    const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, ps.fixed_end_day)
-    return toLocalDateStr(nextMonth)
-  }
-  if (ps?.duration_days) {
-    const exp = new Date(today)
-    exp.setDate(exp.getDate() + ps.duration_days)
-    return toLocalDateStr(exp)
-  }
-  return null
-}
-
-      const subscriptionRows = subItems.map((item, idx) => {
+      const subscriptionRows = subItems.map(item => {
         const ps = productSubs?.find(p => p.product_id === item.product_id)
         const saleRecord = insertedSales?.find(s => s.product_id === item.product_id)
         return {
@@ -309,14 +322,28 @@ const calcExpiresAt = (ps) => {
         }
       })
 
-      const { error: subError } = await supabase.from('subscriptions').insert(subscriptionRows)
+      const { data: insertedSubs, error: subError } = await supabase
+        .from('subscriptions').insert(subscriptionRows).select()
       if (subError) console.error('Ошибка создания абонемента:', subError.message)
+
+      // Сохраняем разрешённые группы для каждого абонемента
+      if (insertedSubs && selectedGroupIds.length > 0) {
+        const groupRows = insertedSubs.flatMap(sub =>
+          selectedGroupIds.map(groupId => ({
+            subscription_id: sub.id,
+            group_id: groupId,
+          }))
+        )
+        const { error: groupError } = await supabase
+          .from('subscription_allowed_groups').insert(groupRows)
+        if (groupError) console.error('Ошибка сохранения групп:', groupError.message)
+      }
     }
 
     setLastReceipt({ receiptId, client, items, total: afterDiscount, method: paymentMethod })
     setClient(null); setItems([]); setPayerType('client'); setPayerRepId(''); setPayerName('')
     setDiscountValue(''); setDiscountReason(''); setBonusRublesUse('')
-    setPaymentMethod('cash'); setComment('')
+    setPaymentMethod('cash'); setComment(''); setSelectedGroupIds([])
     setSaving(false)
     loadTodaySales()
   }
@@ -382,6 +409,38 @@ const calcExpiresAt = (ps) => {
                   <div style={{display:'flex', justifyContent:'space-between', padding:'10px 0', fontSize:14, fontWeight:600, color:'#2a2a2a'}}>
                     <span>Итого:</span><span>{fmtMoney(subtotal)}</span>
                   </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 2.5 Доступные группы (только если в чеке есть абонемент/услуга) */}
+          {client && hasSubItems && (
+            <div style={cardStyle}>
+              <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a', marginBottom:4}}>2.5. Доступные группы</div>
+              <div style={{fontSize:12, color:'#888', marginBottom:12}}>
+                Отметь группы, которые клиент может посещать по этому абонементу.
+                Закрытые группы (🔒) не отмечены по умолчанию.
+              </div>
+              <div style={{display:'flex', flexDirection:'column', gap:8}}>
+                {groups.map(g => {
+                  const isChecked = selectedGroupIds.includes(g.id)
+                  return (
+                    <label key={g.id} style={{display:'flex', alignItems:'center', gap:10, cursor:'pointer', padding:'8px 12px', borderRadius:10, background: isChecked ? '#fafde8' : '#f9f9f9', border: isChecked ? '1px solid #BFD900' : '1px solid #f0f0f0', transition:'all 0.15s'}}>
+                      <input type="checkbox" checked={isChecked} onChange={() => toggleGroup(g.id)}
+                        style={{width:16, height:16, cursor:'pointer', accentColor:'#BFD900'}} />
+                      <div style={{flex:1}}>
+                        <span style={{fontSize:13, fontWeight:500, color:'#2a2a2a'}}>{g.name}</span>
+                        {g.is_closed && <span style={{marginLeft:8, fontSize:11, color:'#e74c3c'}}>🔒 Закрытая</span>}
+                        {g.description && <div style={{fontSize:11, color:'#888', marginTop:1}}>{g.description}</div>}
+                      </div>
+                    </label>
+                  )
+                })}
+              </div>
+              {selectedGroupIds.length === 0 && (
+                <div style={{marginTop:10, fontSize:12, color:'#e74c3c', background:'#fdecea', borderRadius:8, padding:'8px 12px'}}>
+                  ⚠️ Не выбрана ни одна группа — клиент не сможет посещать занятия
                 </div>
               )}
             </div>
@@ -464,6 +523,11 @@ const calcExpiresAt = (ps) => {
               </div>
               {(paymentMethod === 'bonus' || paymentMethod === 'coins') && (
                 <div style={{fontSize:11, color:'#888', marginTop:6}}>⚠️ Выручка: 0 ₽ (оплата внутренними средствами)</div>
+              )}
+              {hasSubItems && selectedGroupIds.length > 0 && (
+                <div style={{fontSize:11, color:'#BDBDBD', marginTop:8}}>
+                  Группы: {groups.filter(g => selectedGroupIds.includes(g.id)).map(g => g.name).join(', ')}
+                </div>
               )}
               <input value={comment} onChange={e => setComment(e.target.value)} placeholder="Комментарий к продаже (необязательно)"
                 style={{...inputStyle, marginTop:16, background:'#3a3a3a', border:'1px solid #4a4a4a', color:'#fff'}} />
