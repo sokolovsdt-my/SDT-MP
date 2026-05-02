@@ -19,6 +19,9 @@ export default function AdminDashboard({ session }) {
   const [userRole, setUserRole] = useState(null)
   const [userName, setUserName] = useState('')
   const [loading, setLoading] = useState(true)
+  const [showAddModal, setShowAddModal] = useState(false)
+  const [newClient, setNewClient] = useState({ full_name:'', phone:'', email:'' })
+  const [addingSaving, setAddingSaving] = useState(false)
 
   // Owner метрики
   const [revenueToday, setRevenueToday] = useState(0)
@@ -176,6 +179,22 @@ export default function AdminDashboard({ session }) {
 
     setLoading(false)
   }
+const handleAddClient = async () => {
+    if (!newClient.email) { alert('Email обязателен'); return }
+    setAddingSaving(true)
+    const { data: { session } } = await supabase.auth.getSession()
+    const res = await fetch('https://momqnoeogfjjexwcwlpu.supabase.co/functions/v1/create-staff', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+      body: JSON.stringify({ ...newClient, role: 'client' })
+    })
+    const result = await res.json()
+    if (!res.ok) { alert('Ошибка: ' + (result.error || 'неизвестная')); setAddingSaving(false); return }
+    setShowAddModal(false)
+    setNewClient({ full_name:'', phone:'', email:'' })
+    setAddingSaving(false)
+    loadAll()
+  }
 
   const TASK_STATUS = {
     new: { label: 'Новая', color: '#2980b9', bg: '#e8f4fd' },
@@ -201,11 +220,42 @@ export default function AdminDashboard({ session }) {
             {new Date().toLocaleDateString('ru-RU', { weekday:'long', day:'numeric', month:'long' })}
           </div>
         </div>
-        <button onClick={() => navigate('/admin/clients?new=1')}
+        <button onClick={() => setShowAddModal(true)}
           style={{padding:'10px 20px', background:'#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
           + Добавить клиента
         </button>
       </div>
+
+{showAddModal && (
+        <div style={{position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center'}}
+          onClick={e => { if (e.target === e.currentTarget) setShowAddModal(false) }}>
+          <div style={{background:'#fff', borderRadius:16, padding:28, width:400, boxShadow:'0 8px 32px rgba(0,0,0,0.15)'}}>
+            <div style={{fontSize:16, fontWeight:600, color:'#2a2a2a', marginBottom:20}}>Новый клиент</div>
+            <label style={{fontSize:12, color:'#888', marginBottom:4, fontWeight:600, display:'block'}}>ФИО</label>
+            <input value={newClient.full_name} onChange={e => setNewClient({...newClient, full_name:e.target.value})}
+              placeholder="Иванова Мария Сергеевна"
+              style={{width:'100%', padding:'9px 12px', border:'1px solid #e8e8e8', borderRadius:10, fontSize:13, marginBottom:12, boxSizing:'border-box', fontFamily:'Inter,sans-serif'}} />
+            <label style={{fontSize:12, color:'#888', marginBottom:4, fontWeight:600, display:'block'}}>Email *</label>
+            <input value={newClient.email} onChange={e => setNewClient({...newClient, email:e.target.value})}
+              placeholder="client@example.com" type="email"
+              style={{width:'100%', padding:'9px 12px', border:'1px solid #e8e8e8', borderRadius:10, fontSize:13, marginBottom:12, boxSizing:'border-box', fontFamily:'Inter,sans-serif'}} />
+            <label style={{fontSize:12, color:'#888', marginBottom:4, fontWeight:600, display:'block'}}>Телефон</label>
+            <input value={newClient.phone} onChange={e => setNewClient({...newClient, phone:e.target.value})}
+              placeholder="+7..."
+              style={{width:'100%', padding:'9px 12px', border:'1px solid #e8e8e8', borderRadius:10, fontSize:13, marginBottom:20, boxSizing:'border-box', fontFamily:'Inter,sans-serif'}} />
+            <div style={{display:'flex', gap:8}}>
+              <button onClick={handleAddClient} disabled={addingSaving || !newClient.email}
+                style={{flex:1, padding:'10px', background:'#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif', opacity: addingSaving || !newClient.email ? 0.5 : 1}}>
+                {addingSaving ? 'Создаём...' : '+ Создать клиента'}
+              </button>
+              <button onClick={() => setShowAddModal(false)}
+                style={{padding:'10px 16px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:10, fontSize:13, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+                Отмена
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Owner финансовые карточки */}
       {userRole === 'owner' && (
