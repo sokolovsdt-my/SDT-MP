@@ -103,6 +103,8 @@ function Login() {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [mode, setMode] = useState('password') // 'password' | 'magic'
+  const [magicSent, setMagicSent] = useState(false)
 
   const handleLogin = async (e) => {
     e.preventDefault()
@@ -110,6 +112,23 @@ function Login() {
     setError('')
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) setError('Неверный email или пароль')
+    setLoading(false)
+  }
+
+  const handleMagicLink = async (e) => {
+    e.preventDefault()
+    if (!email) { setError('Введите email'); return }
+    setLoading(true)
+    setError('')
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: { shouldCreateUser: false }
+    })
+    if (error) {
+      setError('Ошибка отправки. Проверьте email.')
+    } else {
+      setMagicSent(true)
+    }
     setLoading(false)
   }
 
@@ -121,21 +140,55 @@ function Login() {
           <div style={{fontFamily:'sans-serif',fontSize:22,fontWeight:300,color:'#2a2a2a'}}>SDT</div>
           <div style={{fontSize:12,color:'#BDBDBD',marginTop:4}}>Войдите в аккаунт</div>
         </div>
-        <form onSubmit={handleLogin}>
-          <input type="email" placeholder="Email" value={email}
-            onChange={e => setEmail(e.target.value)}
-            style={{width:'100%',padding:'12px 14px',border:'1px solid #e8e8e8',borderRadius:12,fontSize:14,marginBottom:10,boxSizing:'border-box',fontFamily:'Inter,sans-serif'}}
-          />
-          <input type="password" placeholder="Пароль" value={password}
-            onChange={e => setPassword(e.target.value)}
-            style={{width:'100%',padding:'12px 14px',border:'1px solid #e8e8e8',borderRadius:12,fontSize:14,marginBottom:16,boxSizing:'border-box',fontFamily:'Inter,sans-serif'}}
-          />
-          {error && <div style={{color:'#e74c3c',fontSize:12,marginBottom:12}}>{error}</div>}
-          <button type="submit" disabled={loading}
-            style={{width:'100%',padding:'13px',background:'#BFD900',border:'none',borderRadius:12,fontSize:14,fontWeight:700,color:'#2a2a2a',cursor:'pointer',fontFamily:'Inter,sans-serif'}}>
-            {loading ? 'Входим...' : 'Войти'}
-          </button>
-        </form>
+
+        {magicSent ? (
+          <div style={{textAlign:'center'}}>
+            <div style={{fontSize:40,marginBottom:16}}>📬</div>
+            <div style={{fontSize:15,fontWeight:600,color:'#2a2a2a',marginBottom:8}}>Письмо отправлено!</div>
+            <div style={{fontSize:13,color:'#888',marginBottom:24}}>Проверьте почту {email} и нажмите на ссылку для входа</div>
+            <button onClick={() => { setMagicSent(false); setEmail('') }}
+              style={{background:'none',border:'none',color:'#2980b9',fontSize:13,cursor:'pointer',fontFamily:'Inter,sans-serif'}}>
+              Отправить снова
+            </button>
+          </div>
+        ) : (
+          <>
+            {/* Переключатель режима */}
+            <div style={{display:'flex',background:'#f5f5f5',borderRadius:10,padding:3,marginBottom:20}}>
+              <button onClick={() => { setMode('password'); setError('') }}
+                style={{flex:1,padding:'8px',border:'none',borderRadius:8,fontSize:12,cursor:'pointer',fontFamily:'Inter,sans-serif',background:mode==='password'?'#fff':'transparent',color:mode==='password'?'#2a2a2a':'#888',fontWeight:mode==='password'?600:400}}>
+                🔑 Пароль
+              </button>
+              <button onClick={() => { setMode('magic'); setError('') }}
+                style={{flex:1,padding:'8px',border:'none',borderRadius:8,fontSize:12,cursor:'pointer',fontFamily:'Inter,sans-serif',background:mode==='magic'?'#fff':'transparent',color:mode==='magic'?'#2a2a2a':'#888',fontWeight:mode==='magic'?600:400}}>
+                ✉️ Magic Link
+              </button>
+            </div>
+
+            <form onSubmit={mode === 'password' ? handleLogin : handleMagicLink}>
+              <input type="email" placeholder="Email" value={email}
+                onChange={e => setEmail(e.target.value)}
+                style={{width:'100%',padding:'12px 14px',border:'1px solid #e8e8e8',borderRadius:12,fontSize:14,marginBottom:10,boxSizing:'border-box',fontFamily:'Inter,sans-serif'}}
+              />
+              {mode === 'password' && (
+                <input type="password" placeholder="Пароль" value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  style={{width:'100%',padding:'12px 14px',border:'1px solid #e8e8e8',borderRadius:12,fontSize:14,marginBottom:16,boxSizing:'border-box',fontFamily:'Inter,sans-serif'}}
+                />
+              )}
+              {mode === 'magic' && (
+                <div style={{fontSize:12,color:'#888',marginBottom:16,background:'#f9f9f9',borderRadius:10,padding:'10px 12px'}}>
+                  📩 Пришлём ссылку — вход в один клик
+                </div>
+              )}
+              {error && <div style={{color:'#e74c3c',fontSize:12,marginBottom:12}}>{error}</div>}
+              <button type="submit" disabled={loading}
+                style={{width:'100%',padding:'13px',background:'#BFD900',border:'none',borderRadius:12,fontSize:14,fontWeight:700,color:'#2a2a2a',cursor:'pointer',fontFamily:'Inter,sans-serif'}}>
+                {loading ? 'Отправляем...' : mode === 'password' ? 'Войти' : '✉️ Отправить ссылку'}
+              </button>
+            </form>
+          </>
+        )}
       </div>
     </div>
   )
