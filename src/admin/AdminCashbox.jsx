@@ -98,9 +98,17 @@ function ProductPicker({ onAdd }) {
   const loadProducts = async () => {
     setLoading(true); setSelectedProduct('')
     const { data } = await supabase.from('products')
-      .select('*, product_indivs(teacher_id, profiles:teacher_id(full_name))')
+      .select('*, product_indivs(teacher_id, profiles:teacher_id(full_name)), product_subscriptions(available_from_day, available_to_day)')
       .eq('type', type).eq('is_active', true).order('price')
-    setProducts(data || [])
+
+    const today = new Date().getDate() // текущий день месяца (1-31)
+    const filtered = (data || []).filter(p => {
+      const ps = p.product_subscriptions?.[0]
+      if (!ps?.available_from_day || !ps?.available_to_day) return true // нет ограничений — показываем
+      return today >= ps.available_from_day && today <= ps.available_to_day
+    })
+
+    setProducts(filtered)
     setLoading(false)
   }
 
