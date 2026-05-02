@@ -16,12 +16,9 @@ export default function AdminStaff() {
   const [loading, setLoading] = useState(true)
   const [filterRole, setFilterRole] = useState('all')
   const [showForm, setShowForm] = useState(false)
-  const [searchEmail, setSearchEmail] = useState('')
-  const [foundUser, setFoundUser] = useState(null)
-  const [newRoles, setNewRoles] = useState([])
-  const [customRoleName, setCustomRoleName] = useState('')
-  const [hireDate, setHireDate] = useState(new Date().toISOString().split('T')[0])
+  const [newStaff, setNewStaff] = useState({ email:'', full_name:'', phone:'', role:'teacher', hire_date: new Date().toISOString().split('T')[0] })
   const [saving, setSaving] = useState(false)
+  const [saveResult, setSaveResult] = useState(null)
   const navigate = useNavigate()
 
   useEffect(() => { loadAll() }, [])
@@ -37,52 +34,28 @@ export default function AdminStaff() {
     setLoading(false)
   }
 
-  const handleSearchEmail = async () => {
-    if (!searchEmail) return
-    const { data } = await supabase.from('profiles').select('*').eq('email', searchEmail).single()
-    if (data) {
-      setFoundUser(data)
-    } else {
-      alert('Пользователь не найден. Сначала создайте его в Supabase → Authentication → Add User')
-      setFoundUser(null)
+  const handleCreateStaff = async () => {
+    if (!newStaff.email || !newStaff.role) return
+    setSaving(true); setSaveResult(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch('https://momqnoeogfjjexwcwlpu.supabase.co/functions/v1/create-staff', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify(newStaff)
+      })
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error || 'Ошибка')
+      setSaveResult({ success: true, message: result.message })
+      setNewStaff({ email:'', full_name:'', phone:'', role:'teacher', hire_date: new Date().toISOString().split('T')[0] })
+      loadAll()
+    } catch (err) {
+      setSaveResult({ success: false, message: err.message })
     }
-  }
-
-  const toggleRole = (r) => setNewRoles(p => p.includes(r) ? p.filter(x => x !== r) : [...p, r])
-
-  const handleAddStaff = async () => {
-    if (!foundUser || newRoles.length === 0) return
-    setSaving(true)
-
-    // Определяем главную роль (по иерархии)
-    const hierarchy = ['owner','manager','admin','teacher','content_creator','other']
-    const primaryRole = hierarchy.find(r => newRoles.includes(r))
-
-    // Отключаем триггер, меняем роль через RPC нельзя, поэтому через локальный код
-    await supabase.from('profiles').update({ role: primaryRole }).eq('id', foundUser.id)
-
-    // Добавляем роли
-    const rolesToInsert = newRoles.map(r => ({
-      staff_id: foundUser.id,
-      role: r,
-      custom_role_name: r === 'other' ? customRoleName : null,
-      is_primary: r === primaryRole
-    }))
-    await supabase.from('staff_roles').insert(rolesToInsert)
-
-    // Добавляем дату найма
-    await supabase.from('staff_info').insert({
-      staff_id: foundUser.id,
-      hire_date: hireDate
-    })
-
-    setSearchEmail('')
-    setFoundUser(null)
-    setNewRoles([])
-    setCustomRoleName('')
-    setShowForm(false)
     setSaving(false)
-    loadAll()
   }
 
   const getStaffRoles = (s) => s.staff_roles?.length > 0 ? s.staff_roles : [{ role: s.role, is_primary: true }]
@@ -120,7 +93,7 @@ export default function AdminStaff() {
     <div>
       <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:24}}>
         <h1 style={{fontSize:24, fontWeight:600, color:'#1f2024', margin:0}}>Сотрудники</h1>
-        <button onClick={() => setShowForm(!showForm)}
+        <button onClick={() => { setShowForm(!showForm); setSaveResult(null) }}
           style={{padding:'9px 20px', background:'#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
           {showForm ? 'Закрыть' : '+ Добавить сотрудника'}
         </button>
@@ -128,57 +101,50 @@ export default function AdminStaff() {
 
       {showForm && (
         <div style={{background:'#fff', borderRadius:16, border:'1px solid #f0f0f0', padding:20, marginBottom:20}}>
-          <div style={{fontSize:14, fontWeight:600, marginBottom:12}}>Новый сотрудник</div>
+          <div style={{fontSize:14, fontWeight:600, marginBottom:16}}>Новый сотрудник</div>
 
-          <div style={{background:'#fafde8', border:'1px solid #BFD900', borderRadius:10, padding:12, marginBottom:14, fontSize:12, color:'#6a7700'}}>
-            ℹ️ Сначала создайте юзера в Supabase → Authentication → Add User. Затем введите его email здесь.
-          </div>
-
-          <label style={{fontSize:12, color:'#888', marginBottom:4, fontWeight:600, display:'block'}}>Email сотрудника *</label>
-          <div style={{display:'flex', gap:8, marginBottom:12}}>
-            <input value={searchEmail} onChange={e => setSearchEmail(e.target.value)} placeholder="employee@example.com"
-              style={{flex:1, padding:'8px 12px', border:'1px solid #e8e8e8', borderRadius:8, fontSize:13, fontFamily:'Inter,sans-serif'}} />
-            <button onClick={handleSearchEmail}
-              style={{padding:'8px 16px', background:'#f5f5f5', border:'none', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-              Найти
-            </button>
-          </div>
-
-          {foundUser && (
-            <>
-              <div style={{background:'#f9f9f9', borderRadius:10, padding:12, marginBottom:14}}>
-                <div style={{fontSize:13, fontWeight:600}}>✓ Найден: {foundUser.full_name || foundUser.email}</div>
-                {foundUser.full_name && <div style={{fontSize:11, color:'#888'}}>{foundUser.email}</div>}
-              </div>
-
-              <label style={{fontSize:12, color:'#888', marginBottom:4, fontWeight:600, display:'block'}}>Роли (можно несколько)</label>
-              <div style={{display:'flex', flexWrap:'wrap', gap:6, marginBottom:12}}>
-                {Object.entries(ROLE_LABELS).filter(([k]) => k !== 'owner').map(([k,v]) => (
-                  <label key={k} style={{display:'flex', alignItems:'center', gap:6, padding:'5px 10px', background: newRoles.includes(k) ? v.bg : '#f5f5f5', border: newRoles.includes(k) ? `1px solid ${v.color}` : '1px solid #e0e0e0', borderRadius:8, fontSize:12, cursor:'pointer'}}>
-                    <input type="checkbox" checked={newRoles.includes(k)} onChange={() => toggleRole(k)} />
-                    <span style={{color: newRoles.includes(k) ? v.color : '#888', fontWeight: newRoles.includes(k) ? 600 : 400}}>{v.label}</span>
-                  </label>
-                ))}
-              </div>
-
-              {newRoles.includes('other') && (
-                <>
-                  <label style={{fontSize:12, color:'#888', marginBottom:4, fontWeight:600, display:'block'}}>Название роли</label>
-                  <input value={customRoleName} onChange={e => setCustomRoleName(e.target.value)} placeholder="Например: Хореограф-постановщик"
-                    style={{width:'100%', padding:'8px 12px', border:'1px solid #e8e8e8', borderRadius:8, fontSize:13, marginBottom:12, fontFamily:'Inter,sans-serif', boxSizing:'border-box'}} />
-                </>
-              )}
-
-              <label style={{fontSize:12, color:'#888', marginBottom:4, fontWeight:600, display:'block'}}>Дата найма</label>
-              <input value={hireDate} onChange={e => setHireDate(e.target.value)} type="date"
-                style={{width:'100%', padding:'8px 12px', border:'1px solid #e8e8e8', borderRadius:8, fontSize:13, marginBottom:14, fontFamily:'Inter,sans-serif', boxSizing:'border-box'}} />
-
-              <button onClick={handleAddStaff} disabled={saving || newRoles.length === 0}
-                style={{width:'100%', padding:'10px', background:'#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif', opacity: (saving || newRoles.length === 0) ? 0.5 : 1}}>
-                {saving ? 'Сохраняем...' : 'Добавить сотрудника'}
-              </button>
-            </>
+          {saveResult && (
+            <div style={{padding:'10px 14px', borderRadius:10, marginBottom:12, fontSize:13, background: saveResult.success ? '#eafaf1' : '#fdecea', color: saveResult.success ? '#27ae60' : '#e74c3c'}}>
+              {saveResult.success ? '✅ ' : '❌ '}{saveResult.message}
+            </div>
           )}
+
+          <label style={{fontSize:12, color:'#888', marginBottom:4, fontWeight:600, display:'block'}}>Email *</label>
+          <input value={newStaff.email} onChange={e => setNewStaff({...newStaff, email:e.target.value})}
+            placeholder="employee@example.com"
+            style={{width:'100%', padding:'8px 12px', border:'1px solid #e8e8e8', borderRadius:8, fontSize:13, marginBottom:10, fontFamily:'Inter,sans-serif', boxSizing:'border-box'}} />
+
+          <label style={{fontSize:12, color:'#888', marginBottom:4, fontWeight:600, display:'block'}}>ФИО</label>
+          <input value={newStaff.full_name} onChange={e => setNewStaff({...newStaff, full_name:e.target.value})}
+            placeholder="Иванова Мария Сергеевна"
+            style={{width:'100%', padding:'8px 12px', border:'1px solid #e8e8e8', borderRadius:8, fontSize:13, marginBottom:10, fontFamily:'Inter,sans-serif', boxSizing:'border-box'}} />
+
+          <label style={{fontSize:12, color:'#888', marginBottom:4, fontWeight:600, display:'block'}}>Телефон</label>
+          <input value={newStaff.phone} onChange={e => setNewStaff({...newStaff, phone:e.target.value})}
+            placeholder="+7..."
+            style={{width:'100%', padding:'8px 12px', border:'1px solid #e8e8e8', borderRadius:8, fontSize:13, marginBottom:10, fontFamily:'Inter,sans-serif', boxSizing:'border-box'}} />
+
+          <label style={{fontSize:12, color:'#888', marginBottom:4, fontWeight:600, display:'block'}}>Роль *</label>
+          <select value={newStaff.role} onChange={e => setNewStaff({...newStaff, role:e.target.value})}
+            style={{width:'100%', padding:'8px 12px', border:'1px solid #e8e8e8', borderRadius:8, fontSize:13, marginBottom:10, fontFamily:'Inter,sans-serif', boxSizing:'border-box'}}>
+            {Object.entries(ROLE_LABELS).filter(([k]) => k !== 'owner').map(([k,v]) => (
+              <option key={k} value={k}>{v.label}</option>
+            ))}
+          </select>
+
+          <label style={{fontSize:12, color:'#888', marginBottom:4, fontWeight:600, display:'block'}}>Дата найма</label>
+          <input value={newStaff.hire_date} onChange={e => setNewStaff({...newStaff, hire_date:e.target.value})}
+            type="date"
+            style={{width:'100%', padding:'8px 12px', border:'1px solid #e8e8e8', borderRadius:8, fontSize:13, marginBottom:16, fontFamily:'Inter,sans-serif', boxSizing:'border-box'}} />
+
+          <div style={{fontSize:11, color:'#888', background:'#f9f9f9', borderRadius:8, padding:'8px 12px', marginBottom:14}}>
+            💡 Сотрудник получит письмо с приглашением для входа в систему
+          </div>
+
+          <button onClick={handleCreateStaff} disabled={saving || !newStaff.email}
+            style={{width:'100%', padding:'10px', background:'#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif', opacity: (saving || !newStaff.email) ? 0.5 : 1}}>
+            {saving ? 'Создаём...' : '+ Создать сотрудника'}
+          </button>
         </div>
       )}
 
