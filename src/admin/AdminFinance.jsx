@@ -14,6 +14,26 @@ const fmtMoney = (n) => (Number(n) || 0).toLocaleString('ru-RU') + ' ₽'
 const fmtDate = (d) => new Date(d).toLocaleDateString('ru-RU', { day:'numeric', month:'short', year:'numeric' })
 const todayStr = () => new Date().toISOString().split('T')[0]
 
+const PERIODS = [
+  ['today', 'Сегодня'], ['week', 'Неделя'], ['month', 'Этот месяц'],
+  ['prev_month', 'Прошлый месяц'], ['quarter', 'Квартал'], ['year', 'Год'], ['custom', 'Произвольный']
+]
+
+const PAYMENT_METHODS = {
+  cash: '💵 Наличные',
+  bank: '🏦 Безнал',
+  online: '💳 Эквайринг',
+  bonus: '🎁 Баллы',
+  coins: '🪙 SDTшки',
+}
+
+function toLocalStr(date) {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
 function getPeriodRange(period) {
   const now = new Date()
   const y = now.getFullYear()
@@ -32,7 +52,284 @@ function getPeriodRange(period) {
     from = new Date(y, qStart, 1); to = new Date(y, qStart + 3, 0)
   }
   else if (period === 'year') { from = new Date(y, 0, 1); to = new Date(y, 11, 31) }
-  return { from: from.toISOString().split('T')[0], to: to.toISOString().split('T')[0] }
+  return { from: toLocalStr(from), to: toLocalStr(to) }
+}
+
+// Предыдущий аналогичный период
+function getPrevPeriodRange(period, from, to) {
+  const f = new Date(from)
+  const t = new Date(to)
+  const days = Math.round((t - f) / (1000 * 60 * 60 * 24)) + 1
+  const prevTo = new Date(f); prevTo.setDate(prevTo.getDate() - 1)
+  const prevFrom = new Date(prevTo); prevFrom.setDate(prevFrom.getDate() - days + 1)
+  return {
+    from: prevFrom.toISOString().split('T')[0],
+    to: prevTo.toISOString().split('T')[0],
+  }
+}
+
+function pctChange(curr, prev) {
+  if (!prev || prev === 0) return null
+  return Math.round((curr - prev) / prev * 100)
+}
+
+function PctBadge({ value }) {
+  if (value === null) return null
+  const up = value >= 0
+  return (
+    <span style={{fontSize:11, fontWeight:600, color: up ? '#27ae60' : '#e74c3c', background: up ? '#eafaf1' : '#fdecea', padding:'2px 7px', borderRadius:6, marginLeft:8}}>
+      {up ? '▲' : '▼'} {Math.abs(value)}%
+    </span>
+  )
+}
+
+// Простой SVG-график
+function BarChart({ data, mode }) {
+  if (!data || data.length === 0) return <div style={{textAlign:'center', color:'#BDBDBD', padding:30, fontSize:12}}>Нет данных за период</div>
+
+  const maxVal = Math.max(...data.map(d => Math.max(mode !== 'expenses' ? d.income : 0, mode !== 'income' ? d.expense : 0)), 1)
+  const W = 600, H = 160, barW = Math.max(4, Math.floor((W - 40) / data.length) - 2)
+  const step = (W - 40) / data.length
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H + 30}`} style={{width:'100%', maxHeight:200}} preserveAspectRatio="none">
+      {data.map((d, i) => {
+        const x = 20 + i * step + step / 2
+        const incH = mode !== 'expenses' ? Math.round((d.income / maxVal) * H) : 0
+        const expH = mode !== 'income' ? Math.round((d.expense / maxVal) * H) : 0
+        const bothMode = mode === 'both'
+        return (
+          <g key={i}>
+            {mode !== 'expenses' && incH > 0 && (
+              <rect x={x - (bothMode ? barW * 0.6 : barW / 2)} y={H - incH} width={bothMode ? barW * 0.55 : barW} height={incH} rx={2} fill="#BFD900" opacity={0.9} />
+            )}
+            {mode !== 'income' && expH > 0 && (
+              <rect x={bothMode ? x + barW * 0.05 : x - barW / 2} y={H - expH} width={bothMode ? barW * 0.55 : barW} height={expH} rx={2} fill="#e74c3c" opacity={0.75} />
+            )}
+            {(i === 0 || i === Math.floor(data.length / 2) || i === data.length - 1) && (
+              <text x={x} y={H + 20} textAnchor="middle" fontSize={9} fill="#BDBDBD">{d.label}</text>
+            )}
+          </g>
+        )
+      })}
+      <line x1={20} y1={H} x2={W - 20} y2={H} stroke="#f0f0f0" strokeWidth={1} />
+    </svg>
+  )
+}
+
+function FinanceOverview() {
+  const [period, setPeriod] = useState('month')
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo, setCustomTo] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [chartMode, setChartMode] = useState('both')
+
+  const [revenue, setRevenue] = useState(0)
+  const [expenses, setExpenses] = useState(0)
+  const [prevRevenue, setPrevRevenue] = useState(0)
+  const [prevExpenses, setPrevExpenses] = useState(0)
+  const [paymentBreakdown, setPaymentBreakdown] = useState([])
+  const [chartData, setChartData] = useState([])
+
+  useEffect(() => { load() }, [period, customFrom, customTo])
+
+  const getRanges = () => {
+    let from, to
+    if (period === 'custom') {
+      if (!customFrom || !customTo) return null
+      from = customFrom; to = customTo
+    } else {
+      const r = getPeriodRange(period)
+      from = r.from; to = r.to
+    }
+    const prev = getPrevPeriodRange(period, from, to)
+    return { from, to, prevFrom: prev.from, prevTo: prev.to }
+  }
+
+  const load = async () => {
+    const ranges = getRanges()
+    if (!ranges) { setLoading(false); return }
+    setLoading(true)
+
+    const { from, to, prevFrom, prevTo } = ranges
+
+    // Текущий период — продажи
+    const { data: sales } = await supabase.from('sales')
+      .select('total_net, payment_method, sale_date')
+      .gte('sale_date', from + 'T00:00:00')
+      .lte('sale_date', to + 'T23:59:59')
+
+    // Текущий период — расходы
+    const { data: exp } = await supabase.from('expenses')
+      .select('amount, expense_date')
+      .gte('expense_date', from)
+      .lte('expense_date', to)
+
+    // Предыдущий период — продажи
+    const { data: prevSales } = await supabase.from('sales')
+      .select('total_net')
+      .gte('sale_date', prevFrom + 'T00:00:00')
+      .lte('sale_date', prevTo + 'T23:59:59')
+
+    // Предыдущий период — расходы
+    const { data: prevExp } = await supabase.from('expenses')
+      .select('amount')
+      .gte('expense_date', prevFrom)
+      .lte('expense_date', prevTo)
+
+    const totalRevenue = (sales || []).reduce((s, x) => s + Number(x.total_net), 0)
+    const totalExpenses = (exp || []).reduce((s, x) => s + Number(x.amount), 0)
+    const totalPrevRevenue = (prevSales || []).reduce((s, x) => s + Number(x.total_net), 0)
+    const totalPrevExpenses = (prevExp || []).reduce((s, x) => s + Number(x.amount), 0)
+
+    setRevenue(totalRevenue)
+    setExpenses(totalExpenses)
+    setPrevRevenue(totalPrevRevenue)
+    setPrevExpenses(totalPrevExpenses)
+
+    // Разбивка по способам оплаты
+    const byMethod = {}
+    ;(sales || []).forEach(s => {
+      byMethod[s.payment_method] = (byMethod[s.payment_method] || 0) + Number(s.total_net)
+    })
+    setPaymentBreakdown(Object.entries(byMethod).sort((a, b) => b[1] - a[1]))
+
+    // График по дням
+    const fromDate = new Date(from)
+    const toDate = new Date(to)
+    const days = Math.round((toDate - fromDate) / (1000 * 60 * 60 * 24)) + 1
+
+    // Если больше 60 дней — группируем по неделям/месяцам
+    const byDay = {}
+    ;(sales || []).forEach(s => {
+      const day = s.sale_date.split('T')[0]
+      byDay[day] = (byDay[day] || 0) + Number(s.total_net)
+    })
+    const byDayExp = {}
+    ;(exp || []).forEach(e => {
+      byDayExp[e.expense_date] = (byDayExp[e.expense_date] || 0) + Number(e.amount)
+    })
+
+    const chart = []
+    if (days <= 31) {
+      for (let i = 0; i < days; i++) {
+        const d = new Date(fromDate); d.setDate(d.getDate() + i)
+        const key = d.toISOString().split('T')[0]
+        const label = d.toLocaleDateString('ru-RU', { day:'numeric', month:'short' })
+        chart.push({ label, income: byDay[key] || 0, expense: byDayExp[key] || 0 })
+      }
+    } else {
+      // Группировка по неделям
+      let cur = new Date(fromDate)
+      while (cur <= toDate) {
+        const weekStart = cur.toISOString().split('T')[0]
+        const weekEnd = new Date(cur); weekEnd.setDate(weekEnd.getDate() + 6)
+        const label = cur.toLocaleDateString('ru-RU', { day:'numeric', month:'short' })
+        let inc = 0, expV = 0
+        for (let j = 0; j < 7; j++) {
+          const d = new Date(cur); d.setDate(d.getDate() + j)
+          const key = d.toISOString().split('T')[0]
+          inc += byDay[key] || 0
+          expV += byDayExp[key] || 0
+        }
+        chart.push({ label, income: inc, expense: expV })
+        cur.setDate(cur.getDate() + 7)
+      }
+    }
+    setChartData(chart)
+    setLoading(false)
+  }
+
+  const profit = revenue - expenses
+  const prevProfit = prevRevenue - prevExpenses
+
+  return (
+    <div>
+      {/* Фильтр периода */}
+      <div style={cardStyle}>
+        <div style={{display:'flex', gap:6, flexWrap:'wrap', marginBottom: period === 'custom' ? 12 : 0}}>
+          {PERIODS.map(([v, l]) => (
+            <button key={v} onClick={() => setPeriod(v)} style={chipStyle(period === v)}>{l}</button>
+          ))}
+        </div>
+        {period === 'custom' && (
+          <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, maxWidth:400, marginTop:12}}>
+            <div><label style={labelStyle}>С</label><input value={customFrom} onChange={e => setCustomFrom(e.target.value)} type="date" style={inputStyle} /></div>
+            <div><label style={labelStyle}>По</label><input value={customTo} onChange={e => setCustomTo(e.target.value)} type="date" style={inputStyle} /></div>
+          </div>
+        )}
+      </div>
+
+      {loading ? (
+        <div style={{textAlign:'center', color:'#BDBDBD', padding:40}}>Загрузка...</div>
+      ) : (
+        <>
+          {/* 3 карточки */}
+          <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12, marginBottom:16}}>
+            {[
+              { label: 'Выручка', value: revenue, prev: prevRevenue, color: '#BFD900', bg: '#fafde8', textColor: '#6a7700' },
+              { label: 'Расходы', value: expenses, prev: prevExpenses, color: '#e74c3c', bg: '#fdecea', textColor: '#e74c3c' },
+              { label: 'Прибыль', value: profit, prev: prevProfit, color: '#2980b9', bg: '#eaf4fd', textColor: '#2980b9' },
+            ].map(({ label, value, prev, color, bg, textColor }) => (
+              <div key={label} style={{background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', padding:20}}>
+                <div style={{fontSize:12, color:'#888', marginBottom:8, fontWeight:600}}>{label}</div>
+                <div style={{fontSize:22, fontWeight:700, color:'#2a2a2a', marginBottom:4}}>
+                  {fmtMoney(value)}
+                </div>
+                <div style={{display:'flex', alignItems:'center'}}>
+                  <span style={{fontSize:11, color:'#BDBDBD'}}>vs прошлый период</span>
+                  <PctBadge value={pctChange(value, prev)} />
+                </div>
+                <div style={{height:4, background:bg, borderRadius:4, marginTop:12}}>
+                  <div style={{height:4, background:color, borderRadius:4, width:'100%', opacity:0.6}} />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* График */}
+          <div style={{...cardStyle, marginBottom:16}}>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16}}>
+              <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a'}}>Динамика</div>
+              <div style={{display:'flex', gap:6}}>
+                {[['both','Всё'], ['income','Доходы'], ['expenses','Расходы']].map(([v, l]) => (
+                  <button key={v} onClick={() => setChartMode(v)} style={{...chipStyle(chartMode === v), padding:'5px 12px', fontSize:11}}>{l}</button>
+                ))}
+              </div>
+            </div>
+            <div style={{display:'flex', gap:16, marginBottom:12}}>
+              {chartMode !== 'expenses' && <div style={{display:'flex', alignItems:'center', gap:6, fontSize:11, color:'#888'}}><div style={{width:10, height:10, background:'#BFD900', borderRadius:2}} /> Доходы</div>}
+              {chartMode !== 'income' && <div style={{display:'flex', alignItems:'center', gap:6, fontSize:11, color:'#888'}}><div style={{width:10, height:10, background:'#e74c3c', borderRadius:2, opacity:0.75}} /> Расходы</div>}
+            </div>
+            <BarChart data={chartData} mode={chartMode} />
+          </div>
+
+          {/* Разбивка по способам оплаты */}
+          <div style={cardStyle}>
+            <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a', marginBottom:14}}>По способам оплаты</div>
+            {paymentBreakdown.length === 0 ? (
+              <div style={{fontSize:12, color:'#BDBDBD'}}>Нет продаж за период</div>
+            ) : (
+              paymentBreakdown.map(([method, sum]) => {
+                const pct = revenue > 0 ? Math.round(sum / revenue * 100) : 0
+                return (
+                  <div key={method} style={{marginBottom:12}}>
+                    <div style={{display:'flex', justifyContent:'space-between', marginBottom:4}}>
+                      <span style={{fontSize:13, color:'#2a2a2a'}}>{PAYMENT_METHODS[method] || method}</span>
+                      <span style={{fontSize:13, fontWeight:600, color:'#2a2a2a'}}>{fmtMoney(sum)} <span style={{color:'#BDBDBD', fontWeight:400, fontSize:11}}>({pct}%)</span></span>
+                    </div>
+                    <div style={{height:6, background:'#f0f0f0', borderRadius:4}}>
+                      <div style={{height:6, background:'#BFD900', borderRadius:4, width:`${pct}%`, transition:'width 0.3s'}} />
+                    </div>
+                  </div>
+                )
+              })
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )
 }
 
 function FinanceSettings() {
@@ -189,7 +486,6 @@ function FinanceSettings() {
                   </>
                 )}
               </div>
-
               {expanded && (
                 <div style={{paddingLeft:30, paddingBottom:10, paddingTop:4}}>
                   {subs.length === 0 && <div style={{fontSize:12, color:'#BDBDBD', padding:'4px 0'}}>Пока нет подкатегорий</div>}
@@ -292,9 +588,7 @@ function FinanceExpenses({ session }) {
   }
 
   const handleSave = async () => {
-    if (!form.category || !form.amount || !form.expense_date) {
-      alert('Заполни категорию, сумму и дату'); return
-    }
+    if (!form.category || !form.amount || !form.expense_date) { alert('Заполни категорию, сумму и дату'); return }
     const amount = parseFloat(String(form.amount).replace(',', '.'))
     if (isNaN(amount) || amount <= 0) { alert('Некорректная сумма'); return }
 
@@ -317,13 +611,7 @@ function FinanceExpenses({ session }) {
       }
     }
 
-    const payload = {
-      category: form.category,
-      subcategory: finalSubcategory,
-      amount,
-      expense_date: form.expense_date,
-      comment: form.comment.trim() || null,
-    }
+    const payload = { category: form.category, subcategory: finalSubcategory, amount, expense_date: form.expense_date, comment: form.comment.trim() || null }
 
     if (editingId) {
       const { error } = await supabase.from('expenses').update(payload).eq('id', editingId)
@@ -347,11 +635,6 @@ function FinanceExpenses({ session }) {
   expenses.forEach(e => { byCategory[e.category] = (byCategory[e.category] || 0) + Number(e.amount) })
   const sortedCats = Object.entries(byCategory).sort((a, b) => b[1] - a[1])
 
-  const periods = [
-    ['today', 'Сегодня'], ['week', 'Неделя'], ['month', 'Этот месяц'],
-    ['prev_month', 'Прошлый месяц'], ['quarter', 'Квартал'], ['year', 'Год'], ['custom', 'Произвольный']
-  ]
-
   const currentCat = categories.find(c => c.name === form.category)
   const availableSubs = currentCat ? subcategories.filter(s => s.category_id === currentCat.id) : []
 
@@ -371,7 +654,6 @@ function FinanceExpenses({ session }) {
               <option value="">Выберите категорию</option>
               {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
             </select>
-
             {form.category && (
               <div style={{marginTop:12}}>
                 <label style={labelStyle}>Подкатегория</label>
@@ -379,7 +661,6 @@ function FinanceExpenses({ session }) {
                   <button onClick={() => setForm({...form, subcategoryMode:'existing'})} style={{flex:1, padding:'7px', borderRadius:8, border: form.subcategoryMode === 'existing' ? 'none' : '1px solid #e0e0e0', background: form.subcategoryMode === 'existing' ? '#BFD900' : '#fff', fontSize:12, cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight: form.subcategoryMode === 'existing' ? 600 : 400}}>Из списка</button>
                   <button onClick={() => setForm({...form, subcategoryMode:'custom'})} style={{flex:1, padding:'7px', borderRadius:8, border: form.subcategoryMode === 'custom' ? 'none' : '1px solid #e0e0e0', background: form.subcategoryMode === 'custom' ? '#BFD900' : '#fff', fontSize:12, cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight: form.subcategoryMode === 'custom' ? 600 : 400}}>+ Своя</button>
                 </div>
-
                 {form.subcategoryMode === 'existing' ? (
                   <select value={form.subcategoryExisting} onChange={e => setForm({...form, subcategoryExisting:e.target.value})} style={inputStyle}>
                     <option value="">Без подкатегории</option>
@@ -396,21 +677,12 @@ function FinanceExpenses({ session }) {
                 )}
               </div>
             )}
-
             <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginTop:12}}>
-              <div>
-                <label style={labelStyle}>Сумма, ₽ *</label>
-                <input value={form.amount} onChange={e => setForm({...form, amount:e.target.value})} type="number" step="0.01" placeholder="0" style={inputStyle} />
-              </div>
-              <div>
-                <label style={labelStyle}>Дата *</label>
-                <input value={form.expense_date} onChange={e => setForm({...form, expense_date:e.target.value})} type="date" style={inputStyle} />
-              </div>
+              <div><label style={labelStyle}>Сумма, ₽ *</label><input value={form.amount} onChange={e => setForm({...form, amount:e.target.value})} type="number" step="0.01" placeholder="0" style={inputStyle} /></div>
+              <div><label style={labelStyle}>Дата *</label><input value={form.expense_date} onChange={e => setForm({...form, expense_date:e.target.value})} type="date" style={inputStyle} /></div>
             </div>
-
             <label style={{...labelStyle, marginTop:12}}>Комментарий</label>
             <input value={form.comment} onChange={e => setForm({...form, comment:e.target.value})} placeholder="Пояснение (необязательно)" style={inputStyle} />
-
             <div style={{display:'flex', gap:8, marginTop:16}}>
               <button onClick={handleSave} style={saveBtn}>{editingId ? 'Сохранить' : 'Добавить'}</button>
               <button onClick={() => { setShowForm(false); resetForm() }} style={{padding:'9px 16px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:10, fontSize:13, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>Отмена</button>
@@ -422,20 +694,14 @@ function FinanceExpenses({ session }) {
       <div style={cardStyle}>
         <div style={{fontSize:12, color:'#888', marginBottom:8, fontWeight:600}}>Период</div>
         <div style={{display:'flex', gap:6, flexWrap:'wrap', marginBottom:12}}>
-          {periods.map(([v, l]) => (
+          {PERIODS.map(([v, l]) => (
             <button key={v} onClick={() => setPeriod(v)} style={chipStyle(period === v)}>{l}</button>
           ))}
         </div>
         {period === 'custom' && (
           <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:12, maxWidth:400}}>
-            <div>
-              <label style={labelStyle}>С</label>
-              <input value={customFrom} onChange={e => setCustomFrom(e.target.value)} type="date" style={inputStyle} />
-            </div>
-            <div>
-              <label style={labelStyle}>По</label>
-              <input value={customTo} onChange={e => setCustomTo(e.target.value)} type="date" style={inputStyle} />
-            </div>
+            <div><label style={labelStyle}>С</label><input value={customFrom} onChange={e => setCustomFrom(e.target.value)} type="date" style={inputStyle} /></div>
+            <div><label style={labelStyle}>По</label><input value={customTo} onChange={e => setCustomTo(e.target.value)} type="date" style={inputStyle} /></div>
           </div>
         )}
         <div style={{fontSize:12, color:'#888', marginBottom:8, fontWeight:600}}>Категория</div>
@@ -535,7 +801,7 @@ export default function AdminFinance({ session }) {
         ))}
       </div>
 
-      {tab === 'overview' && empty('Обзор')}
+      {tab === 'overview' && <FinanceOverview />}
       {tab === 'sales' && empty('Продажи')}
       {tab === 'expenses' && <FinanceExpenses session={session} />}
       {tab === 'detail' && empty('Детализация')}
