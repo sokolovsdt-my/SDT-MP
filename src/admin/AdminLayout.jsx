@@ -28,7 +28,7 @@ export default function AdminLayout({ session }) {
     { to: '/admin/catalog',    label: 'Каталог',    roles: ['admin','manager','owner'] },
     { to: '/admin/broadcasts', label: 'Рассылки',   roles: ['admin','manager','owner'] },
     { to: '/admin/finance',    label: 'Финансы',    roles: ['owner'] },
-    { to: '/admin/staff',      label: 'Сотрудники', roles: ['manager','owner'] },
+    { to: '/admin/staff',      label: 'Сотрудники', roles: ['admin','manager','owner'] },
   ].filter(item => role && item.roles.includes(role))
 
   return (

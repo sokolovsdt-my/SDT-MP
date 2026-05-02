@@ -16,8 +16,17 @@ export function RequireRole({ session, allow, children }) {
     )
   }
 
-  if (!role || !allow.includes(role)) {
-    return <Navigate to="/" replace />
+ if (!role || !allow.includes(role)) {
+    return (
+      <div style={{
+        display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
+        height:'60vh', fontFamily:'Inter,sans-serif', textAlign:'center'
+      }}>
+        <div style={{fontSize:48, marginBottom:16}}>🔒</div>
+        <div style={{fontSize:20, fontWeight:600, color:'#2a2a2a', marginBottom:8}}>Нет доступа</div>
+        <div style={{fontSize:14, color:'#888'}}>У вас недостаточно прав для просмотра этого раздела</div>
+      </div>
+    )
   }
 
   return children

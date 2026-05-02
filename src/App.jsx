@@ -79,18 +79,18 @@ function App() {
             <AdminLayout session={session} />
           </RequireRole>
         }>
-          <Route path="dashboard" element={<AdminDashboard />} />
-          <Route path="clients" element={<AdminClients />} />
-          <Route path="clients/:id" element={<AdminClientCard session={session} />} />
+          <Route path="dashboard" element={<AdminDashboard session={session} />} />
+          <Route path="clients" element={<RequireRole session={session} allow={['admin','manager','owner']}><AdminClients /></RequireRole>} />
+          <Route path="clients/:id" element={<RequireRole session={session} allow={['admin','manager','owner']}><AdminClientCard session={session} /></RequireRole>} />
           <Route path="tasks" element={<AdminTasks session={session} />} />
-          <Route path="catalog" element={<AdminCatalog />} />
+          <Route path="catalog" element={<RequireRole session={session} allow={['admin','manager','owner']}><AdminCatalog /></RequireRole>} />
           <Route path="schedule" element={<AdminSchedule session={session} />} />
-          <Route path="staff" element={<AdminStaff />} />
-          <Route path="staff/:id" element={<AdminStaffCard session={session} />} />
-          <Route path="finance" element={<AdminFinance session={session} />} />
-          <Route path="cashbox" element={<AdminCashbox session={session} />} />
-              <Route path="groups" element={<AdminGroups session={session} />} />
-              <Route path="broadcasts" element={<AdminBroadcasts session={session} />} />
+          <Route path="staff" element={<RequireRole session={session} allow={['admin','manager','owner']}><AdminStaff /></RequireRole>} />
+          <Route path="staff/:id" element={<RequireRole session={session} allow={['admin','manager','owner']}><AdminStaffCard session={session} /></RequireRole>} />
+          <Route path="finance" element={<RequireRole session={session} allow={['owner']}><AdminFinance session={session} /></RequireRole>} />
+          <Route path="cashbox" element={<RequireRole session={session} allow={['admin','manager','owner']}><AdminCashbox session={session} /></RequireRole>} />
+          <Route path="groups" element={<RequireRole session={session} allow={['admin','manager','owner']}><AdminGroups session={session} /></RequireRole>} />
+          <Route path="broadcasts" element={<RequireRole session={session} allow={['admin','manager','owner']}><AdminBroadcasts session={session} /></RequireRole>} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
