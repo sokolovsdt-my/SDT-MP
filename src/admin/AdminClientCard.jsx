@@ -514,6 +514,131 @@ function ClientTasksTab({ clientId, session }) {
   )
 }
 
+const AD_SOURCE_LABELS = {
+  instagram: 'Instagram', vk: 'ВКонтакте', telegram: 'Telegram',
+  word_of_mouth: 'Сарафанное радио', google: 'Google',
+  yandex: 'Яндекс', '2gis': '2ГИС', other: 'Другое',
+}
+
+function BasicTab({ client, clientId, userRole, onUpdate }) {
+  const canEdit = ['admin', 'manager', 'owner'].includes(userRole)
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [form, setForm] = useState({
+    last_name: client.last_name || '',
+    first_name: client.first_name || '',
+    patronymic: client.patronymic || '',
+    phone: client.phone || '',
+    birth_date: client.birth_date || '',
+    ad_source: client.ad_source || '',
+    ad_source_custom: client.ad_source_custom || '',
+  })
+
+  const formatDate = (dt) => dt ? new Date(dt).toLocaleDateString('ru-RU', { day:'numeric', month:'long', year:'numeric' }) : '—'
+  const inputStyle = { width:'100%', padding:'8px 12px', border:'1px solid #e8e8e8', borderRadius:8, fontSize:13, boxSizing:'border-box', fontFamily:'Inter,sans-serif' }
+
+  const handleSave = async () => {
+    setSaving(true)
+    const full_name = [form.last_name, form.first_name, form.patronymic].filter(Boolean).join(' ')
+    const { data } = await supabase.from('profiles').update({
+      full_name: full_name || null,
+      last_name: form.last_name || null,
+      first_name: form.first_name || null,
+      patronymic: form.patronymic || null,
+      phone: form.phone || null,
+      birth_date: form.birth_date || null,
+      ad_source: form.ad_source || null,
+      ad_source_custom: form.ad_source === 'other' ? form.ad_source_custom || null : null,
+    }).eq('id', clientId).select().single()
+    if (data) onUpdate(data)
+    setSaving(false)
+    setEditing(false)
+  }
+
+  const adSourceLabel = client.ad_source === 'other' && client.ad_source_custom
+    ? `Другое: ${client.ad_source_custom}`
+    : AD_SOURCE_LABELS[client.ad_source] || '—'
+
+  if (!editing) {
+    return (
+      <div>
+        {[
+          ['Фамилия', client.last_name || '—'],
+          ['Имя', client.first_name || '—'],
+          ['Отчество', client.patronymic || '—'],
+          ['Email', client.email],
+          ['Телефон', client.phone || '—'],
+          ['Дата рождения', formatDate(client.birth_date)],
+          ['Рекламный источник', adSourceLabel],
+        ].map(([label, value]) => (
+          <div key={label} style={{display:'flex', justifyContent:'space-between', padding:'10px 0', borderBottom:'1px solid #f8f8f8', fontSize:13}}>
+            <span style={{color:'#BDBDBD'}}>{label}</span>
+            <span style={{color:'#2a2a2a', fontWeight:500}}>{value}</span>
+          </div>
+        ))}
+        {canEdit && (
+          <button onClick={() => setEditing(true)}
+            style={{marginTop:16, padding:'8px 20px', background:'#f5f5f5', border:'none', borderRadius:10, fontSize:13, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+            ✎ Редактировать
+          </button>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      {[
+        ['Фамилия', 'last_name', 'text'],
+        ['Имя', 'first_name', 'text'],
+        ['Отчество', 'patronymic', 'text'],
+        ['Телефон', 'phone', 'text'],
+        ['Дата рождения', 'birth_date', 'date'],
+      ].map(([label, key, type]) => (
+        <div key={key} style={{marginBottom:12}}>
+          <label style={{fontSize:12, color:'#888', marginBottom:4, fontWeight:600, display:'block'}}>{label}</label>
+          <input value={form[key]} onChange={e => setForm({...form, [key]:e.target.value})}
+            type={type} style={inputStyle} />
+        </div>
+      ))}
+
+      <div style={{marginBottom:12}}>
+        <label style={{fontSize:12, color:'#888', marginBottom:4, fontWeight:600, display:'block'}}>Рекламный источник</label>
+        <select value={form.ad_source} onChange={e => setForm({...form, ad_source:e.target.value})} style={inputStyle}>
+          <option value="">Не указан</option>
+          <option value="instagram">Instagram</option>
+          <option value="vk">ВКонтакте</option>
+          <option value="telegram">Telegram</option>
+          <option value="word_of_mouth">Сарафанное радио</option>
+          <option value="google">Google</option>
+          <option value="yandex">Яндекс</option>
+          <option value="2gis">2ГИС</option>
+          <option value="other">Другое</option>
+        </select>
+      </div>
+
+      {form.ad_source === 'other' && (
+        <div style={{marginBottom:12}}>
+          <label style={{fontSize:12, color:'#888', marginBottom:4, fontWeight:600, display:'block'}}>Уточните источник</label>
+          <input value={form.ad_source_custom} onChange={e => setForm({...form, ad_source_custom:e.target.value})}
+            placeholder="Например: от знакомого Ивана" style={inputStyle} />
+        </div>
+      )}
+
+      <div style={{display:'flex', gap:8, marginTop:16}}>
+        <button onClick={handleSave} disabled={saving}
+          style={{padding:'9px 20px', background:'#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif', opacity: saving ? 0.7 : 1}}>
+          {saving ? 'Сохраняем...' : 'Сохранить'}
+        </button>
+        <button onClick={() => setEditing(false)}
+          style={{padding:'9px 16px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:10, fontSize:13, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+          Отмена
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function AdminClientCard({ session }) {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -637,20 +762,7 @@ export default function AdminClientCard({ session }) {
       <div style={{background:'#fff', borderRadius:'0 0 12px 12px', border:'1px solid #f0f0f0', borderTop:'none', padding:20}}>
 
         {tab === 'Основное' && (
-          <div>
-            {[
-              ['ФИО', client.full_name || '—'],
-              ['Email', client.email],
-              ['Телефон', client.phone || '—'],
-              ['Дата рождения', client.birth_date ? formatDate(client.birth_date) : '—'],
-              ['Роль', client.role],
-            ].map(([label, value]) => (
-              <div key={label} style={{display:'flex', justifyContent:'space-between', padding:'10px 0', borderBottom:'1px solid #f8f8f8', fontSize:13}}>
-                <span style={{color:'#BDBDBD'}}>{label}</span>
-                <span style={{color:'#2a2a2a', fontWeight:500}}>{value}</span>
-              </div>
-            ))}
-          </div>
+          <BasicTab client={client} clientId={id} userRole={userRole} onUpdate={setClient} />
         )}
 
         {tab === 'Покупки' && <PurchasesTab clientId={id} />}
