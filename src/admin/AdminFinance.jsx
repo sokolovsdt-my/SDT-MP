@@ -1145,9 +1145,9 @@ function FinanceLoyalty({ session }) {
 
     // Уровни лояльности
     const { data: loyaltyData } = await supabase.from('client_loyalty')
-      .select('loyalty_level, profiles:client_id(full_name)')
+      .select('level, profiles:client_id(full_name)')
     const levels = { adept: 0, loyal: 0, edge: 0, risk: 0 }
-    ;(loyaltyData || []).forEach(l => { if (levels[l.loyalty_level] !== undefined) levels[l.loyalty_level]++ })
+    ;(loyaltyData || []).forEach(l => { if (levels[l.level] !== undefined) levels[l.level]++ })
     setLoyaltyLevels([
       { key: 'adept', label: '🔥 Адепт', color: '#27ae60', bg: '#eafaf1', count: levels.adept },
       { key: 'loyal', label: '💚 Лояльный', color: '#82c99a', bg: '#f0faf3', count: levels.loyal },
