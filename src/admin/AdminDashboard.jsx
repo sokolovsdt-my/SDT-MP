@@ -20,7 +20,7 @@ export default function AdminDashboard({ session }) {
   const [userName, setUserName] = useState('')
   const [loading, setLoading] = useState(true)
   const [showAddModal, setShowAddModal] = useState(false)
-  const [newClient, setNewClient] = useState({ last_name:'', first_name:'', patronymic:'', birth_date:'', phone:'', email:'', ad_source:'' })
+  const [newClient, setNewClient] = useState({ last_name:'', first_name:'', patronymic:'', birth_date:'', phone:'', email:'', ad_source:'', ad_source_custom:'' })
   const [addingSaving, setAddingSaving] = useState(false)
 
   const [revenueToday, setRevenueToday] = useState(0)
@@ -146,11 +146,12 @@ export default function AdminDashboard({ session }) {
         patronymic: newClient.patronymic || null,
         birth_date: newClient.birth_date || null,
         ad_source: newClient.ad_source || null,
+        ad_source_custom: newClient.ad_source === 'other' ? newClient.ad_source_custom || null : null,
       }).eq('id', result.user_id)
     }
 
     setShowAddModal(false)
-    setNewClient({ last_name:'', first_name:'', patronymic:'', birth_date:'', phone:'', email:'', ad_source:'' })
+    setNewClient({ last_name:'', first_name:'', patronymic:'', birth_date:'', phone:'', email:'', ad_source:'', ad_source_custom:'' })
     setAddingSaving(false)
     loadAll()
   }
@@ -187,7 +188,6 @@ export default function AdminDashboard({ session }) {
         </button>
       </div>
 
-      {/* Модальное окно */}
       {showAddModal && (
         <div style={{position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center'}}
           onClick={e => { if (e.target === e.currentTarget) setShowAddModal(false) }}>
@@ -209,9 +209,9 @@ export default function AdminDashboard({ session }) {
               </div>
             ))}
 
-            <div style={{marginBottom:20}}>
+            <div style={{marginBottom: newClient.ad_source === 'other' ? 8 : 20}}>
               <label style={labelStyle}>Рекламный источник</label>
-              <select value={newClient.ad_source} onChange={e => setNewClient({...newClient, ad_source:e.target.value})} style={inputStyle}>
+              <select value={newClient.ad_source} onChange={e => setNewClient({...newClient, ad_source:e.target.value, ad_source_custom:''})} style={inputStyle}>
                 <option value="">Не указан</option>
                 <option value="instagram">Instagram</option>
                 <option value="vk">ВКонтакте</option>
@@ -223,6 +223,14 @@ export default function AdminDashboard({ session }) {
                 <option value="other">Другое</option>
               </select>
             </div>
+
+            {newClient.ad_source === 'other' && (
+              <div style={{marginBottom:20}}>
+                <label style={labelStyle}>Уточните источник</label>
+                <input value={newClient.ad_source_custom} onChange={e => setNewClient({...newClient, ad_source_custom:e.target.value})}
+                  placeholder="Например: от знакомого Ивана" style={inputStyle} />
+              </div>
+            )}
 
             <div style={{display:'flex', gap:8}}>
               <button onClick={handleAddClient} disabled={addingSaving || !newClient.email}
