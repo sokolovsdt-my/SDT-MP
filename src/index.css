@@ -18,7 +18,7 @@
   font: 18px/145% var(--sans);
   letter-spacing: 0.18px;
   color-scheme: light dark;
-  color: var(--text);
+  color: #1a1a1a;
   background: var(--bg);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -52,6 +52,7 @@
 
 body {
   margin: 0;
+  color: #1a1a1a;
 }
 
 #root {
@@ -108,4 +109,9 @@ code {
   line-height: 135%;
   padding: 4px 8px;
   background: var(--code-bg);
+}
+
+[contenteditable] {
+  color: #1a1a1a !important;
+  -webkit-text-fill-color: #1a1a1a;
 }
