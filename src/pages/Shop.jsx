@@ -3,7 +3,7 @@ import { supabase } from '../supabase'
 
 const TYPE_TO_CAT = {
   subscription: 'subscriptions',
-  service: 'subscriptions',
+  service: 'services',
   indiv: 'indiv',
   event: 'events',
   merch: 'merch',
@@ -11,6 +11,7 @@ const TYPE_TO_CAT = {
 
 const CATS = [
   { id: 'subscriptions', label: 'Абонементы' },
+  { id: 'services', label: 'Услуги' },
   { id: 'indiv', label: 'Индивы' },
   { id: 'events', label: 'Мероприятия' },
   { id: 'merch', label: 'Мерч' },
@@ -24,14 +25,20 @@ export default function Shop({ session }) {
 
   useEffect(() => {
     const load = async () => {
+      const today = new Date().getDate() // день месяца (1-31)
+
       const { data } = await supabase
         .from('products')
         .select('*')
         .eq('is_active', true)
-        .order('price', { ascending: true })
+        .order('sort_order', { ascending: true })
 
-      const grouped = { subscriptions: [], indiv: [], events: [], merch: [] }
+      const grouped = { subscriptions: [], services: [], indiv: [], events: [], merch: [] }
       ;(data || []).forEach(p => {
+        // Фильтр по дням продажи
+        if (p.available_from_day && p.available_to_day) {
+          if (today < p.available_from_day || today > p.available_to_day) return
+        }
         const cat = TYPE_TO_CAT[p.type]
         if (cat && grouped[cat]) grouped[cat].push(p)
       })
@@ -42,10 +49,6 @@ export default function Shop({ session }) {
   }, [])
 
   const current = products[activeCat] || []
-  // Самый дорогой абонемент — "популярный"
-  const featuredId = activeCat === 'subscriptions' && current.length > 0
-    ? current.reduce((a, b) => b.price > a.price ? b : a, current[0])?.id
-    : null
 
   return (
     <div style={{fontFamily:'Inter,sans-serif', maxWidth:480, margin:'0 auto'}}>
@@ -75,18 +78,17 @@ export default function Shop({ session }) {
             Пока ничего нет
           </div>
         ) : current.map(product => {
-          const featured = product.id === featuredId
           return (
             <div key={product.id} style={{
-              background: featured ? '#fafde8' : '#fff',
-              border: featured ? '1.5px solid #BFD900' : '1px solid #efefef',
+              background: product.is_featured ? '#fafde8' : '#fff',
+              border: product.is_featured ? `1.5px solid ${product.badge_color || '#BFD900'}` : '1px solid #efefef',
               borderRadius:20, padding:18, marginBottom:12
             }}>
-              {featured && (
-                <div style={{display:'inline-block', background:'#BFD900', color:'#2a2a2a', fontSize:9, fontWeight:700, letterSpacing:'0.08em', textTransform:'uppercase', padding:'3px 10px', borderRadius:8, marginBottom:10}}>
-                  Популярный
-                </div>
-              )}
+             {product.is_featured && (
+              <div style={{display:'inline-block', background:product.badge_color || '#BFD900', color: (product.badge_color === '#BFD900' || product.badge_color === '#f39c12' || product.badge_color === '#e0e0e0') ? '#2a2a2a' : '#fff', fontSize:9, fontWeight:700, letterSpacing:'0.08em', textTransform:'uppercase', padding:'3px 10px', borderRadius:8, marginBottom:10}}>
+                {product.badge_text || 'Популярный'}
+              </div>
+            )}
               <div style={{fontSize:14, color:'#2a2a2a', fontWeight:400, marginBottom:4, fontFamily:'sans-serif'}}>{product.name}</div>
               {product.description && (
                 <div style={{fontSize:12, color:'#BDBDBD', marginBottom:14, lineHeight:1.5}}>{product.description}</div>
@@ -98,9 +100,9 @@ export default function Shop({ session }) {
                 <button
                   onClick={() => setSelected(product)}
                   style={{
-                    background: featured ? '#BFD900' : 'transparent',
-                    color: featured ? '#2a2a2a' : '#BDBDBD',
-                    border: featured ? 'none' : '1.5px solid #e0e0e0',
+                    background: product.is_featured ? (product.badge_color || '#BFD900') : 'transparent',
+                    color: product.is_featured ? ((product.badge_color === '#BFD900' || product.badge_color === '#f39c12' || product.badge_color === '#e0e0e0') ? '#2a2a2a' : '#fff') : '#BDBDBD',
+                    border: product.is_featured ? 'none' : '1.5px solid #e0e0e0',
                     borderRadius:12, padding:'9px 20px',
                     fontSize:12, fontWeight:700, cursor:'pointer',
                     fontFamily:'Inter,sans-serif'

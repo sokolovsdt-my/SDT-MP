@@ -8,6 +8,11 @@ const SUB_TYPES = { unlimited: 'Безлимит', count: 'На количест
 const inputStyle = { width:'100%', padding:'8px 12px', border:'1px solid #e8e8e8', borderRadius:8, fontSize:13, boxSizing:'border-box', fontFamily:'Inter,sans-serif', marginBottom:8 }
 const labelStyle = { fontSize:12, color:'#888', marginBottom:4, fontWeight:600, display:'block' }
 
+const BADGE_COLORS = ['#BFD900','#27ae60','#e74c3c','#2980b9','#f39c12','#8e44ad','#2a2a2a','#e0e0e0']
+const BADGE_EMOJIS = ['🔥','⭐','💥','🎉','✅','👑','🏆','💪','🚀','❤️','💚','💛','🎯','🌟','⚡','🎁','👍','😎','🆕','💎']
+
+const textColor = (bg) => ['#BFD900','#f39c12','#e0e0e0'].includes(bg) ? '#2a2a2a' : '#fff'
+
 function ProductForm({ type, teachers, groups, onSave, onCancel, initial = null }) {
   const isEdit = !!initial
 
@@ -17,6 +22,10 @@ function ProductForm({ type, teachers, groups, onSave, onCancel, initial = null 
     price: initial?.price || '',
     is_available_online: initial?.is_available_online ?? true,
     is_active: initial?.is_active ?? true,
+    sort_order: initial?.sort_order ?? 100,
+    is_featured: initial?.is_featured ?? false,
+    badge_text: initial?.badge_text || 'Популярный',
+    badge_color: initial?.badge_color || '#BFD900',
   })
 
   const ps = initial?.product_subscriptions?.[0]
@@ -47,15 +56,14 @@ function ProductForm({ type, teachers, groups, onSave, onCancel, initial = null 
 
   const [selectedGroups, setSelectedGroups] = useState([])
   const [selectedTeachers, setSelectedTeachers] = useState([])
+  const [showEmoji, setShowEmoji] = useState(false)
 
   useEffect(() => {
     if (isEdit && initial?.id && type === 'subscription') {
       const loadRelated = async () => {
-        const { data: g } = await supabase.from('product_subscription_groups')
-          .select('group_id').eq('product_id', initial.id)
+        const { data: g } = await supabase.from('product_subscription_groups').select('group_id').eq('product_id', initial.id)
         setSelectedGroups((g || []).map(x => x.group_id))
-        const { data: t } = await supabase.from('product_subscription_teachers')
-          .select('teacher_id').eq('product_id', initial.id)
+        const { data: t } = await supabase.from('product_subscription_teachers').select('teacher_id').eq('product_id', initial.id)
         setSelectedTeachers((t || []).map(x => x.teacher_id))
       }
       loadRelated()
@@ -67,66 +75,31 @@ function ProductForm({ type, teachers, groups, onSave, onCancel, initial = null 
 
   const handleSave = async () => {
     if (!form.name || !form.price) return
+    const base = { ...form, price: parseInt(form.price), sort_order: parseInt(form.sort_order) || 100 }
 
     if (isEdit) {
-      await supabase.from('products').update({
-        ...form, price: parseInt(form.price)
-      }).eq('id', initial.id)
-
+      await supabase.from('products').update(base).eq('id', initial.id)
       if (type === 'subscription') {
-        await supabase.from('product_subscriptions').upsert({
-          product_id: initial.id, ...subForm,
-          visits_count: subForm.visits_count ? parseInt(subForm.visits_count) : null,
-          duration_days: subForm.duration_days ? parseInt(subForm.duration_days) : null,
-        }, { onConflict: 'product_id' })
+        await supabase.from('product_subscriptions').upsert({ product_id: initial.id, ...subForm, visits_count: subForm.visits_count ? parseInt(subForm.visits_count) : null, duration_days: subForm.duration_days ? parseInt(subForm.duration_days) : null }, { onConflict: 'product_id' })
         await supabase.from('product_subscription_groups').delete().eq('product_id', initial.id)
         if (selectedGroups.length > 0) await supabase.from('product_subscription_groups').insert(selectedGroups.map(gid => ({ product_id: initial.id, group_id: gid })))
         await supabase.from('product_subscription_teachers').delete().eq('product_id', initial.id)
         if (selectedTeachers.length > 0) await supabase.from('product_subscription_teachers').insert(selectedTeachers.map(tid => ({ product_id: initial.id, teacher_id: tid })))
       }
-      if (type === 'indiv') {
-        await supabase.from('product_indivs').upsert({
-          product_id: initial.id, ...indivForm,
-          visits_count: indivForm.visits_count ? parseInt(indivForm.visits_count) : null,
-          duration_days: indivForm.duration_days ? parseInt(indivForm.duration_days) : null,
-        }, { onConflict: 'product_id' })
-      }
-      if (type === 'merch') {
-        await supabase.from('product_merch').upsert({ product_id: initial.id, ...merchForm }, { onConflict: 'product_id' })
-      }
-      if (type === 'event') {
-        await supabase.from('product_events').upsert({
-          product_id: initial.id, ...eventForm,
-          max_participants: eventForm.max_participants ? parseInt(eventForm.max_participants) : null,
-        }, { onConflict: 'product_id' })
-      }
-
+      if (type === 'indiv') await supabase.from('product_indivs').upsert({ product_id: initial.id, ...indivForm, visits_count: indivForm.visits_count ? parseInt(indivForm.visits_count) : null, duration_days: indivForm.duration_days ? parseInt(indivForm.duration_days) : null }, { onConflict: 'product_id' })
+      if (type === 'merch') await supabase.from('product_merch').upsert({ product_id: initial.id, ...merchForm }, { onConflict: 'product_id' })
+      if (type === 'event') await supabase.from('product_events').upsert({ product_id: initial.id, ...eventForm, max_participants: eventForm.max_participants ? parseInt(eventForm.max_participants) : null }, { onConflict: 'product_id' })
     } else {
-      const { data: product } = await supabase.from('products').insert({
-        ...form, type, price: parseInt(form.price)
-      }).select().single()
-
+      const { data: product } = await supabase.from('products').insert({ ...base, type }).select().single()
       if (type === 'subscription') {
-        await supabase.from('product_subscriptions').insert({
-          product_id: product.id, ...subForm,
-          visits_count: subForm.visits_count ? parseInt(subForm.visits_count) : null,
-          duration_days: subForm.duration_days ? parseInt(subForm.duration_days) : null,
-        })
+        await supabase.from('product_subscriptions').insert({ product_id: product.id, ...subForm, visits_count: subForm.visits_count ? parseInt(subForm.visits_count) : null, duration_days: subForm.duration_days ? parseInt(subForm.duration_days) : null })
         if (selectedGroups.length > 0) await supabase.from('product_subscription_groups').insert(selectedGroups.map(gid => ({ product_id: product.id, group_id: gid })))
         if (selectedTeachers.length > 0) await supabase.from('product_subscription_teachers').insert(selectedTeachers.map(tid => ({ product_id: product.id, teacher_id: tid })))
       }
-      if (type === 'indiv') await supabase.from('product_indivs').insert({
-        product_id: product.id, ...indivForm,
-        visits_count: indivForm.visits_count ? parseInt(indivForm.visits_count) : null,
-        duration_days: indivForm.duration_days ? parseInt(indivForm.duration_days) : null,
-      })
+      if (type === 'indiv') await supabase.from('product_indivs').insert({ product_id: product.id, ...indivForm, visits_count: indivForm.visits_count ? parseInt(indivForm.visits_count) : null, duration_days: indivForm.duration_days ? parseInt(indivForm.duration_days) : null })
       if (type === 'merch') await supabase.from('product_merch').insert({ product_id: product.id, ...merchForm })
-      if (type === 'event') await supabase.from('product_events').insert({
-        product_id: product.id, ...eventForm,
-        max_participants: eventForm.max_participants ? parseInt(eventForm.max_participants) : null,
-      })
+      if (type === 'event') await supabase.from('product_events').insert({ product_id: product.id, ...eventForm, max_participants: eventForm.max_participants ? parseInt(eventForm.max_participants) : null })
     }
-
     onSave()
   }
 
@@ -145,10 +118,63 @@ function ProductForm({ type, teachers, groups, onSave, onCancel, initial = null 
       <label style={labelStyle}>Стоимость ₽ *</label>
       <input value={form.price} onChange={e => setForm({...form, price:e.target.value})} placeholder="8700" type="number" style={inputStyle} />
 
-      <label style={{display:'flex', alignItems:'center', gap:8, fontSize:13, color:'#2a2a2a', marginBottom:16, cursor:'pointer'}}>
+      <label style={{display:'flex', alignItems:'center', gap:8, fontSize:13, color:'#2a2a2a', marginBottom:12, cursor:'pointer'}}>
         <input type="checkbox" checked={form.is_available_online} onChange={e => setForm({...form, is_available_online:e.target.checked})} />
         Доступен к покупке в приложении
       </label>
+
+      <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:12}}>
+        <div>
+          <label style={labelStyle}>Приоритет (меньше = выше)</label>
+          <input value={form.sort_order} onChange={e => setForm({...form, sort_order:parseInt(e.target.value)||100})}
+            type="number" min="1" max="999" placeholder="100" style={inputStyle} />
+        </div>
+        <div style={{display:'flex', alignItems:'flex-end', paddingBottom:8}}>
+          <label style={{display:'flex', alignItems:'center', gap:8, fontSize:13, color:'#2a2a2a', cursor:'pointer'}}>
+            <input type="checkbox" checked={form.is_featured} onChange={e => setForm({...form, is_featured:e.target.checked})} />
+            Показывать плашку
+          </label>
+        </div>
+      </div>
+
+      {form.is_featured && (
+        <div style={{background:'#f9f9f9', borderRadius:10, padding:12, marginBottom:12}}>
+          <label style={labelStyle}>Текст плашки</label>
+          <div style={{display:'flex', gap:6, marginBottom:8}}>
+            <input value={form.badge_text} onChange={e => setForm({...form, badge_text:e.target.value})}
+              placeholder="Популярный" style={{...inputStyle, marginBottom:0, flex:1}} />
+            <div style={{position:'relative'}}>
+              <button type="button" onClick={() => setShowEmoji(!showEmoji)}
+                style={{padding:'8px 10px', background:'#f5f5f5', border:'1px solid #e0e0e0', borderRadius:8, fontSize:16, cursor:'pointer'}}>
+                😊
+              </button>
+              {showEmoji && (
+                <div style={{position:'absolute', top:'100%', right:0, zIndex:100, background:'#fff', border:'1px solid #e0e0e0', borderRadius:12, padding:10, width:260, display:'flex', flexWrap:'wrap', gap:4, boxShadow:'0 4px 16px rgba(0,0,0,0.12)', marginTop:4}}>
+                  {BADGE_EMOJIS.map(e => (
+                    <button key={e} type="button"
+                      onClick={() => { setForm(f => ({...f, badge_text: f.badge_text + e})); setShowEmoji(false) }}
+                      style={{padding:'4px 6px', background:'none', border:'none', fontSize:18, cursor:'pointer', borderRadius:6}}
+                      onMouseEnter={ev => ev.currentTarget.style.background='#f5f5f5'}
+                      onMouseLeave={ev => ev.currentTarget.style.background='none'}>
+                      {e}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          <label style={labelStyle}>Цвет плашки</label>
+          <div style={{display:'flex', gap:8, flexWrap:'wrap', marginBottom:8}}>
+            {BADGE_COLORS.map(color => (
+              <div key={color} onClick={() => setForm({...form, badge_color:color})}
+                style={{width:28, height:28, borderRadius:'50%', background:color, cursor:'pointer', border: form.badge_color === color ? '3px solid #2a2a2a' : '2px solid transparent'}} />
+            ))}
+          </div>
+          <div style={{fontSize:11, color:'#888', marginTop:4}}>
+            Предпросмотр: <span style={{background:form.badge_color, color:textColor(form.badge_color), padding:'2px 10px', borderRadius:6, fontSize:11, fontWeight:700}}>{form.badge_text}</span>
+          </div>
+        </div>
+      )}
 
       {type === 'subscription' && (
         <div>
@@ -164,11 +190,8 @@ function ProductForm({ type, teachers, groups, onSave, onCancel, initial = null 
           )}
           <label style={labelStyle}>Срок действия (дней)</label>
           <input value={subForm.duration_days} onChange={e => setSubForm({...subForm, duration_days:e.target.value})} placeholder="Например: 30" type="number" style={inputStyle} />
-
           <div style={{marginBottom:8}}>
-            <label style={labelStyle}>
-              Доступен к продаже по числам месяца
-            </label>
+            <label style={labelStyle}>Доступен к продаже по числам месяца</label>
             <div style={{display:'flex', gap:8, alignItems:'center'}}>
               <span style={{fontSize:13, color:'#888'}}>с</span>
               <input value={subForm.available_from_day} onChange={e => setSubForm({...subForm, available_from_day:e.target.value})} type="number" min="1" max="31" placeholder="1" style={{...inputStyle, width:70, marginBottom:0}} />
@@ -177,7 +200,6 @@ function ProductForm({ type, teachers, groups, onSave, onCancel, initial = null 
               <span style={{fontSize:13, color:'#888'}}>число</span>
             </div>
           </div>
-
           <div style={{marginBottom:12}}>
             <div style={labelStyle}>Доступные группы</div>
             <div style={{display:'flex', flexWrap:'wrap', gap:6}}>
@@ -189,7 +211,6 @@ function ProductForm({ type, teachers, groups, onSave, onCancel, initial = null 
               ))}
             </div>
           </div>
-
           <div style={{marginBottom:12}}>
             <div style={labelStyle}>Доступные преподаватели</div>
             <div style={{display:'flex', flexWrap:'wrap', gap:6}}>
@@ -282,7 +303,7 @@ export default function AdminCatalog() {
     setLoading(true)
     const { data: p } = await supabase.from('products')
       .select(`*, product_subscriptions(*), product_indivs(*, profiles(full_name)), product_merch(*), product_events(*, profiles(full_name))`)
-      .eq('type', tab).order('created_at', { ascending: false })
+      .eq('type', tab).order('sort_order', { ascending: true })
     setProducts(p || [])
     const { data: t } = await supabase.from('profiles').select('id, full_name, email').eq('role', 'teacher')
     setTeachers(t || [])
@@ -314,7 +335,6 @@ export default function AdminCatalog() {
   }
 
   const formatPrice = (p) => p.toLocaleString('ru-RU') + ' ₽'
-
   const activeProducts = products.filter(p => p.is_active)
   const archivedProducts = products.filter(p => !p.is_active)
 
@@ -361,13 +381,22 @@ export default function AdminCatalog() {
           {activeProducts.map(p => (
             <div key={p.id} style={{background:'#fff', borderRadius:14, border: editingProduct?.id === p.id ? '2px solid #BFD900' : '1px solid #f0f0f0', padding:16}}>
               <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:8}}>
-                <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a'}}>{p.name}</div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a', marginBottom:4}}>{p.name}</div>
+                  {p.is_featured && (
+                    <span style={{background:p.badge_color||'#BFD900', color:textColor(p.badge_color||'#BFD900'), padding:'2px 8px', borderRadius:6, fontSize:10, fontWeight:700}}>
+                      {p.badge_text || 'Популярный'}
+                    </span>
+                  )}
+                </div>
                 <span style={{background: p.is_available_online ? '#fafde8' : '#f5f5f5', color: p.is_available_online ? '#6a7700' : '#BDBDBD', padding:'2px 8px', borderRadius:6, fontSize:11, fontWeight:600, flexShrink:0, marginLeft:8}}>
-                  {p.is_available_online ? '🌐 Онлайн' : 'Офлайн'}
+                  {p.is_available_online ? '🌐' : 'Офлайн'}
                 </span>
               </div>
 
               {p.description && <div style={{fontSize:12, color:'#888', marginBottom:8}}>{p.description}</div>}
+
+              <div style={{fontSize:11, color:'#BDBDBD', marginBottom:4}}>Приоритет: {p.sort_order}</div>
 
               {tab === 'subscription' && p.product_subscriptions?.[0] && (
                 <div style={{fontSize:12, color:'#BDBDBD', marginBottom:8}}>
@@ -383,9 +412,7 @@ export default function AdminCatalog() {
                 </div>
               )}
               {tab === 'merch' && p.product_merch?.[0] && (
-                <div style={{fontSize:12, color:'#BDBDBD', marginBottom:8}}>
-                  В наличии: {p.product_merch[0].stock_count} шт.
-                </div>
+                <div style={{fontSize:12, color:'#BDBDBD', marginBottom:8}}>В наличии: {p.product_merch[0].stock_count} шт.</div>
               )}
               {tab === 'event' && p.product_events?.[0] && (
                 <div style={{fontSize:12, color:'#BDBDBD', marginBottom:8}}>
@@ -412,7 +439,6 @@ export default function AdminCatalog() {
         </div>
       )}
 
-      {/* Архив */}
       {archivedProducts.length > 0 && (
         <div style={{marginTop:32}}>
           <details>
