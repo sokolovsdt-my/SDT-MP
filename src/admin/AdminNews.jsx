@@ -64,6 +64,7 @@ function RichEditor({ value, onChange, defaultBold = false }) {
         {toolBtn('Ж', () => exec('bold'), 'Жирный')}
         {toolBtn(<em>К</em>, () => exec('italic'), 'Курсив')}
         {toolBtn(<u>П</u>, () => exec('underline'), 'Подчёркивание')}
+        {toolBtn('🔗', () => { const url = prompt('Введите URL:'); if (url) exec('createLink', url) }, 'Вставить ссылку')}
         <div style={{display:'flex', gap:3, alignItems:'center'}}>
           {['#2a2a2a','#e74c3c','#2980b9','#27ae60','#f39c12','#8e44ad','#BFD900'].map(c => (
             <div key={c} onClick={() => setColor(c)}

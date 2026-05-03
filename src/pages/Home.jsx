@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../supabase'
 
-export default function Home({ session }) {
+export default function Home({ session, onNewsAll }) {
   const [profile, setProfile] = useState(null)
   const [news, setNews] = useState([])
   const [stats, setStats] = useState({ thisMonth: 0, totalHours: 0 })
@@ -119,7 +119,10 @@ export default function Home({ session }) {
       </div>
 
       {/* Новости */}
-      <div style={{fontSize:10, color:'#BDBDBD', letterSpacing:'0.12em', textTransform:'uppercase', marginBottom:8}}>Новости студии</div>
+      <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8}}>
+        <div style={{fontSize:10, color:'#BDBDBD', letterSpacing:'0.12em', textTransform:'uppercase'}}>Новости студии</div>
+        <div onClick={onNewsAll} style={{fontSize:12, color:'#BFD900', fontWeight:600, cursor:'pointer'}}>Все новости →</div>
+      </div>
       {news.length === 0 ? (
         <div style={{fontSize:13, color:'#BDBDBD', padding:'10px 0'}}>Новостей пока нет</div>
       ) : news.map((n, i) => (

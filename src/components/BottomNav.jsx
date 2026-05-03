@@ -18,6 +18,12 @@ export default function BottomNav({ active, onChange }) {
         <circle cx="15" cy="17" r="1.2" fill="currentColor"/>
       </svg>
     )},
+    { id: 'news', label: 'Новости', icon: (
+      <svg viewBox="0 0 22 22" fill="none" width="22" height="22">
+        <rect x="3" y="4" width="16" height="14" rx="2" stroke="currentColor" strokeWidth="1.5"/>
+        <path d="M7 9H15M7 12H12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+      </svg>
+    )},
     { id: 'profile', label: 'Профиль', icon: (
       <svg viewBox="0 0 22 22" fill="none" width="22" height="22">
         <circle cx="11" cy="8" r="4" stroke="currentColor" strokeWidth="1.5"/>
@@ -35,19 +41,10 @@ export default function BottomNav({ active, onChange }) {
       fontFamily:'Inter,sans-serif', zIndex:100
     }}>
       {items.map(item => (
-        <div
-          key={item.id}
-          onClick={() => onChange(item.id)}
-          style={{
-            display:'flex', flexDirection:'column', alignItems:'center',
-            gap:4, cursor:'pointer',
-            color: active === item.id ? '#6a7700' : '#BDBDBD'
-          }}
-        >
+        <div key={item.id} onClick={() => onChange(item.id)}
+          style={{display:'flex', flexDirection:'column', alignItems:'center', gap:4, cursor:'pointer', color: active === item.id ? '#6a7700' : '#BDBDBD'}}>
           {item.icon}
-          <span style={{fontSize:9, letterSpacing:'0.05em', textTransform:'uppercase'}}>
-            {item.label}
-          </span>
+          <span style={{fontSize:9, letterSpacing:'0.05em', textTransform:'uppercase'}}>{item.label}</span>
         </div>
       ))}
     </div>
