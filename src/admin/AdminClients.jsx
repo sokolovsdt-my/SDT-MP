@@ -17,7 +17,7 @@ export default function AdminClients() {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
   const [showAddModal, setShowAddModal] = useState(false)
-  const [newClient, setNewClient] = useState({ last_name:'', first_name:'', patronymic:'', birth_date:'', phone:'', email:'', ad_source:'' })
+  const [newClient, setNewClient] = useState({ last_name:'', first_name:'', patronymic:'', birth_date:'', phone:'', email:'', ad_source:'', ad_source_custom:'' })
   const [addingSaving, setAddingSaving] = useState(false)
   const navigate = useNavigate()
 
@@ -69,6 +69,7 @@ export default function AdminClients() {
         patronymic: newClient.patronymic || null,
         birth_date: newClient.birth_date || null,
         ad_source: newClient.ad_source || null,
+        ad_source_custom: newClient.ad_source === 'other' ? newClient.ad_source_custom || null : null,
       }).eq('id', result.user_id)
     }
 
@@ -138,8 +139,8 @@ export default function AdminClients() {
             ))}
 
             <label style={{fontSize:12, color:'#888', marginBottom:4, fontWeight:600, display:'block'}}>Рекламный источник</label>
-            <select value={newClient.ad_source} onChange={e => setNewClient({...newClient, ad_source:e.target.value})}
-              style={{width:'100%', padding:'9px 12px', border:'1px solid #e8e8e8', borderRadius:10, fontSize:13, marginBottom:20, boxSizing:'border-box', fontFamily:'Inter,sans-serif'}}>
+            <select value={newClient.ad_source} onChange={e => setNewClient({...newClient, ad_source:e.target.value, ad_source_custom:''})}
+              style={{width:'100%', padding:'9px 12px', border:'1px solid #e8e8e8', borderRadius:10, fontSize:13, marginBottom: newClient.ad_source === 'other' ? 8 : 20, boxSizing:'border-box', fontFamily:'Inter,sans-serif'}}>
               <option value="">Не указан</option>
               <option value="instagram">Instagram</option>
               <option value="vk">ВКонтакте</option>
@@ -150,6 +151,11 @@ export default function AdminClients() {
               <option value="2gis">2ГИС</option>
               <option value="other">Другое</option>
             </select>
+            {newClient.ad_source === 'other' && (
+              <input value={newClient.ad_source_custom || ''} onChange={e => setNewClient({...newClient, ad_source_custom:e.target.value})}
+                placeholder="Уточните источник..."
+                style={{width:'100%', padding:'9px 12px', border:'1px solid #e8e8e8', borderRadius:10, fontSize:13, marginBottom:20, boxSizing:'border-box', fontFamily:'Inter,sans-serif'}} />
+            )}
             <div style={{display:'flex', gap:8}}>
               <button onClick={handleAddClient} disabled={addingSaving || !newClient.email}
                 style={{flex:1, padding:'10px', background:'#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif', opacity: addingSaving || !newClient.email ? 0.5 : 1}}>
