@@ -363,7 +363,7 @@ export default function AdminBroadcasts({ session }) {
     }
 
     if (filters.use_loyalty && filters.loyalty_level) {
-      const { data: loyalty } = await supabase.from('client_loyalty').select('client_id').eq('loyalty_level', filters.loyalty_level)
+      const { data: loyalty } = await supabase.from('client_loyalty').select('client_id').eq('level', filters.loyalty_level)
       const loyalIds = new Set((loyalty || []).map(l => l.client_id))
       result = result.filter(c => loyalIds.has(c.id))
     }
