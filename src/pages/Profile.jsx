@@ -1,4 +1,5 @@
 import Bonus from './Bonus'
+import AvatarUpload from '../components/AvatarUpload'
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
 
@@ -6,21 +7,24 @@ export default function Profile({ session }) {
   const [profile, setProfile] = useState(null)
   const [editing, setEditing] = useState(false)
   const [showBonus, setShowBonus] = useState(false)
-  const [form, setForm] = useState({ last_name:'', first_name:'', patronymic:'', phone:'', birth_date:'' })
+  const [form, setForm] = useState({ last_name:'', first_name:'', patronymic:'', phone:'', birth_date:'', email:'' })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [avatarUrl, setAvatarUrl] = useState(null)
 
   useEffect(() => {
     const getProfile = async () => {
       const { data } = await supabase.from('profiles').select('*').eq('id', session.user.id).single()
       if (data) {
         setProfile(data)
+        setAvatarUrl(data.avatar_url || null)
         setForm({
-          last_name: data.last_name || '',
+          last_name:  data.last_name  || '',
           first_name: data.first_name || '',
           patronymic: data.patronymic || '',
-          phone: data.phone || '',
+          phone:      data.phone      || '',
           birth_date: data.birth_date || '',
+          email:      data.email      || '',
         })
       }
     }
@@ -31,12 +35,13 @@ export default function Profile({ session }) {
     setSaving(true)
     const full_name = [form.last_name, form.first_name, form.patronymic].filter(Boolean).join(' ')
     const { error } = await supabase.from('profiles').update({
-      full_name: full_name || null,
-      last_name: form.last_name || null,
+      full_name:  full_name       || null,
+      last_name:  form.last_name  || null,
       first_name: form.first_name || null,
       patronymic: form.patronymic || null,
-      phone: form.phone || null,
+      phone:      form.phone      || null,
       birth_date: form.birth_date || null,
+      email:      form.email      || null,
     }).eq('id', session.user.id)
     if (!error) {
       setProfile(p => ({ ...p, ...form, full_name }))
@@ -48,8 +53,13 @@ export default function Profile({ session }) {
 
   const handleLogout = async () => { await supabase.auth.signOut() }
 
-  const name = profile?.full_name || session.user.email
-  const initials = name[0].toUpperCase()
+  // Технический email (tg_XXX@sdt.app) не показываем пользователю
+  const isTechEmail = session.user.email?.startsWith('tg_')
+  const displayEmail = profile?.email || (!isTechEmail ? session.user.email : '')
+
+  // Для приветствия используем имя
+  const greetName = profile?.first_name || profile?.full_name || ''
+  const initials  = greetName ? greetName[0].toUpperCase() : '?'
 
   if (showBonus) return <Bonus session={session} onBack={() => setShowBonus(false)} />
 
@@ -61,11 +71,12 @@ export default function Profile({ session }) {
       </div>
 
       {[
-        { label: 'Фамилия', key: 'last_name', placeholder: 'Соколова', type: 'text' },
-        { label: 'Имя', key: 'first_name', placeholder: 'Мария', type: 'text' },
-        { label: 'Отчество', key: 'patronymic', placeholder: 'Ивановна', type: 'text' },
-        { label: 'Телефон', key: 'phone', placeholder: '+7 900 000 00 00', type: 'tel' },
-        { label: 'Дата рождения', key: 'birth_date', placeholder: '', type: 'date' },
+        { label:'Фамилия',        key:'last_name',  placeholder:'Соколова',           type:'text' },
+        { label:'Имя',            key:'first_name', placeholder:'Мария',              type:'text' },
+        { label:'Отчество',       key:'patronymic', placeholder:'Ивановна',           type:'text' },
+        { label:'Телефон',        key:'phone',      placeholder:'+7 900 000 00 00',   type:'tel'  },
+        { label:'Дата рождения',  key:'birth_date', placeholder:'',                   type:'date' },
+        { label:'Email',          key:'email',      placeholder:'example@mail.ru',    type:'email'},
       ].map(field => (
         <div key={field.key} style={{marginBottom:16}}>
           <div style={{fontSize:11, color:'#BDBDBD', marginBottom:6, letterSpacing:'0.05em'}}>{field.label}</div>
@@ -79,14 +90,6 @@ export default function Profile({ session }) {
         </div>
       ))}
 
-      <div style={{marginBottom:16}}>
-        <div style={{fontSize:11, color:'#BDBDBD', marginBottom:6, letterSpacing:'0.05em'}}>Email</div>
-        <div style={{padding:'12px 14px', border:'1px solid #f0f0f0', borderRadius:12, fontSize:14, color:'#BDBDBD', background:'#f9f9f9'}}>
-          {session.user.email}
-        </div>
-        <div style={{fontSize:11, color:'#BDBDBD', marginTop:4}}>Email изменить нельзя</div>
-      </div>
-
       <button onClick={handleSave} disabled={saving}
         style={{width:'100%', padding:13, background:'#BFD900', border:'none', borderRadius:12, fontSize:14, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif', marginTop:8}}>
         {saved ? 'Сохранено ✓' : saving ? 'Сохраняем...' : 'Сохранить'}
@@ -97,17 +100,27 @@ export default function Profile({ session }) {
   return (
     <div style={{fontFamily:'Inter,sans-serif', maxWidth:480, margin:'0 auto'}}>
       <div style={{padding:'20px 20px 0', display:'flex', flexDirection:'column', alignItems:'center'}}>
-        <div style={{width:72, height:72, background:'#BFD900', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, fontWeight:600, color:'#2a2a2a', marginBottom:12}}>
-          {initials}
+
+        {/* Аватарка с возможностью загрузки */}
+        <div style={{marginBottom:12, position:'relative'}}>
+          <AvatarUpload
+            userId={session.user.id}
+            currentUrl={avatarUrl}
+            size={72}
+            onUpload={(url) => setAvatarUrl(url)}
+            initials={initials}
+          />
         </div>
+
         <div style={{fontSize:16, color:'#2a2a2a', fontWeight:300, marginBottom:16, fontFamily:'sans-serif'}}>
-          {name}
+          {greetName || displayEmail || 'Профиль'}
         </div>
+
         <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8, width:'100%', marginBottom:16}}>
           {[
-            { num: 87, label: 'Занятий' },
-            { num: 148, label: 'Часов' },
-            { num: 3, label: 'Группы' },
+            { num:87,  label:'Занятий' },
+            { num:148, label:'Часов'   },
+            { num:3,   label:'Группы'  },
           ].map((s, i) => (
             <div key={i} style={{background:'#fff', borderRadius:14, padding:'12px 8px', textAlign:'center', border:'1px solid #f0f0f0'}}>
               <div style={{fontSize:18, color:'#2a2a2a', fontWeight:300}}>{s.num}</div>
@@ -115,6 +128,7 @@ export default function Profile({ session }) {
             </div>
           ))}
         </div>
+
         <div style={{background:'#fafde8', border:'1.5px solid #BFD900', borderRadius:16, padding:'14px 16px', width:'100%', boxSizing:'border-box', marginBottom:8}}>
           <div style={{fontSize:10, color:'#8a9900', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:4}}>Активный абонемент</div>
           <div style={{fontSize:13, color:'#2a2a2a', fontWeight:400, marginBottom:10, fontFamily:'sans-serif'}}>Безлимит на месяц</div>
@@ -128,9 +142,9 @@ export default function Profile({ session }) {
       </div>
 
       {[
-        { label: 'Мои записи' },
-        { label: 'Моя статистика' },
-        { label: 'Привести друга ✦', accent: true, action: () => setShowBonus(true) },
+        { label:'Мои записи' },
+        { label:'Моя статистика' },
+        { label:'Привести друга ✦', accent:true, action:() => setShowBonus(true) },
       ].map((item, i) => (
         <div key={i} onClick={item.action || (() => {})} style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'14px 20px', borderBottom:'1px solid #f5f5f5', cursor:'pointer'}}>
           <div style={{fontSize:14, color:item.accent?'#6a7700':'#3a3a3a', fontWeight:item.accent?600:400}}>{item.label}</div>
