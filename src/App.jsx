@@ -121,6 +121,43 @@ function Login() {
     if (error) setError('Неверный email или пароль')
     setLoading(false)
   }
+const handleTelegramAuth = async (tgData) => {
+    setLoading(true)
+    setError('')
+    try {
+      const res = await fetch('https://momqnoeogfjjexwcwlpu.supabase.co/functions/v1/telegram-auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(tgData)
+      })
+      const data = await res.json()
+      if (!res.ok) { setError('Ошибка Telegram авторизации'); setLoading(false); return }
+      await supabase.auth.setSession(data.session)
+    } catch {
+      setError('Ошибка соединения')
+    }
+    setLoading(false)
+  }
+
+  useEffect(() => {
+    window.onTelegramAuth = handleTelegramAuth
+
+    // Загружаем Telegram виджет динамически
+    const script = document.createElement('script')
+    script.src = 'https://telegram.org/js/telegram-widget.js?22'
+    script.setAttribute('data-telegram-login', 'sdt_auth_bot')
+    script.setAttribute('data-size', 'large')
+    script.setAttribute('data-radius', '12')
+    script.setAttribute('data-onauth', 'onTelegramAuth(user)')
+    script.setAttribute('data-request-access', 'write')
+    script.async = true
+
+    const container = document.getElementById('telegram-login-btn')
+    if (container) {
+      container.innerHTML = ''
+      container.appendChild(script)
+    }
+  }, [])
 
   const handleMagicLink = async (e) => {
     e.preventDefault()
@@ -178,6 +215,15 @@ function Login() {
               </button>
             </div>
 
+{/* Telegram кнопка */}
+            <div style={{marginBottom:16, display:'flex', flexDirection:'column', alignItems:'center'}}>
+              <div id="telegram-login-btn" style={{display:'flex', justifyContent:'center'}} />
+              <div style={{display:'flex', alignItems:'center', gap:8, margin:'12px 0', width:'100%'}}>
+                <div style={{flex:1, height:1, background:'#e8e8e8'}} />
+                <span style={{fontSize:11, color:'#BDBDBD'}}>или</span>
+                <div style={{flex:1, height:1, background:'#e8e8e8'}} />
+              </div>
+            </div>
             <form onSubmit={mode === 'password' ? handleLogin : handleMagicLink}>
               <input type="email" placeholder="Email" value={email}
                 onChange={e => setEmail(e.target.value)}
