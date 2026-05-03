@@ -1,22 +1,12 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { supabase } from '../supabase'
 
-const PRODUCTS = {
-  subscriptions: [
-    { id: 1, name: 'Безлимит на месяц', desc: 'Все группы без ограничений. Действует с 7 по 7 каждого месяца.', price: 8700, unit: '₽/мес', featured: true },
-    { id: 2, name: 'Абонемент на 4 занятия', desc: 'Действует 15 дней с момента активации.', price: 5800, unit: '₽' },
-    { id: 3, name: 'Разовое занятие', desc: 'Согласовывается с преподавателем или администратором.', price: 1800, unit: '₽' },
-    { id: 4, name: 'Пробное занятие', desc: 'Любой день по расписанию подходящей группы.', price: 500, unit: '₽' },
-  ],
-  indiv: [
-    { id: 5, name: 'Индив · Сюзанна Соколова', desc: '60 минут индивидуальной работы.', price: 4500, unit: '₽' },
-    { id: 6, name: 'Индив · Мария Куликова', desc: '60 минут индивидуальной работы.', price: 3500, unit: '₽' },
-  ],
-  events: [
-    { id: 7, name: 'Мастер-класс 20 апреля', desc: 'Сюзанна Соколова. Большой зал, 18:00.', price: 1500, unit: '₽' },
-  ],
-  merch: [
-    { id: 8, name: 'Футболка SDT', desc: 'Размеры S, M, L, XL. Хлопок 100%.', price: 1900, unit: '₽' },
-  ],
+const TYPE_TO_CAT = {
+  subscription: 'subscriptions',
+  service: 'subscriptions',
+  indiv: 'indiv',
+  event: 'events',
+  merch: 'merch',
 }
 
 const CATS = [
@@ -26,17 +16,44 @@ const CATS = [
   { id: 'merch', label: 'Мерч' },
 ]
 
-export default function Shop() {
+export default function Shop({ session }) {
   const [activeCat, setActiveCat] = useState('subscriptions')
   const [selected, setSelected] = useState(null)
+  const [products, setProducts] = useState({})
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const load = async () => {
+      const { data } = await supabase
+        .from('products')
+        .select('*')
+        .eq('is_active', true)
+        .order('price', { ascending: true })
+
+      const grouped = { subscriptions: [], indiv: [], events: [], merch: [] }
+      ;(data || []).forEach(p => {
+        const cat = TYPE_TO_CAT[p.type]
+        if (cat && grouped[cat]) grouped[cat].push(p)
+      })
+      setProducts(grouped)
+      setLoading(false)
+    }
+    load()
+  }, [])
+
+  const current = products[activeCat] || []
+  // Самый дорогой абонемент — "популярный"
+  const featuredId = activeCat === 'subscriptions' && current.length > 0
+    ? current.reduce((a, b) => b.price > a.price ? b : a, current[0])?.id
+    : null
 
   return (
-    <div style={{fontFamily:'Inter,sans-serif'}}>
+    <div style={{fontFamily:'Inter,sans-serif', maxWidth:480, margin:'0 auto'}}>
       <div style={{padding:'16px 20px 0'}}>
-        <div style={{fontSize:18,color:'#2a2a2a',fontWeight:300,marginBottom:16,fontFamily:'sans-serif'}}>
+        <div style={{fontSize:18, color:'#2a2a2a', fontWeight:300, marginBottom:16, fontFamily:'sans-serif'}}>
           Магазин
         </div>
-        <div style={{display:'flex',gap:8,overflowX:'auto',scrollbarWidth:'none',marginBottom:16}}>
+        <div style={{display:'flex', gap:8, overflowX:'auto', scrollbarWidth:'none', marginBottom:16}}>
           {CATS.map(cat => (
             <div key={cat.id} onClick={() => setActiveCat(cat.id)} style={{
               flexShrink:0, padding:'6px 14px', borderRadius:12,
@@ -50,75 +67,72 @@ export default function Shop() {
         </div>
       </div>
 
-      <div style={{padding:'0 20px'}}>
-        {PRODUCTS[activeCat].map(product => (
-          <div key={product.id} style={{
-            background: product.featured ? '#fafde8' : '#fff',
-            border: product.featured ? '1.5px solid #BFD900' : '1px solid #efefef',
-            borderRadius:20, padding:18, marginBottom:12
-          }}>
-            {product.featured && (
-              <div style={{display:'inline-block',background:'#BFD900',color:'#2a2a2a',fontSize:9,fontWeight:700,letterSpacing:'0.08em',textTransform:'uppercase',padding:'3px 10px',borderRadius:8,marginBottom:10}}>
-                Популярный
-              </div>
-            )}
-            <div style={{fontSize:14,color:'#2a2a2a',fontWeight:400,marginBottom:4,fontFamily:'sans-serif'}}>{product.name}</div>
-            <div style={{fontSize:12,color:'#BDBDBD',marginBottom:14,lineHeight:1.5}}>{product.desc}</div>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-              <div style={{fontSize:18,color:'#2a2a2a',fontFamily:'sans-serif'}}>
-                {product.price.toLocaleString()} <span style={{fontSize:11,color:'#BDBDBD'}}>{product.unit}</span>
-              </div>
-              <button
-                onClick={() => setSelected(product)}
-                style={{
-                  background: product.featured ? '#BFD900' : 'transparent',
-                  color: product.featured ? '#2a2a2a' : '#BDBDBD',
-                  border: product.featured ? 'none' : '1.5px solid #e0e0e0',
-                  borderRadius:12, padding:'9px 20px',
-                  fontSize:12, fontWeight:700, cursor:'pointer',
-                  fontFamily:'Inter,sans-serif'
-                }}>
-                Купить
-              </button>
-            </div>
+      <div style={{padding:'0 20px 20px'}}>
+        {loading ? (
+          <div style={{textAlign:'center', color:'#BDBDBD', padding:40}}>Загрузка...</div>
+        ) : current.length === 0 ? (
+          <div style={{textAlign:'center', color:'#BDBDBD', padding:40, fontSize:13}}>
+            Пока ничего нет
           </div>
-        ))}
+        ) : current.map(product => {
+          const featured = product.id === featuredId
+          return (
+            <div key={product.id} style={{
+              background: featured ? '#fafde8' : '#fff',
+              border: featured ? '1.5px solid #BFD900' : '1px solid #efefef',
+              borderRadius:20, padding:18, marginBottom:12
+            }}>
+              {featured && (
+                <div style={{display:'inline-block', background:'#BFD900', color:'#2a2a2a', fontSize:9, fontWeight:700, letterSpacing:'0.08em', textTransform:'uppercase', padding:'3px 10px', borderRadius:8, marginBottom:10}}>
+                  Популярный
+                </div>
+              )}
+              <div style={{fontSize:14, color:'#2a2a2a', fontWeight:400, marginBottom:4, fontFamily:'sans-serif'}}>{product.name}</div>
+              {product.description && (
+                <div style={{fontSize:12, color:'#BDBDBD', marginBottom:14, lineHeight:1.5}}>{product.description}</div>
+              )}
+              <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                <div style={{fontSize:18, color:'#2a2a2a', fontFamily:'sans-serif'}}>
+                  {Number(product.price).toLocaleString()} <span style={{fontSize:11, color:'#BDBDBD'}}>₽</span>
+                </div>
+                <button
+                  onClick={() => setSelected(product)}
+                  style={{
+                    background: featured ? '#BFD900' : 'transparent',
+                    color: featured ? '#2a2a2a' : '#BDBDBD',
+                    border: featured ? 'none' : '1.5px solid #e0e0e0',
+                    borderRadius:12, padding:'9px 20px',
+                    fontSize:12, fontWeight:700, cursor:'pointer',
+                    fontFamily:'Inter,sans-serif'
+                  }}>
+                  Купить
+                </button>
+              </div>
+            </div>
+          )
+        })}
       </div>
 
-      {/* Модальное окно */}
       {selected && (
-        <div
-          onClick={() => setSelected(null)}
-          style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'rgba(0,0,0,0.5)',zIndex:200,display:'flex',alignItems:'flex-end',justifyContent:'center'}}
-        >
-          <div
-            onClick={e => e.stopPropagation()}
-            style={{background:'#fff',borderRadius:'24px 24px 0 0',padding:24,width:'100%',maxWidth:480,boxSizing:'border-box'}}
-          >
-            <div style={{width:40,height:4,background:'#e0e0e0',borderRadius:2,margin:'0 auto 20px'}}></div>
-            <div style={{fontSize:16,color:'#2a2a2a',fontWeight:500,marginBottom:6}}>{selected.name}</div>
-            <div style={{fontSize:13,color:'#BDBDBD',marginBottom:20,lineHeight:1.6}}>{selected.desc}</div>
-            <div style={{fontSize:24,color:'#2a2a2a',fontWeight:300,marginBottom:20}}>
-              {selected.price.toLocaleString()} <span style={{fontSize:14,color:'#BDBDBD'}}>{selected.unit}</span>
+        <div onClick={() => setSelected(null)}
+          style={{position:'fixed', top:0, left:0, right:0, bottom:0, background:'rgba(0,0,0,0.5)', zIndex:200, display:'flex', alignItems:'flex-end', justifyContent:'center'}}>
+          <div onClick={e => e.stopPropagation()}
+            style={{background:'#fff', borderRadius:'24px 24px 0 0', padding:24, width:'100%', maxWidth:480, boxSizing:'border-box'}}>
+            <div style={{width:40, height:4, background:'#e0e0e0', borderRadius:2, margin:'0 auto 20px'}} />
+            <div style={{fontSize:16, color:'#2a2a2a', fontWeight:500, marginBottom:6}}>{selected.name}</div>
+            {selected.description && (
+              <div style={{fontSize:13, color:'#BDBDBD', marginBottom:20, lineHeight:1.6}}>{selected.description}</div>
+            )}
+            <div style={{fontSize:24, color:'#2a2a2a', fontWeight:300, marginBottom:20}}>
+              {Number(selected.price).toLocaleString()} <span style={{fontSize:14, color:'#BDBDBD'}}>₽</span>
             </div>
             <button
               onClick={() => alert('Оплата скоро будет доступна! Для оплаты свяжитесь с администратором.')}
-              style={{
-                width:'100%',padding:14,background:'#BFD900',border:'none',
-                borderRadius:14,fontSize:14,fontWeight:700,color:'#2a2a2a',
-                cursor:'pointer',fontFamily:'Inter,sans-serif',marginBottom:10
-              }}
-            >
-              Оплатить {selected.price.toLocaleString()} ₽
+              style={{width:'100%', padding:14, background:'#BFD900', border:'none', borderRadius:14, fontSize:14, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif', marginBottom:10}}>
+              Оплатить {Number(selected.price).toLocaleString()} ₽
             </button>
-            <button
-              onClick={() => setSelected(null)}
-              style={{
-                width:'100%',padding:14,background:'transparent',border:'1px solid #e0e0e0',
-                borderRadius:14,fontSize:14,color:'#BDBDBD',
-                cursor:'pointer',fontFamily:'Inter,sans-serif'
-              }}
-            >
+            <button onClick={() => setSelected(null)}
+              style={{width:'100%', padding:14, background:'transparent', border:'1px solid #e0e0e0', borderRadius:14, fontSize:14, color:'#BDBDBD', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
               Отмена
             </button>
           </div>

@@ -25,7 +25,7 @@ import { useUserRole } from './hooks/useUserRole'
 function ClientApp({ session }) {
   const [page, setPage] = useState('home')
   return (
-    <div style={{maxWidth:480, margin:'0 auto', background:'#F8F8F8', minHeight:'100vh', paddingBottom:80}}>
+    <div style={{maxWidth:480, margin:'0 auto', background:'#F8F8F8', minHeight:'100vh', paddingBottom:80, width:'100%', boxSizing:'border-box'}}>
       {page === 'home' && <Home session={session} />}
       {page === 'schedule' && <Schedule session={session} />}
       {page === 'shop' && <Shop session={session} />}
