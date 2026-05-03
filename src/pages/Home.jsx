@@ -18,7 +18,6 @@ export default function Home({ session, onNewsAll }) {
         .order('published_at', { ascending: false }).limit(5)
       setNews(newsData || [])
 
-      // Статистика посещений
       const now = new Date()
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
 
@@ -37,12 +36,11 @@ export default function Home({ session, onNewsAll }) {
           const diff = new Date(a.schedule.ends_at) - new Date(a.schedule.starts_at)
           return sum + diff / 60000
         }
-        return sum + 90 // дефолт 1.5 часа если нет данных
+        return sum + 90
       }, 0)
 
       setStats({ thisMonth: thisMonthCount, totalHours: Math.round(totalMinutes / 60) })
 
-      // Следующее занятие
       const { data: bookings } = await supabase
         .from('bookings')
         .select('schedule:schedule_id(id, title, starts_at, ends_at, hall, groups(name), profiles:teacher_id(full_name))')
@@ -61,9 +59,7 @@ export default function Home({ session, onNewsAll }) {
   const name = profile?.full_name?.split(' ')[0] || session.user.email
 
   const formatDate = (dateStr) => new Date(dateStr).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
-
   const formatTime = (dateStr) => new Date(dateStr).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
-
   const isToday = (dateStr) => {
     const d = new Date(dateStr)
     const now = new Date()
@@ -74,9 +70,12 @@ export default function Home({ session, onNewsAll }) {
     <div style={{padding:'16px 20px 0', fontFamily:'Inter,sans-serif', maxWidth:480, margin:'0 auto'}}>
       <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:18}}>
         <div style={{width:36, height:36, border:'2px dashed #BDBDBD', borderRadius:8, display:'flex', alignItems:'center', justifyContent:'center', color:'#BDBDBD'}}>+</div>
-        <div style={{width:36, height:36, background:'#BFD900', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:700, color:'#2a2a2a'}}>
-          {name[0].toUpperCase()}
-        </div>
+        {profile?.avatar_url
+          ? <img src={profile.avatar_url} alt="" style={{width:36, height:36, borderRadius:'50%', objectFit:'cover'}} />
+          : <div style={{width:36, height:36, background:'#BFD900', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:700, color:'#2a2a2a'}}>
+              {name[0].toUpperCase()}
+            </div>
+        }
       </div>
 
       <div style={{fontSize:12, color:'#BDBDBD', marginBottom:3}}>Добро пожаловать,</div>
@@ -84,7 +83,6 @@ export default function Home({ session, onNewsAll }) {
         Привет, <span style={{color:'#BFD900', fontWeight:600}}>{name}!</span>
       </div>
 
-      {/* Следующее занятие */}
       <div style={{background:'#2a2a2a', borderRadius:22, padding:18, marginBottom:18, position:'relative'}}>
         {nextLesson ? (
           <>
@@ -106,7 +104,6 @@ export default function Home({ session, onNewsAll }) {
         )}
       </div>
 
-      {/* Статистика */}
       <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:18}}>
         <div style={{background:'#fff', borderRadius:16, padding:14, border:'1px solid #efefef'}}>
           <div style={{fontSize:22, color:'#2a2a2a', fontWeight:300}}>{stats.thisMonth} <span style={{fontSize:11, color:'#BFD900'}}>зан.</span></div>
@@ -118,7 +115,6 @@ export default function Home({ session, onNewsAll }) {
         </div>
       </div>
 
-      {/* Новости */}
       <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8}}>
         <div style={{fontSize:10, color:'#BDBDBD', letterSpacing:'0.12em', textTransform:'uppercase'}}>Новости студии</div>
         <div onClick={onNewsAll} style={{fontSize:12, color:'#BFD900', fontWeight:600, cursor:'pointer'}}>Все новости →</div>

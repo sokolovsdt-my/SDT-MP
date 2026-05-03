@@ -25,7 +25,6 @@ export default function AdminClients() {
 
   const load = async () => {
     setLoading(true)
-
     const { data } = await supabase
       .from('profiles')
       .select('*')
@@ -33,13 +32,11 @@ export default function AdminClients() {
       .order('full_name')
     setClients(data || [])
 
-    // Метки лояльности
     const { data: loyalty } = await supabase.from('client_loyalty').select('client_id, level')
     const map = {}
     ;(loyalty || []).forEach(l => { map[l.client_id] = l.level })
     setLoyaltyMap(map)
 
-    // Активные абонементы
     const today = new Date().toISOString().split('T')[0]
     const { data: subs } = await supabase.from('subscriptions')
       .select('student_id').gte('expires_at', today).eq('is_frozen', false)
@@ -61,7 +58,6 @@ export default function AdminClients() {
     const result = await res.json()
     if (!res.ok) { alert('Ошибка: ' + (result.error || 'неизвестная')); setAddingSaving(false); return }
 
-    // Сохраняем дополнительные поля
     if (result.user_id) {
       await supabase.from('profiles').update({
         first_name: newClient.first_name || null,
@@ -84,14 +80,12 @@ export default function AdminClients() {
     return (c.email || '?')[0].toUpperCase()
   }
 
-  // Фильтрация
   const ago7 = new Date(Date.now() - 7 * 86400000).toISOString()
   const filtered = clients.filter(c => {
     const name = (c.full_name || c.email || '').toLowerCase()
     const phone = (c.phone || '').toLowerCase()
     const matchSearch = name.includes(search.toLowerCase()) || phone.includes(search.toLowerCase())
     if (!matchSearch) return false
-
     if (filter === 'active') return activeSubIds.has(c.id)
     if (filter === 'inactive') return !activeSubIds.has(c.id)
     if (filter === 'new') return c.created_at > ago7
@@ -115,13 +109,11 @@ export default function AdminClients() {
         </button>
       </div>
 
-      {/* Модальное окно */}
       {showAddModal && (
         <div style={{position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center'}}
           onClick={e => { if (e.target === e.currentTarget) setShowAddModal(false) }}>
           <div style={{background:'#fff', borderRadius:16, padding:28, width:400, boxShadow:'0 8px 32px rgba(0,0,0,0.15)'}}>
             <div style={{fontSize:16, fontWeight:600, color:'#2a2a2a', marginBottom:20}}>Новый клиент</div>
-
             {[
               ['Фамилия', 'last_name', 'Соколова', 'text'],
               ['Имя', 'first_name', 'Мария', 'text'],
@@ -137,7 +129,6 @@ export default function AdminClients() {
                   style={{width:'100%', padding:'9px 12px', border:'1px solid #e8e8e8', borderRadius:10, fontSize:13, boxSizing:'border-box', fontFamily:'Inter,sans-serif'}} />
               </div>
             ))}
-
             <label style={{fontSize:12, color:'#888', marginBottom:4, fontWeight:600, display:'block'}}>Рекламный источник</label>
             <select value={newClient.ad_source} onChange={e => setNewClient({...newClient, ad_source:e.target.value, ad_source_custom:''})}
               style={{width:'100%', padding:'9px 12px', border:'1px solid #e8e8e8', borderRadius:10, fontSize:13, marginBottom: newClient.ad_source === 'other' ? 8 : 20, boxSizing:'border-box', fontFamily:'Inter,sans-serif'}}>
@@ -170,7 +161,6 @@ export default function AdminClients() {
         </div>
       )}
 
-      {/* Поиск и фильтры */}
       <div style={{display:'flex', gap:10, marginBottom:20, flexWrap:'wrap'}}>
         <input value={search} onChange={e => setSearch(e.target.value)}
           placeholder="Поиск по имени или телефону..."
@@ -217,9 +207,12 @@ export default function AdminClients() {
                     <td style={{padding:'12px 16px'}}>
                       <div style={{display:'flex', alignItems:'center', gap:10}}>
                         <div style={{width:8, height:8, borderRadius:'50%', flexShrink:0, background: loyalty ? loyalty.color : '#e8e8e8'}} />
-                        <div style={{width:34, height:34, background:'#f5facc', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:700, color:'#6a7700', flexShrink:0}}>
-                          {initials(c)}
-                        </div>
+                        {c.avatar_url
+                          ? <img src={c.avatar_url} alt="" style={{width:34, height:34, borderRadius:'50%', objectFit:'cover', flexShrink:0}} />
+                          : <div style={{width:34, height:34, background:'#f5facc', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:700, color:'#6a7700', flexShrink:0}}>
+                              {initials(c)}
+                            </div>
+                        }
                         <div>
                           <div style={{fontSize:13, fontWeight:500, color:'#2a2a2a'}}>{c.full_name || '—'}</div>
                           <div style={{fontSize:11, color:'#BDBDBD'}}>{c.email}</div>
@@ -228,9 +221,9 @@ export default function AdminClients() {
                     </td>
                     <td style={{padding:'12px 16px', fontSize:13, color:'#3a3a3a'}}>{c.phone || '—'}</td>
                     <td style={{padding:'12px 16px'}}>
-                      {loyalty ? (
-                        <span style={{fontSize:11, fontWeight:600, color: loyalty.color, background: loyalty.color + '22', padding:'2px 8px', borderRadius:6}}>{loyalty.label}</span>
-                      ) : <span style={{fontSize:11, color:'#BDBDBD'}}>—</span>}
+                      {loyalty
+                        ? <span style={{fontSize:11, fontWeight:600, color: loyalty.color, background: loyalty.color + '22', padding:'2px 8px', borderRadius:6}}>{loyalty.label}</span>
+                        : <span style={{fontSize:11, color:'#BDBDBD'}}>—</span>}
                     </td>
                     <td style={{padding:'12px 16px'}}>
                       {hasActiveSub
