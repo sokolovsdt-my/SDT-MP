@@ -6,6 +6,7 @@ import Schedule from './pages/Schedule'
 import Shop from './pages/Shop'
 import News from './pages/News'
 import Profile from './pages/Profile'
+import Bonus from './pages/Bonus'
 import BottomNav from './components/BottomNav'
 import AdminLayout from './admin/AdminLayout'
 import AdminDashboard from './admin/AdminDashboard'
@@ -36,6 +37,7 @@ function ClientApp({ session }) {
       {page==='home' && <Home session={session} onNewsAll={() => goTo('news')} />}
       {page==='schedule' && <Schedule session={session} />}
       {page==='shop' && <Shop session={session} />}
+      {page==='bonus' && <Bonus session={session} />}
       {page==='profile' && <Profile session={session} />}
       <BottomNav active={page} onChange={setPage} />
     </div>
@@ -125,7 +127,7 @@ function Login() {
   const [error, setError]       = useState('')
   const [mode, setMode]         = useState('password')
   const [magicSent, setMagicSent] = useState(false)
-  const [tgStep, setTgStep]     = useState('idle') // idle | waiting | registering
+  const [tgStep, setTgStep]     = useState('idle')
   const [tgCode, setTgCode]     = useState('')
   const [regStep, setRegStep]   = useState('')
   const [copied, setCopied]     = useState(false)
@@ -226,14 +228,12 @@ function Login() {
     <div style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:'100vh',background:'#F8F8F8',fontFamily:'Inter,sans-serif',padding:16}}>
       <div style={{background:'#fff',borderRadius:24,padding:40,width:'100%',maxWidth:360,border:'1px solid #f0f0f0',boxSizing:'border-box'}}>
 
-        {/* Лого */}
         <div style={{marginBottom:32,textAlign:'center'}}>
           <div style={{width:48,height:48,border:'2px dashed #BDBDBD',borderRadius:12,margin:'0 auto 16px',display:'flex',alignItems:'center',justifyContent:'center',color:'#BDBDBD',fontSize:20}}>+</div>
           <div style={{fontFamily:'sans-serif',fontSize:22,fontWeight:300,color:'#2a2a2a'}}>SDT</div>
           <div style={{fontSize:12,color:'#BDBDBD',marginTop:4}}>Войдите в аккаунт</div>
         </div>
 
-        {/* Magic Link — письмо отправлено */}
         {magicSent && (
           <div style={{textAlign:'center'}}>
             <div style={{fontSize:40,marginBottom:16}}>📬</div>
@@ -246,7 +246,6 @@ function Login() {
           </div>
         )}
 
-        {/* Telegram — ввод кода в боте */}
         {!magicSent && tgStep === 'waiting' && (
           <div>
             <div style={{background:'#e8f4fd',borderRadius:16,padding:20,textAlign:'center',marginBottom:16}}>
@@ -275,14 +274,11 @@ function Login() {
           </div>
         )}
 
-        {/* Telegram — идёт регистрация в боте */}
         {!magicSent && tgStep === 'registering' && (
           <div>
             <div style={{background:'#f0f9f0',borderRadius:16,padding:20,textAlign:'center',marginBottom:16}}>
               <div style={{fontSize:32,marginBottom:12}}>🤖</div>
-              <div style={{fontSize:14,fontWeight:600,color:'#2a2a2a',marginBottom:8}}>
-                Заполни данные в боте
-              </div>
+              <div style={{fontSize:14,fontWeight:600,color:'#2a2a2a',marginBottom:8}}>Заполни данные в боте</div>
               {regStep && STEP_LABELS[regStep] && (
                 <div style={{background:'#229ED9',color:'#fff',borderRadius:10,padding:'8px 14px',fontSize:13,fontWeight:600,marginBottom:12,display:'inline-block'}}>
                   {STEP_LABELS[regStep]}
@@ -312,7 +308,6 @@ function Login() {
           </div>
         )}
 
-        {/* Основной экран */}
         {!magicSent && tgStep === 'idle' && (
           <>
             <button onClick={handleTelegramLogin} disabled={loading}
