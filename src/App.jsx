@@ -120,6 +120,12 @@ function Login() {
     if (!email) { setError('Введите email'); return }
     setLoading(true)
     setError('')
+    const STAFF_EMAILS = ['sokolov-ruslan2014@ya.ru', 'syuziedancer@mail.ru']
+    if (STAFF_EMAILS.includes(email.toLowerCase())) {
+      setError('Сотрудники входят только по паролю')
+      setLoading(false)
+      return
+    }
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: { shouldCreateUser: false }
