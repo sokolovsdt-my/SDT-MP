@@ -117,9 +117,9 @@ function Login() {
   const [error, setError]       = useState('')
   const [mode, setMode]         = useState('password')
   const [magicSent, setMagicSent] = useState(false)
-  const [tgStep, setTgStep]     = useState('idle') // idle | waiting | registering
+  const [tgStep, setTgStep]     = useState('idle')
   const [tgCode, setTgCode]     = useState('')
-  const [regStep, setRegStep]   = useState('')     // текущий шаг регистрации
+  const [regStep, setRegStep]   = useState('')
   const [copied, setCopied]     = useState(false)
   const intervalRef             = useRef(null)
 
@@ -174,7 +174,6 @@ function Login() {
         try {
           const r      = await fetch(`${TG_LOGIN_URL}?action=check&code=${data.code}`)
           const result = await r.json()
-
           if (result.verified && result.session) {
             stopPolling()
             await supabase.auth.setSession(result.session)
@@ -198,6 +197,19 @@ function Login() {
       setError('Ошибка соединения. Попробуй снова.')
     }
     setLoading(false)
+  }
+
+  const handleManualCheck = async () => {
+    try {
+      const r = await fetch(`${TG_LOGIN_URL}?action=check&code=${tgCode}`)
+      const result = await r.json()
+      if (result.verified && result.session) {
+        stopPolling()
+        await supabase.auth.setSession(result.session)
+      } else {
+        setError('Регистрация ещё не завершена. Заполни все данные в боте.')
+      }
+    } catch (_) { setError('Ошибка соединения.') }
   }
 
   return (
@@ -270,14 +282,19 @@ function Login() {
                 После заполнения всех данных <b>вернись сюда</b> — войдёшь автоматически.
               </div>
               <a href="https://t.me/sdt_auth_bot" target="_blank" rel="noreferrer"
-                style={{display:'inline-block',background:'#229ED9',color:'#fff',borderRadius:10,padding:'10px 20px',fontSize:14,fontWeight:700,textDecoration:'none'}}>
+                style={{display:'inline-block',background:'#229ED9',color:'#fff',borderRadius:10,padding:'10px 20px',fontSize:14,fontWeight:700,textDecoration:'none',marginBottom:8}}>
                 ✈️ Открыть бота
               </a>
-              <div style={{fontSize:11,color:'#888',marginTop:12,display:'flex',alignItems:'center',justifyContent:'center',gap:6}}>
+              <div style={{fontSize:11,color:'#888',marginTop:8,display:'flex',alignItems:'center',justifyContent:'center',gap:6}}>
                 <span style={{width:8,height:8,borderRadius:'50%',background:'#f39c12',display:'inline-block',animation:'pulse 1.5s infinite'}} />
                 Ждём завершения регистрации...
               </div>
             </div>
+            {error && <div style={{color:'#e74c3c',fontSize:12,marginBottom:12}}>{error}</div>}
+            <button onClick={handleManualCheck}
+              style={{width:'100%',padding:'13px',background:'#BFD900',border:'none',borderRadius:12,fontSize:14,fontWeight:700,color:'#2a2a2a',cursor:'pointer',fontFamily:'Inter,sans-serif',marginBottom:8}}>
+              ✅ Я всё заполнил → Войти
+            </button>
             <button onClick={cancelTg}
               style={{width:'100%',background:'none',border:'1px solid #e8e8e8',borderRadius:10,padding:'10px',fontSize:13,color:'#888',cursor:'pointer',fontFamily:'Inter,sans-serif'}}>
               Отмена
