@@ -31,12 +31,12 @@ function ClientApp({ session }) {
   const [prevPage, setPrevPage] = useState('home')
   const goTo = (p) => { setPrevPage(page); setPage(p) }
   return (
-    <div style={{maxWidth:480, margin:'0 auto', background:'#F8F8F8', minHeight:'100vh', paddingBottom:80, width:'100%', boxSizing:'border-box'}}>
-      {page === 'news' && <News session={session} onBack={() => setPage('home')} />}
-      {page === 'home' && <Home session={session} onNewsAll={() => goTo('news')} />}
-      {page === 'schedule' && <Schedule session={session} />}
-      {page === 'shop' && <Shop session={session} />}
-      {page === 'profile' && <Profile session={session} />}
+    <div style={{maxWidth:480,margin:'0 auto',background:'#F8F8F8',minHeight:'100vh',paddingBottom:80,width:'100%',boxSizing:'border-box'}}>
+      {page==='news' && <News session={session} onBack={() => setPage('home')} />}
+      {page==='home' && <Home session={session} onNewsAll={() => goTo('news')} />}
+      {page==='schedule' && <Schedule session={session} />}
+      {page==='shop' && <Shop session={session} />}
+      {page==='profile' && <Profile session={session} />}
       <BottomNav active={page} onChange={setPage} />
     </div>
   )
@@ -44,15 +44,18 @@ function ClientApp({ session }) {
 
 function RootRedirect({ session }) {
   const { role, loading } = useUserRole(session)
-  if (loading) return (
+  if (loading) return <Loader />
+  if (role && ['teacher','admin','manager','owner'].includes(role))
+    return <Navigate to="/admin/dashboard" replace />
+  return <ClientApp session={session} />
+}
+
+function Loader() {
+  return (
     <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',background:'#F8F8F8',fontFamily:'Inter,sans-serif',color:'#BDBDBD'}}>
       Загрузка...
     </div>
   )
-  if (role && ['teacher','admin','manager','owner'].includes(role)) {
-    return <Navigate to="/admin/dashboard" replace />
-  }
-  return <ClientApp session={session} />
 }
 
 function App() {
@@ -61,20 +64,12 @@ function App() {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session)
-      setLoading(false)
+      setSession(session); setLoading(false)
     })
-    supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session)
-    })
+    supabase.auth.onAuthStateChange((_event, session) => setSession(session))
   }, [])
 
-  if (loading) return (
-    <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',background:'#F8F8F8',fontFamily:'Inter,sans-serif',color:'#BDBDBD'}}>
-      Загрузка...
-    </div>
-  )
-
+  if (loading) return <Loader />
   if (!session) return <Login />
 
   return (
@@ -106,23 +101,29 @@ function App() {
   )
 }
 
-// ─── Экран входа ─────────────────────────────────────────────────────────────
+// ─── Login ────────────────────────────────────────────────────────────────────
+
+const STEP_LABELS = {
+  awaiting_phone_contact: '📱 Поделись номером телефона в боте',
+  awaiting_name:          '✍️ Введи ФИО в боте',
+  awaiting_birthdate:     '🎂 Введи дату рождения в боте',
+  awaiting_email:         '📧 Введи email в боте (или «пропустить»)',
+}
 
 function Login() {
   const [email, setEmail]       = useState('')
   const [password, setPassword] = useState('')
-  const [phone, setPhone]       = useState('')
   const [loading, setLoading]   = useState(false)
   const [error, setError]       = useState('')
   const [mode, setMode]         = useState('password')
   const [magicSent, setMagicSent] = useState(false)
+  const [tgStep, setTgStep]     = useState('idle') // idle | waiting | registering
+  const [tgCode, setTgCode]     = useState('')
+  const [regStep, setRegStep]   = useState('')     // текущий шаг регистрации
+  const [copied, setCopied]     = useState(false)
+  const intervalRef             = useRef(null)
 
-  const [tgStep, setTgStep] = useState('idle') // idle | waiting | needs_link
-  const [tgCode, setTgCode] = useState('')
-  const [tgData, setTgData] = useState(null)
-  const intervalRef = useRef(null)
-
-  useEffect(() => { return () => stopPolling() }, [])
+  useEffect(() => () => stopPolling(), [])
 
   const stopPolling = () => {
     if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null }
@@ -130,7 +131,13 @@ function Login() {
 
   const cancelTg = () => {
     stopPolling()
-    setTgStep('idle'); setTgCode(''); setTgData(null); setError('')
+    setTgStep('idle'); setTgCode(''); setRegStep(''); setError('')
+  }
+
+  const copyCode = () => {
+    navigator.clipboard.writeText(tgCode).then(() => {
+      setCopied(true); setTimeout(() => setCopied(false), 2000)
+    })
   }
 
   const handleLogin = async (e) => {
@@ -144,12 +151,12 @@ function Login() {
     e.preventDefault()
     if (!email) { setError('Введите email'); return }
     setLoading(true); setError('')
-    const STAFF_EMAILS = ['sokolov-ruslan2014@ya.ru', 'syuziedancer@mail.ru']
-    if (STAFF_EMAILS.includes(email.toLowerCase())) {
+    const STAFF = ['sokolov-ruslan2014@ya.ru', 'syuziedancer@mail.ru']
+    if (STAFF.includes(email.toLowerCase())) {
       setError('Сотрудники входят только по паролю'); setLoading(false); return
     }
     const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false } })
-    if (error) setError('Ошибка отправки. Проверьте email.')
+    if (error) setError('Ошибка. Проверьте email.')
     else setMagicSent(true)
     setLoading(false)
   }
@@ -157,29 +164,35 @@ function Login() {
   const handleTelegramLogin = async () => {
     setLoading(true); setError('')
     try {
-      const res = await fetch(`${TG_LOGIN_URL}?action=generate`)
+      const res  = await fetch(`${TG_LOGIN_URL}?action=generate`)
       const data = await res.json()
-      if (!data.code) throw new Error('no code')
+      if (!data.code) throw new Error()
       setTgCode(data.code)
       setTgStep('waiting')
 
       intervalRef.current = setInterval(async () => {
         try {
-          const r = await fetch(`${TG_LOGIN_URL}?action=check&code=${data.code}`)
+          const r      = await fetch(`${TG_LOGIN_URL}?action=check&code=${data.code}`)
           const result = await r.json()
+
           if (result.verified && result.session) {
             stopPolling()
             await supabase.auth.setSession(result.session)
-          } else if (result.verified && result.needs_link) {
-            stopPolling()
-            setTgData(result)
-            setTgStep('needs_link')
+          } else if (result.registering) {
+            setTgStep('registering')
+            setRegStep(result.step || '')
+          } else if (result.expired) {
+            stopPolling(); setTgStep('idle')
+            setError('Время ожидания истекло. Попробуй снова.')
           }
         } catch (_) {}
       }, 2000)
 
       setTimeout(() => {
-        if (intervalRef.current) { stopPolling(); setTgStep('idle'); setError('Время ожидания истекло. Попробуй снова.') }
+        if (intervalRef.current) {
+          stopPolling(); setTgStep('idle')
+          setError('Время ожидания истекло. Попробуй снова.')
+        }
       }, 10 * 60 * 1000)
     } catch (_) {
       setError('Ошибка соединения. Попробуй снова.')
@@ -187,34 +200,11 @@ function Login() {
     setLoading(false)
   }
 
-  const handlePhoneLink = async (e) => {
-    e.preventDefault()
-    if (!phone.trim()) { setError('Введите номер телефона'); return }
-    setLoading(true); setError('')
-    try {
-      const res = await fetch(`${TG_LOGIN_URL}?action=link`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: tgData.code, phone: phone.trim() })
-      })
-      const result = await res.json()
-      if (result.linked && result.session) {
-        await supabase.auth.setSession(result.session)
-      } else if (result.error === 'not_found') {
-        setError('Номер не найден. Обратитесь в студию или войдите по email.')
-      } else if (result.error === 'code_expired') {
-        setError('Сессия истекла. Начни сначала.'); cancelTg()
-      } else {
-        setError('Что-то пошло не так. Попробуй снова.')
-      }
-    } catch (_) { setError('Ошибка соединения.') }
-    setLoading(false)
-  }
-
   return (
     <div style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:'100vh',background:'#F8F8F8',fontFamily:'Inter,sans-serif',padding:16}}>
       <div style={{background:'#fff',borderRadius:24,padding:40,width:'100%',maxWidth:360,border:'1px solid #f0f0f0',boxSizing:'border-box'}}>
 
+        {/* Лого */}
         <div style={{marginBottom:32,textAlign:'center'}}>
           <div style={{width:48,height:48,border:'2px dashed #BDBDBD',borderRadius:12,margin:'0 auto 16px',display:'flex',alignItems:'center',justifyContent:'center',color:'#BDBDBD',fontSize:20}}>+</div>
           <div style={{fontFamily:'sans-serif',fontSize:22,fontWeight:300,color:'#2a2a2a'}}>SDT</div>
@@ -234,12 +224,18 @@ function Login() {
           </div>
         )}
 
-        {/* Telegram — ожидание */}
+        {/* Telegram — ввод кода в боте */}
         {!magicSent && tgStep === 'waiting' && (
           <div>
             <div style={{background:'#e8f4fd',borderRadius:16,padding:20,textAlign:'center',marginBottom:16}}>
               <div style={{fontSize:11,color:'#555',marginBottom:6}}>Твой код для входа</div>
-              <div style={{fontSize:36,fontWeight:700,color:'#229ED9',letterSpacing:8,marginBottom:12}}>{tgCode}</div>
+              <div onClick={copyCode}
+                style={{fontSize:36,fontWeight:700,color:'#229ED9',letterSpacing:8,marginBottom:4,cursor:'pointer',userSelect:'none'}}>
+                {tgCode}
+              </div>
+              <div style={{fontSize:11,color:copied?'#27ae60':'#888',marginBottom:12,transition:'color 0.2s'}}>
+                {copied ? '✅ Скопировано!' : 'Нажми на код чтобы скопировать'}
+              </div>
               <div style={{fontSize:13,color:'#2a2a2a',marginBottom:12}}>Открой бота и отправь ему этот код:</div>
               <a href="https://t.me/sdt_auth_bot" target="_blank" rel="noreferrer"
                 style={{display:'inline-block',background:'#229ED9',color:'#fff',borderRadius:10,padding:'10px 20px',fontSize:14,fontWeight:700,textDecoration:'none'}}>
@@ -257,33 +253,35 @@ function Login() {
           </div>
         )}
 
-        {/* Telegram — привязка по телефону */}
-        {!magicSent && tgStep === 'needs_link' && (
+        {/* Telegram — идёт регистрация в боте */}
+        {!magicSent && tgStep === 'registering' && (
           <div>
-            <div style={{background:'#fff8e1',borderRadius:16,padding:16,marginBottom:16,textAlign:'center'}}>
-              <div style={{fontSize:24,marginBottom:8}}>📱</div>
-              <div style={{fontSize:14,fontWeight:600,color:'#2a2a2a',marginBottom:4}}>
-                Привет{tgData?.telegram_name ? `, ${tgData.telegram_name}` : ''}!
+            <div style={{background:'#f0f9f0',borderRadius:16,padding:20,textAlign:'center',marginBottom:16}}>
+              <div style={{fontSize:32,marginBottom:12}}>🤖</div>
+              <div style={{fontSize:14,fontWeight:600,color:'#2a2a2a',marginBottom:8}}>
+                Заполни данные в боте
               </div>
-              <div style={{fontSize:12,color:'#666'}}>
-                Telegram ещё не привязан. Введи номер телефона, который указан в студии:
+              {regStep && STEP_LABELS[regStep] && (
+                <div style={{background:'#229ED9',color:'#fff',borderRadius:10,padding:'8px 14px',fontSize:13,fontWeight:600,marginBottom:12,display:'inline-block'}}>
+                  {STEP_LABELS[regStep]}
+                </div>
+              )}
+              <div style={{fontSize:13,color:'#555',lineHeight:1.6,marginBottom:12}}>
+                После заполнения всех данных <b>вернись сюда</b> — войдёшь автоматически.
+              </div>
+              <a href="https://t.me/sdt_auth_bot" target="_blank" rel="noreferrer"
+                style={{display:'inline-block',background:'#229ED9',color:'#fff',borderRadius:10,padding:'10px 20px',fontSize:14,fontWeight:700,textDecoration:'none'}}>
+                ✈️ Открыть бота
+              </a>
+              <div style={{fontSize:11,color:'#888',marginTop:12,display:'flex',alignItems:'center',justifyContent:'center',gap:6}}>
+                <span style={{width:8,height:8,borderRadius:'50%',background:'#f39c12',display:'inline-block',animation:'pulse 1.5s infinite'}} />
+                Ждём завершения регистрации...
               </div>
             </div>
-            <form onSubmit={handlePhoneLink}>
-              <input type="tel" placeholder="+7 999 123 45 67" value={phone}
-                onChange={e => setPhone(e.target.value)}
-                style={{width:'100%',padding:'12px 14px',border:'1px solid #e8e8e8',borderRadius:12,fontSize:14,marginBottom:12,boxSizing:'border-box',fontFamily:'Inter,sans-serif'}}
-              />
-              {error && <div style={{color:'#e74c3c',fontSize:12,marginBottom:12}}>{error}</div>}
-              <button type="submit" disabled={loading}
-                style={{width:'100%',padding:'13px',background:'#BFD900',border:'none',borderRadius:12,fontSize:14,fontWeight:700,color:'#2a2a2a',cursor:'pointer',fontFamily:'Inter,sans-serif',marginBottom:8,opacity:loading?0.7:1}}>
-                {loading ? 'Проверяем...' : '✅ Привязать и войти'}
-              </button>
-              <button type="button" onClick={cancelTg}
-                style={{width:'100%',background:'none',border:'1px solid #e8e8e8',borderRadius:10,padding:'10px',fontSize:13,color:'#888',cursor:'pointer',fontFamily:'Inter,sans-serif'}}>
-                Назад
-              </button>
-            </form>
+            <button onClick={cancelTg}
+              style={{width:'100%',background:'none',border:'1px solid #e8e8e8',borderRadius:10,padding:'10px',fontSize:13,color:'#888',cursor:'pointer',fontFamily:'Inter,sans-serif'}}>
+              Отмена
+            </button>
           </div>
         )}
 
@@ -312,18 +310,14 @@ function Login() {
               </button>
             </div>
 
-            <form onSubmit={mode === 'password' ? handleLogin : handleMagicLink}>
-              <input type="email" placeholder="Email" value={email}
-                onChange={e => setEmail(e.target.value)}
-                style={{width:'100%',padding:'12px 14px',border:'1px solid #e8e8e8',borderRadius:12,fontSize:14,marginBottom:10,boxSizing:'border-box',fontFamily:'Inter,sans-serif'}}
-              />
-              {mode === 'password' && (
-                <input type="password" placeholder="Пароль" value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  style={{width:'100%',padding:'12px 14px',border:'1px solid #e8e8e8',borderRadius:12,fontSize:14,marginBottom:16,boxSizing:'border-box',fontFamily:'Inter,sans-serif'}}
-                />
+            <form onSubmit={mode==='password' ? handleLogin : handleMagicLink}>
+              <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)}
+                style={{width:'100%',padding:'12px 14px',border:'1px solid #e8e8e8',borderRadius:12,fontSize:14,marginBottom:10,boxSizing:'border-box',fontFamily:'Inter,sans-serif'}} />
+              {mode==='password' && (
+                <input type="password" placeholder="Пароль" value={password} onChange={e => setPassword(e.target.value)}
+                  style={{width:'100%',padding:'12px 14px',border:'1px solid #e8e8e8',borderRadius:12,fontSize:14,marginBottom:16,boxSizing:'border-box',fontFamily:'Inter,sans-serif'}} />
               )}
-              {mode === 'magic' && (
+              {mode==='magic' && (
                 <div style={{fontSize:12,color:'#888',marginBottom:16,background:'#f9f9f9',borderRadius:10,padding:'10px 12px'}}>
                   📩 Пришлём ссылку — вход в один клик
                 </div>
@@ -331,13 +325,13 @@ function Login() {
               {error && <div style={{color:'#e74c3c',fontSize:12,marginBottom:12}}>{error}</div>}
               <button type="submit" disabled={loading}
                 style={{width:'100%',padding:'13px',background:'#BFD900',border:'none',borderRadius:12,fontSize:14,fontWeight:700,color:'#2a2a2a',cursor:'pointer',fontFamily:'Inter,sans-serif',opacity:loading?0.7:1}}>
-                {loading ? 'Входим...' : mode === 'password' ? 'Войти' : '✉️ Отправить ссылку'}
+                {loading ? 'Входим...' : mode==='password' ? 'Войти' : '✉️ Отправить ссылку'}
               </button>
             </form>
           </>
         )}
       </div>
-      <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }`}</style>
+      <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}`}</style>
     </div>
   )
 }
