@@ -110,6 +110,14 @@ const STEP_LABELS = {
   awaiting_email:         '📧 Введи email в боте (или «пропустить»)',
 }
 
+async function loginWithToken(hashed_token, setError) {
+  const { error } = await supabase.auth.verifyOtp({
+    token_hash: hashed_token,
+    type: 'magiclink'
+  })
+  if (error) setError('Ошибка входа: ' + error.message)
+}
+
 function Login() {
   const [email, setEmail]       = useState('')
   const [password, setPassword] = useState('')
@@ -117,7 +125,7 @@ function Login() {
   const [error, setError]       = useState('')
   const [mode, setMode]         = useState('password')
   const [magicSent, setMagicSent] = useState(false)
-  const [tgStep, setTgStep]     = useState('idle')
+  const [tgStep, setTgStep]     = useState('idle') // idle | waiting | registering
   const [tgCode, setTgCode]     = useState('')
   const [regStep, setRegStep]   = useState('')
   const [copied, setCopied]     = useState(false)
@@ -174,9 +182,10 @@ function Login() {
         try {
           const r      = await fetch(`${TG_LOGIN_URL}?action=check&code=${data.code}`)
           const result = await r.json()
-          if (result.verified && result.session) {
+
+          if (result.verified && result.hashed_token) {
             stopPolling()
-            await supabase.auth.setSession(result.session)
+            await loginWithToken(result.hashed_token, setError)
           } else if (result.registering) {
             setTgStep('registering')
             setRegStep(result.step || '')
@@ -200,12 +209,13 @@ function Login() {
   }
 
   const handleManualCheck = async () => {
+    setError('')
     try {
       const r = await fetch(`${TG_LOGIN_URL}?action=check&code=${tgCode}`)
       const result = await r.json()
-      if (result.verified && result.session) {
+      if (result.verified && result.hashed_token) {
         stopPolling()
-        await supabase.auth.setSession(result.session)
+        await loginWithToken(result.hashed_token, setError)
       } else {
         setError('Регистрация ещё не завершена. Заполни все данные в боте.')
       }
