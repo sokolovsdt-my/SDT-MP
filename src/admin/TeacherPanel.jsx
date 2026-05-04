@@ -21,7 +21,7 @@ function TasksSection({ tasks, session, onReload }) {
   const [expanded, setExpanded] = useState(null)
 
   const handleStatus = async (taskId, newStatus) => {
-    await supabase.from('tasks').update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', taskId)
+    await supabase.from('tasks').update({ status: newStatus }).eq('id', taskId)
     await supabase.from('task_history').insert({ task_id: taskId, action: 'status_changed', author_id: session.user.id, changes: { status: newStatus } })
     onReload()
   }
