@@ -140,7 +140,7 @@ export default function Shop({ session }) {
       </div>
 
       {teacherData.avatar_url && (
-        <img src={teacherData.avatar_url} alt="" style={{width:'100%', height:200, objectFit:'cover', borderRadius:16, marginBottom:12}} />
+        <img src={teacherData.avatar_url} alt="" style={{width:'100%', display:'block', objectFit:'contain', borderRadius:16, marginBottom:12, background:'#f0f0f0'}} />
       )}
 
       {teacherData.bio && (
@@ -187,28 +187,39 @@ export default function Shop({ session }) {
         ))
       )}
 
-      {indivTab === 'slots' && (
-        slots.length === 0 ? (
+      {indivTab === 'slots' && (() => {
+        const DAYS_FULL = ['Воскресенье','Понедельник','Вторник','Среда','Четверг','Пятница','Суббота']
+        const MONTHS = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек']
+        const nextDateForDay = (d) => {
+          const today = new Date()
+          const diff = (d - today.getDay() + 7) % 7
+          const next = new Date(today)
+          next.setDate(today.getDate() + diff)
+          return next
+        }
+        const grouped = [1,2,3,4,5,6,0]
+          .map(day => ({ day, date: nextDateForDay(day), slots: slots.filter(s => s.day_of_week === day) }))
+          .filter(g => g.slots.length > 0)
+          .sort((a,b) => a.date - b.date)
+        return slots.length === 0 ? (
           <div style={{textAlign:'center', color:'#BDBDBD', padding:40, fontSize:13}}>Расписание не указано</div>
-        ) : [1,2,3,4,5,6,0].map(day => {
-          const daySlots = slots.filter(s => s.day_of_week === day)
-          if (daySlots.length === 0) return null
-          return (
-            <div key={day} style={{marginBottom:12}}>
-              <div style={{fontSize:12, fontWeight:600, color:'#888', marginBottom:6}}>{DAYS[day]}</div>
-              {daySlots.map(s => (
-                <div key={s.id} style={{display:'flex', justifyContent:'space-between', alignItems:'center', background:'#fff', borderRadius:12, padding:'10px 14px', marginBottom:6, border:'1px solid #f0f0f0'}}>
-                  <div style={{fontSize:13, color:'#2a2a2a'}}>{s.start_time.slice(0,5)} — {s.end_time.slice(0,5)}</div>
-                  <button onClick={() => alert('Сначала оплатите индив!')}
-                    style={{background:'#f5facc', border:'none', borderRadius:8, padding:'5px 14px', fontSize:12, fontWeight:600, color:'#6a7700', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-                    Записаться
-                  </button>
-                </div>
-              ))}
+        ) : grouped.map(({day, date, slots: daySlots}) => (
+          <div key={day} style={{marginBottom:16}}>
+            <div style={{fontSize:13, fontWeight:600, color:'#2a2a2a', marginBottom:8}}>
+              {DAYS_FULL[day]}, {date.getDate()} {MONTHS[date.getMonth()]}
             </div>
-          )
-        })
-      )}
+            {daySlots.map(s => (
+              <div key={s.id} style={{display:'flex', justifyContent:'space-between', alignItems:'center', background:'#fff', borderRadius:12, padding:'10px 14px', marginBottom:6, border:'1px solid #f0f0f0'}}>
+                <div style={{fontSize:13, color:'#2a2a2a'}}>{s.start_time.slice(0,5)} — {s.end_time.slice(0,5)}</div>
+                <button onClick={() => alert('Сначала оплатите индив!')}
+                  style={{background:'#f5facc', border:'none', borderRadius:8, padding:'5px 14px', fontSize:12, fontWeight:600, color:'#6a7700', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+                  Записаться
+                </button>
+              </div>
+            ))}
+          </div>
+        ))
+      })()}
     </div>
   )
 

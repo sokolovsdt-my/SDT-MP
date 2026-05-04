@@ -9,6 +9,66 @@ const fmtDate = (d) => { const dt = new Date(d); return `${dt.getDate()} ${MONTH
 const isToday = (d) => { const n = new Date(), dt = new Date(d); return dt.getDate()===n.getDate() && dt.getMonth()===n.getMonth() }
 const isTomorrow = (d) => { const n = new Date(); n.setDate(n.getDate()+1); const dt = new Date(d); return dt.getDate()===n.getDate() && dt.getMonth()===n.getMonth() }
 
+const TASK_STATUSES = [
+  { value:'new', label:'Новая', color:'#2980b9', bg:'#e8f4fd' },
+  { value:'in_progress', label:'В работе', color:'#27ae60', bg:'#eafaf1' },
+  { value:'postponed', label:'Отложена', color:'#8e44ad', bg:'#f5eef8' },
+  { value:'problem', label:'Проблема', color:'#e74c3c', bg:'#fdecea' },
+  { value:'done', label:'Выполнена', color:'#27ae60', bg:'#eafaf1' },
+]
+
+function TasksSection({ tasks, session, onReload }) {
+  const [expanded, setExpanded] = useState(null)
+
+  const handleStatus = async (taskId, newStatus) => {
+    await supabase.from('tasks').update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', taskId)
+    await supabase.from('task_history').insert({ task_id: taskId, action: 'status_changed', author_id: session.user.id, changes: { status: newStatus } })
+    onReload()
+  }
+
+  if (tasks.length === 0) return (
+    <div style={{textAlign:'center', color:'#BDBDBD', padding:60, fontSize:13}}>Активных задач нет 🎉</div>
+  )
+
+  return (
+    <div>
+      {tasks.map(t => {
+        const st = TASK_STATUSES.find(s => s.value === t.status) || TASK_STATUSES[0]
+        return (
+          <div key={t.id} style={{background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', padding:14, marginBottom:10}}>
+            <div onClick={() => setExpanded(expanded===t.id ? null : t.id)} style={{cursor:'pointer'}}>
+              <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a', marginBottom:6}}>{t.title}</div>
+              {t.description && <div style={{fontSize:12, color:'#888', marginBottom:8, lineHeight:1.5}}>{t.description}</div>}
+              <div style={{display:'flex', gap:8, alignItems:'center', flexWrap:'wrap'}}>
+                <span style={{fontSize:11, padding:'3px 10px', borderRadius:6, fontWeight:600, background:st.bg, color:st.color}}>{st.label}</span>
+                {t.deadline && <span style={{fontSize:11, color: new Date(t.deadline) < new Date() ? '#e74c3c' : '#BDBDBD'}}>⏰ {fmtDate(t.deadline)}</span>}
+                <span style={{fontSize:11, color:'#BDBDBD', marginLeft:'auto'}}>{expanded===t.id ? '▲' : '▼'}</span>
+              </div>
+            </div>
+            {expanded === t.id && (
+              <div style={{marginTop:12, paddingTop:12, borderTop:'1px solid #f0f0f0'}}>
+                <div style={{fontSize:11, color:'#888', marginBottom:8, fontWeight:600}}>Изменить статус:</div>
+                <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
+                  {TASK_STATUSES.map(s => (
+                    <button key={s.value} onClick={() => handleStatus(t.id, s.value)}
+                      style={{padding:'6px 12px', borderRadius:8, border:'none', fontSize:12, cursor:'pointer', fontFamily:'Inter,sans-serif',
+                        fontWeight:t.status===s.value?700:400,
+                        background:t.status===s.value?s.bg:'#f5f5f5',
+                        color:t.status===s.value?s.color:'#888',
+                        outline:t.status===s.value?`1.5px solid ${s.color}`:'none'}}>
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 export default function TeacherPanel({ session }) {
   const [tab, setTab] = useState(() => localStorage.getItem('tp_tab') || 'main')
   const [profile, setProfile] = useState(null)
@@ -166,7 +226,6 @@ export default function TeacherPanel({ session }) {
   return (
     <div style={{fontFamily:'Inter,sans-serif', background:'#F8F8F8', minHeight:'100vh', width:'100%', maxWidth:480, margin:'0 auto', boxSizing:'border-box'}}>
 
-      {/* Шапка */}
       <div style={{background:'#2a2a2a', padding:'16px 16px 0', position:'sticky', top:0, zIndex:10}}>
         <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12}}>
           <div>
@@ -185,18 +244,10 @@ export default function TeacherPanel({ session }) {
             </button>
           </div>
         </div>
-
-        {/* Навигация — горизонтальный скролл */}
-        <div style={{display:'flex', gap:2, overflowX:'auto', scrollbarWidth:'none', paddingBottom:0}}>
+        <div style={{display:'flex', gap:2, overflowX:'auto', scrollbarWidth:'none'}}>
           {NAV.map(([v,l]) => (
             <div key={v} onClick={() => goTab(v)}
-              style={{
-                flexShrink:0, padding:'8px 12px', borderRadius:'8px 8px 0 0',
-                fontSize:12, cursor:'pointer', fontWeight: tab===v ? 600 : 400,
-                background: tab===v ? '#F8F8F8' : 'transparent',
-                color: tab===v ? '#2a2a2a' : '#888',
-                whiteSpace:'nowrap',
-              }}>
+              style={{flexShrink:0, padding:'8px 12px', borderRadius:'8px 8px 0 0', fontSize:12, cursor:'pointer', fontWeight:tab===v?600:400, background:tab===v?'#F8F8F8':'transparent', color:tab===v?'#2a2a2a':'#888', whiteSpace:'nowrap'}}>
               {l}
             </div>
           ))}
@@ -205,7 +256,6 @@ export default function TeacherPanel({ session }) {
 
       <div style={{padding:'16px 16px 80px'}}>
 
-        {/* ── ГЛАВНАЯ ── */}
         {tab === 'main' && (
           <div>
             <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:16}}>
@@ -223,7 +273,7 @@ export default function TeacherPanel({ session }) {
               </div>
               <div style={{background:'#fff', borderRadius:16, padding:14, border:'1px solid #f0f0f0', cursor:'pointer'}} onClick={() => goTab('tasks')}>
                 <div style={{fontSize:10, color:'#BDBDBD', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6}}>Задач активных</div>
-                <div style={{fontSize:26, fontWeight:300, color: tasks.length > 0 ? '#e74c3c' : '#2a2a2a'}}>{tasks.length}</div>
+                <div style={{fontSize:26, fontWeight:300, color:tasks.length>0?'#e74c3c':'#2a2a2a'}}>{tasks.length}</div>
               </div>
             </div>
 
@@ -246,9 +296,9 @@ export default function TeacherPanel({ session }) {
                 </div>
                 {attendancePanel === s.id && (
                   <div style={{marginTop:12, paddingTop:12, borderTop:'1px solid #f0f0f0'}}>
-                    {(s.bookings || []).filter(b => b.status === 'confirmed').length === 0 ? (
+                    {(s.bookings||[]).filter(b=>b.status==='confirmed').length===0 ? (
                       <div style={{fontSize:12, color:'#BDBDBD'}}>Нет записавшихся</div>
-                    ) : (s.bookings || []).filter(b => b.status === 'confirmed').map(b => (
+                    ) : (s.bookings||[]).filter(b=>b.status==='confirmed').map(b => (
                       <div key={b.id} style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 0', borderBottom:'1px solid #f8f8f8'}}>
                         <div style={{fontSize:13, color:'#2a2a2a'}}>{getName(b.profiles)}</div>
                         <div style={{display:'flex', gap:6}}>
@@ -271,10 +321,10 @@ export default function TeacherPanel({ session }) {
             {birthdays.length > 0 && (
               <>
                 <div style={{fontSize:11, color:'#BDBDBD', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8, marginTop:8}}>🎂 Дни рождения</div>
-                {birthdays.map((p, i) => (
+                {birthdays.map((p,i) => (
                   <div key={i} style={{background:'#fff', borderRadius:12, padding:'10px 14px', marginBottom:8, border:'1px solid #f0f0f0', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
                     <div style={{fontSize:13, color:'#2a2a2a'}}>{getName(p)}</div>
-                    <div style={{fontSize:12, color: p.diff===0?'#e74c3c':p.diff===1?'#f39c12':'#BDBDBD', fontWeight:p.diff<=1?600:400}}>
+                    <div style={{fontSize:12, color:p.diff===0?'#e74c3c':p.diff===1?'#f39c12':'#BDBDBD', fontWeight:p.diff<=1?600:400}}>
                       {p.diff===0?'🎉 Сегодня!':p.diff===1?'🎁 Завтра':`через ${p.diff} дн.`}
                     </div>
                   </div>
@@ -284,13 +334,12 @@ export default function TeacherPanel({ session }) {
           </div>
         )}
 
-        {/* ── РАСПИСАНИЕ ── */}
         {tab === 'schedule' && (
           <div>
             <div style={{display:'flex', gap:6, marginBottom:16}}>
               {[['today','Сегодня'],['week','Неделя'],['month','Месяц']].map(([v,l]) => (
                 <button key={v} onClick={() => setScheduleView(v)}
-                  style={{padding:'7px 16px', borderRadius:10, border: scheduleView===v?'none':'1px solid #e0e0e0', background: scheduleView===v?'#BFD900':'#fff', fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight:scheduleView===v?600:400, color:scheduleView===v?'#2a2a2a':'#888'}}>
+                  style={{padding:'7px 16px', borderRadius:10, border:scheduleView===v?'none':'1px solid #e0e0e0', background:scheduleView===v?'#BFD900':'#fff', fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight:scheduleView===v?600:400, color:scheduleView===v?'#2a2a2a':'#888'}}>
                   {l}
                 </button>
               ))}
@@ -321,36 +370,16 @@ export default function TeacherPanel({ session }) {
           </div>
         )}
 
-        {/* ── ЗАДАЧИ ── */}
         {tab === 'tasks' && (
-          <div>
-            {tasks.length===0 ? (
-              <div style={{textAlign:'center',color:'#BDBDBD',padding:60,fontSize:13}}>Активных задач нет 🎉</div>
-            ) : tasks.map(t => (
-              <div key={t.id} style={{background:'#fff',borderRadius:14,border:'1px solid #f0f0f0',padding:14,marginBottom:10}}>
-                <div style={{fontSize:14,fontWeight:500,color:'#2a2a2a',marginBottom:4}}>{t.title}</div>
-                {t.description && <div style={{fontSize:12,color:'#888',marginBottom:6,lineHeight:1.5}}>{t.description}</div>}
-                <div style={{display:'flex',gap:8,alignItems:'center'}}>
-                  <span style={{fontSize:11,padding:'2px 8px',borderRadius:6,fontWeight:600,
-                    background:t.status==='new'?'#e8f4fd':t.status==='in_progress'?'#eafaf1':t.status==='problem'?'#fdecea':'#f9f9f9',
-                    color:t.status==='new'?'#2980b9':t.status==='in_progress'?'#27ae60':t.status==='problem'?'#e74c3c':'#888'}}>
-                    {t.status==='new'?'Новая':t.status==='in_progress'?'В работе':t.status==='problem'?'Проблема':'Отложена'}
-                  </span>
-                  {t.deadline && <span style={{fontSize:11,color:'#BDBDBD'}}>{fmtDate(t.deadline)}</span>}
-                </div>
-              </div>
-            ))}
-          </div>
+          <TasksSection tasks={tasks} session={session} onReload={loadAll} />
         )}
 
-        {/* ── ИНДИВЫ ── */}
         {tab === 'indivs' && (
           <div style={{textAlign:'center',color:'#BDBDBD',padding:40,fontSize:13}}>
             История записей на индивы — скоро
           </div>
         )}
 
-        {/* ── СЛОТЫ ── */}
         {tab === 'slots' && (
           <div>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
@@ -364,12 +393,11 @@ export default function TeacherPanel({ session }) {
             {showAddSlot && (
               <div style={{background:'#fff',borderRadius:14,padding:16,marginBottom:16,border:'1px solid #f0f0f0'}}>
                 <div style={{fontSize:13,fontWeight:600,color:'#2a2a2a',marginBottom:12}}>Новые слоты</div>
-
                 <div style={{marginBottom:12}}>
                   <div style={{fontSize:11,color:'#888',marginBottom:6}}>День недели</div>
                   <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
                     {[1,2,3,4,5,6,0].map(d => (
-                      <button key={d} onClick={() => setNewSlot({...newSlot, day_of_week: d})}
+                      <button key={d} onClick={() => setNewSlot({...newSlot, day_of_week:d})}
                         style={{padding:'8px 12px',borderRadius:8,border:'none',fontSize:13,cursor:'pointer',fontFamily:'Inter,sans-serif',
                           fontWeight:Number(newSlot.day_of_week)===d?700:400,
                           background:Number(newSlot.day_of_week)===d?'#BFD900':'#f5f5f5',
@@ -379,23 +407,21 @@ export default function TeacherPanel({ session }) {
                     ))}
                   </div>
                 </div>
-
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:12}}>
                   <div>
                     <div style={{fontSize:11,color:'#888',marginBottom:4}}>С какого времени</div>
-                    <input type="time" value={newSlot.start_time} onChange={e => setNewSlot({...newSlot, start_time:e.target.value})} style={inputStyle} />
+                    <input type="time" value={newSlot.start_time} onChange={e => setNewSlot({...newSlot,start_time:e.target.value})} style={inputStyle} />
                   </div>
                   <div>
                     <div style={{fontSize:11,color:'#888',marginBottom:4}}>До какого времени</div>
-                    <input type="time" value={newSlot.end_time} onChange={e => setNewSlot({...newSlot, end_time:e.target.value})} style={inputStyle} />
+                    <input type="time" value={newSlot.end_time} onChange={e => setNewSlot({...newSlot,end_time:e.target.value})} style={inputStyle} />
                   </div>
                 </div>
-
                 <div style={{marginBottom:14}}>
                   <div style={{fontSize:11,color:'#888',marginBottom:6}}>Длительность слота</div>
                   <div style={{display:'flex',gap:6}}>
                     {[30,45,60,90].map(m => (
-                      <button key={m} onClick={() => setNewSlot({...newSlot, duration: m})}
+                      <button key={m} onClick={() => setNewSlot({...newSlot,duration:m})}
                         style={{flex:1,padding:'8px 0',borderRadius:8,border:'none',fontSize:13,cursor:'pointer',fontFamily:'Inter,sans-serif',
                           fontWeight:newSlot.duration===m?700:400,
                           background:newSlot.duration===m?'#BFD900':'#f5f5f5',
@@ -405,22 +431,20 @@ export default function TeacherPanel({ session }) {
                     ))}
                   </div>
                 </div>
-
-                {/* Предпросмотр слотов */}
                 {(() => {
                   const preview = []
-                  const [sh, sm] = newSlot.start_time.split(':').map(Number)
-                  const [eh, em] = newSlot.end_time.split(':').map(Number)
-                  const dur = newSlot.duration || 60
-                  let cur = sh * 60 + sm
-                  const end = eh * 60 + em
-                  while (cur + dur <= end) {
+                  const [sh,sm] = newSlot.start_time.split(':').map(Number)
+                  const [eh,em] = newSlot.end_time.split(':').map(Number)
+                  const dur = newSlot.duration||60
+                  let cur = sh*60+sm
+                  const end = eh*60+em
+                  while (cur+dur<=end) {
                     const s = `${String(Math.floor(cur/60)).padStart(2,'0')}:${String(cur%60).padStart(2,'0')}`
                     const e = `${String(Math.floor((cur+dur)/60)).padStart(2,'0')}:${String((cur+dur)%60).padStart(2,'0')}`
                     preview.push(`${s} — ${e}`)
-                    cur += dur
+                    cur+=dur
                   }
-                  if (preview.length === 0) return null
+                  if (preview.length===0) return null
                   return (
                     <div style={{background:'#f9f9f9',borderRadius:10,padding:10,marginBottom:14}}>
                       <div style={{fontSize:11,color:'#888',marginBottom:6}}>Будет создано {preview.length} слот{preview.length===1?'':preview.length<5?'а':'ов'}:</div>
@@ -432,7 +456,6 @@ export default function TeacherPanel({ session }) {
                     </div>
                   )
                 })()}
-
                 <div style={{display:'flex',gap:8}}>
                   <button onClick={handleAddSlot}
                     style={{flex:1,padding:'11px',background:'#BFD900',border:'none',borderRadius:10,fontSize:14,fontWeight:700,color:'#2a2a2a',cursor:'pointer',fontFamily:'Inter,sans-serif'}}>
@@ -449,7 +472,7 @@ export default function TeacherPanel({ session }) {
             {slots.length===0 ? (
               <div style={{textAlign:'center',color:'#BDBDBD',padding:40,fontSize:13}}>Слотов нет — добавь первый</div>
             ) : [1,2,3,4,5,6,0].map(day => {
-              const daySlots = slots.filter(s => s.day_of_week===day)
+              const daySlots = slots.filter(s=>s.day_of_week===day)
               if (daySlots.length===0) return null
               return (
                 <div key={day} style={{marginBottom:14}}>
@@ -475,12 +498,11 @@ export default function TeacherPanel({ session }) {
           </div>
         )}
 
-        {/* ── ПРОФИЛЬ ── */}
         {tab === 'profile' && (
           <div>
             <div style={{background:'#fff',borderRadius:16,border:'1px solid #f0f0f0',overflow:'hidden'}}>
               {profile?.avatar_url ? (
-                <img src={profile.avatar_url} alt="" style={{width:'100%',height:220,objectFit:'cover'}} />
+                <img src={profile.avatar_url} alt="" style={{width:'100%',display:'block',objectFit:'contain',background:'#f0f0f0'}} />
               ) : (
                 <div style={{width:'100%',height:220,background:'linear-gradient(135deg,#2a2a2a,#444)',display:'flex',alignItems:'center',justifyContent:'center'}}>
                   <div style={{width:80,height:80,background:'#BFD900',borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:30,fontWeight:700,color:'#2a2a2a'}}>
