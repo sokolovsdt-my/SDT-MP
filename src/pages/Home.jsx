@@ -4,6 +4,7 @@ import { supabase } from '../supabase'
 export default function Home({ session, onNewsAll }) {
   const [profile, setProfile] = useState(null)
   const [news, setNews] = useState([])
+  const [tags, setTags] = useState([])
   const [stats, setStats] = useState({ thisMonth: 0, totalHours: 0 })
   const [nextLesson, setNextLesson] = useState(null)
 
@@ -13,9 +14,15 @@ export default function Home({ session, onNewsAll }) {
         .from('profiles').select('*').eq('id', session.user.id).single()
       setProfile(profileData)
 
+      const { data: tagsData } = await supabase.from('news_tags').select('*').order('created_at')
+      setTags(tagsData || [])
+
       const { data: newsData } = await supabase
         .from('news').select('*').eq('is_active', true)
-        .order('published_at', { ascending: false }).limit(5)
+        .lte('published_at', new Date().toISOString())
+        .order('is_pinned', { ascending: false })
+        .order('published_at', { ascending: false })
+        .limit(5)
       setNews(newsData || [])
 
       const now = new Date()
@@ -27,18 +34,12 @@ export default function Home({ session, onNewsAll }) {
         .eq('student_id', session.user.id)
         .eq('status', 'present')
 
-      const thisMonthCount = (allAttendance || []).filter(a =>
-        a.created_at >= monthStart
-      ).length
-
+      const thisMonthCount = (allAttendance || []).filter(a => a.created_at >= monthStart).length
       const totalMinutes = (allAttendance || []).reduce((sum, a) => {
-        if (a.schedule?.starts_at && a.schedule?.ends_at) {
-          const diff = new Date(a.schedule.ends_at) - new Date(a.schedule.starts_at)
-          return sum + diff / 60000
-        }
+        if (a.schedule?.starts_at && a.schedule?.ends_at)
+          return sum + (new Date(a.schedule.ends_at) - new Date(a.schedule.starts_at)) / 60000
         return sum + 90
       }, 0)
-
       setStats({ thisMonth: thisMonthCount, totalHours: Math.round(totalMinutes / 60) })
 
       const { data: bookings } = await supabase
@@ -57,14 +58,11 @@ export default function Home({ session, onNewsAll }) {
   }, [session])
 
   const name = profile?.first_name || profile?.full_name?.split(' ')[0] || session.user.email
-
-  const formatDate = (dateStr) => new Date(dateStr).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
-  const formatTime = (dateStr) => new Date(dateStr).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
-  const isToday = (dateStr) => {
-    const d = new Date(dateStr)
-    const now = new Date()
-    return d.getDate() === now.getDate() && d.getMonth() === now.getMonth()
-  }
+  const formatDate = (d) => new Date(d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
+  const formatTime = (d) => new Date(d).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+  const isToday = (d) => { const n = new Date(), dd = new Date(d); return dd.getDate()===n.getDate() && dd.getMonth()===n.getMonth() }
+  const stripHtml = (html) => html?.replace(/<[^>]*>/g, '') || ''
+  const tagLabel = (tag) => tags.find(t => t.value === tag)?.label || tag
 
   return (
     <div style={{padding:'16px 20px 0', fontFamily:'Inter,sans-serif', maxWidth:480, margin:'0 auto'}}>
@@ -73,12 +71,11 @@ export default function Home({ session, onNewsAll }) {
         {profile?.avatar_url
           ? <img src={profile.avatar_url} alt="" style={{width:36, height:36, borderRadius:'50%', objectFit:'cover'}} />
           : <div style={{width:36, height:36, background:'#BFD900', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:700, color:'#2a2a2a'}}>
-              {name[0].toUpperCase()}
+              {name[0]?.toUpperCase()}
             </div>
         }
       </div>
 
-      <div style={{fontSize:12, color:'#BDBDBD', marginBottom:3}}>Добро пожаловать,</div>
       <div style={{fontSize:21, color:'#2a2a2a', fontWeight:300, marginBottom:22}}>
         Привет, <span style={{color:'#BFD900', fontWeight:600}}>{name}!</span>
       </div>
@@ -115,19 +112,41 @@ export default function Home({ session, onNewsAll }) {
         </div>
       </div>
 
-      <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8}}>
+      <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10}}>
         <div style={{fontSize:10, color:'#BDBDBD', letterSpacing:'0.12em', textTransform:'uppercase'}}>Новости студии</div>
-        <div onClick={onNewsAll} style={{fontSize:12, color:'#BFD900', fontWeight:600, cursor:'pointer'}}>Все новости →</div>
+        <div onClick={() => { localStorage.setItem('news_tag', ''); onNewsAll() }} style={{fontSize:12, color:'#BFD900', fontWeight:600, cursor:'pointer'}}>Все новости →</div>
       </div>
+
       {news.length === 0 ? (
         <div style={{fontSize:13, color:'#BDBDBD', padding:'10px 0'}}>Новостей пока нет</div>
-      ) : news.map((n, i) => (
-        <div key={n.id} style={{display:'flex', gap:12, alignItems:'flex-start', padding:'10px 0', borderBottom:'1px solid #f2f2f2'}}>
-          <div style={{width:7, height:7, background: i===0 ? '#BFD900' : '#e0e0e0', borderRadius:'50%', flexShrink:0, marginTop:5}} />
-          <div>
-            <div style={{fontSize:13, color:'#2a2a2a', lineHeight:1.5}} dangerouslySetInnerHTML={{ __html: n.title }} />
-            <div style={{fontSize:11, color:'#BDBDBD', marginTop:2}}>{formatDate(n.published_at)}</div>
-          </div>
+      ) : news.map(n => (
+        <div key={n.id} onClick={() => { localStorage.setItem('news_tag', ''); onNewsAll() }}
+          style={{background: n.card_bg || '#fff', borderRadius:16, border:'1px solid #f0f0f0', padding:14, marginBottom:10, cursor:'pointer', boxShadow:'0 1px 4px rgba(0,0,0,0.04)', position:'relative', overflow:'hidden'}}>
+
+          {n.is_pinned && (
+            <div style={{position:'absolute', top:0, left:0, right:0, height:4, background:'linear-gradient(90deg, #BFD900 0%, #a0b800 40%, transparent 100%)', borderRadius:'16px 16px 0 0'}} />
+          )}
+
+          {n.tag && (
+            <div style={{marginBottom:8, marginTop: n.is_pinned ? 8 : 0, textAlign:'left'}}>
+              <span style={{fontSize:9, fontWeight:700, background: n.tag_color || '#BFD900', color: n.tag_text_color || '#2a2a2a', padding:'2px 8px', borderRadius:6}}>
+                {tagLabel(n.tag)}
+              </span>
+            </div>
+          )}
+
+          {n.title && (
+            <div style={{fontSize:14, fontWeight:600, color: n.title_color || '#2a2a2a', marginBottom:4, lineHeight:1.4}}
+              dangerouslySetInnerHTML={{ __html: n.title }} />
+          )}
+
+          {n.body && (
+            <div style={{fontSize:12, color: n.body_color || '#888', lineHeight:1.5, overflow:'hidden', display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical'}}>
+              {stripHtml(n.body).slice(0, 120)}
+            </div>
+          )}
+
+          <div style={{fontSize:11, color:'#BDBDBD', marginTop:6}}>{formatDate(n.published_at)}</div>
         </div>
       ))}
     </div>

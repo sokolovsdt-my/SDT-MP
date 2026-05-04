@@ -1,28 +1,22 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../supabase'
 
-const TAGS = [
-  { value:'hot', label:'🔥 Горячее' },
-  { value:'event', label:'🎉 Мероприятие' },
-  { value:'summer', label:'🌞 Лето' },
-  { value:'subscription', label:'💳 Абонементы' },
-  { value:'achievement', label:'🏆 Достижение' },
-  { value:'education', label:'🎓 Обучение' },
-  { value:'schedule', label:'📅 Расписание' },
-  { value:'promo', label:'🎁 Акция' },
-  { value:'new', label:'🆕 Новинка' },
-  { value:'motivation', label:'💪 Мотивация' },
-]
-
 export default function News({ session, onBack }) {
   const [news, setNews] = useState([])
+  const [tags, setTags] = useState([])
   const [loading, setLoading] = useState(true)
   const [filterTag, setFilterTag] = useState(() => localStorage.getItem('news_tag') || '')
   const [expanded, setExpanded] = useState(null)
 
   const goTag = (t) => { setFilterTag(t); localStorage.setItem('news_tag', t) }
 
+  useEffect(() => { loadTags() }, [])
   useEffect(() => { load() }, [filterTag])
+
+  const loadTags = async () => {
+    const { data } = await supabase.from('news_tags').select('*').order('created_at')
+    setTags(data || [])
+  }
 
   const load = async () => {
     setLoading(true)
@@ -45,7 +39,7 @@ export default function News({ session, onBack }) {
     setLoading(false)
   }
 
-  const tagLabel = (tag) => TAGS.find(t => t.value === tag)?.label || tag
+  const tagLabel = (tag) => tags.find(t => t.value === tag)?.label || tag
   const fmtDate = (dt) => new Date(dt).toLocaleDateString('ru-RU', { day:'numeric', month:'long', year:'numeric' })
 
   return (
@@ -60,14 +54,15 @@ export default function News({ session, onBack }) {
             style={{flexShrink:0, padding:'4px 12px', borderRadius:10, border: filterTag==='' ? 'none' : '1px solid #e0e0e0', background: filterTag==='' ? '#BFD900' : '#fff', fontSize:11, cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight: filterTag==='' ? 600 : 400}}>
             Все
           </button>
-          {TAGS.map(t => (
-            <button key={t.value} onClick={() => goTag(filterTag === t.value ? '' : t.value)}
+          {tags.map(t => (
+            <button key={t.value} onClick={() => goTag(filterTag===t.value ? '' : t.value)}
               style={{flexShrink:0, padding:'4px 12px', borderRadius:10, border: filterTag===t.value ? 'none' : '1px solid #e0e0e0', background: filterTag===t.value ? '#BFD900' : '#fff', fontSize:11, cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight: filterTag===t.value ? 600 : 400}}>
               {t.label}
             </button>
           ))}
         </div>
       </div>
+
       <div style={{padding:'12px 16px'}}>
         {loading ? (
           <div style={{textAlign:'center', color:'#BDBDBD', padding:40}}>Загрузка...</div>
@@ -75,27 +70,37 @@ export default function News({ session, onBack }) {
           <div style={{textAlign:'center', color:'#BDBDBD', padding:40}}>Новостей пока нет</div>
         ) : news.map(item => (
           <div key={item.id}
-            onClick={() => setExpanded(expanded === item.id ? null : item.id)}
-            style={{background: item.card_bg || '#fff', borderRadius:16, border:'1px solid #f0f0f0', padding:16, marginBottom:12, cursor:'pointer', boxShadow:'0 1px 4px rgba(0,0,0,0.04)'}}>
-            {item.is_pinned && <div style={{fontSize:10, fontWeight:700, color:'#888', marginBottom:6}}>📌 ЗАКРЕПЛЕНО</div>}
-            {item.tag && (
-              <span style={{display:'inline-block', fontSize:10, fontWeight:700, background: item.tag_color || '#BFD900', color:'#2a2a2a', padding:'2px 10px', borderRadius:8, marginBottom:8}}>
-                {tagLabel(item.tag)}
-              </span>
+            onClick={() => setExpanded(expanded===item.id ? null : item.id)}
+            style={{background: item.card_bg || '#fff', borderRadius:16, border:'1px solid #f0f0f0', padding:16, marginBottom:12, cursor:'pointer', boxShadow:'0 1px 4px rgba(0,0,0,0.04)', position:'relative', overflow:'hidden'}}>
+
+            {item.is_pinned && (
+              <div style={{position:'absolute', top:0, left:0, right:0, height:4, background:'linear-gradient(90deg, #BFD900 0%, #a0b800 40%, transparent 100%)', borderRadius:'16px 16px 0 0'}} />
             )}
+
+            {item.tag && (
+              <div style={{marginBottom:8, marginTop: item.is_pinned ? 8 : 0, textAlign:'left'}}>
+                <span style={{fontSize:9, fontWeight:700, background: item.tag_color || '#BFD900', color: item.tag_text_color || '#2a2a2a', padding:'2px 8px', borderRadius:6}}>
+                  {tagLabel(item.tag)}
+                </span>
+              </div>
+            )}
+
             {item.title && (
               <div style={{fontSize:15, fontWeight:600, color: item.title_color || '#2a2a2a', marginBottom:6, lineHeight:1.4}}
                 dangerouslySetInnerHTML={{ __html: item.title }} />
             )}
+
             {item.body && (
-              <div style={{fontSize:13, color:'#2a2a2a', lineHeight:1.6, overflow:'hidden', maxHeight: expanded === item.id ? 'none' : 72}}
+              <div style={{fontSize:13, color: item.body_color || '#2a2a2a', lineHeight:1.6, overflow:'hidden', maxHeight: expanded===item.id ? 'none' : 72}}
                 dangerouslySetInnerHTML={{ __html: item.body }} />
             )}
+
             {item.body && item.body.length > 200 && (
               <div style={{fontSize:12, color:'#BFD900', fontWeight:600, marginTop:6}}>
-                {expanded === item.id ? 'Свернуть ↑' : 'Читать далее →'}
+                {expanded===item.id ? 'Свернуть ↑' : 'Читать далее →'}
               </div>
             )}
+
             <div style={{fontSize:11, color:'#BDBDBD', marginTop:8}}>{fmtDate(item.published_at)}</div>
           </div>
         ))}

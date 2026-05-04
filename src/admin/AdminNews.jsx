@@ -1,38 +1,58 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../supabase'
 
-const inputStyle = { width:'100%', padding:'9px 12px', border:'1px solid #e8e8e8', borderRadius:10, fontSize:13, boxSizing:'border-box', fontFamily:'Inter,sans-serif' }
-const labelStyle = { fontSize:12, color:'#888', marginBottom:6, fontWeight:600, display:'block' }
-const cardStyle = { background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', padding:20, marginBottom:16 }
-
-const EMOJIS = ['😊','😂','🔥','❤️','👍','🎉','✅','⚠️','📢','💪','🙏','👋','🎁','💡','📅','🏆','⭐','🎶','💃','🕺','🌟','👏','😍','🤩','💥','🚀','🎯','📌','🔑','💰','🎊','🥳','😎','🙌','💫','✨','🌈','🎵','👑','🏅']
-
-const TAGS = [
-  { value:'hot', label:'🔥 Горячее' },
-  { value:'event', label:'🎉 Мероприятие' },
-  { value:'summer', label:'🌞 Лето' },
-  { value:'subscription', label:'💳 Абонементы' },
-  { value:'achievement', label:'🏆 Достижение' },
-  { value:'education', label:'🎓 Обучение' },
-  { value:'schedule', label:'📅 Расписание' },
-  { value:'promo', label:'🎁 Акция' },
-  { value:'new', label:'🆕 Новинка' },
-  { value:'motivation', label:'💪 Мотивация' },
+const PALETTE = [
+  '#ffffff', '#f8f8f8', '#2a2a2a', '#000000',
+  '#fafde8', '#eafaf1', '#fdecea', '#e8f4fd', '#f5eef8', '#fef9e7',
+  '#fce4ec', '#e8eaf6', '#e0f7fa', '#f9fbe7', '#fff8e1', '#fbe9e7',
+  '#e8f5e9', '#e3f2fd', '#f3e5f5', '#e0f2f1',
+  '#BFD900', '#27ae60', '#e74c3c', '#2980b9', '#f39c12', '#8e44ad',
+  '#e91e63', '#00bcd4', '#ff5722', '#3f51b5', '#009688', '#ff9800',
 ]
 
-const PALETTE = ['#ffffff','#fafde8','#eafaf1','#fdecea','#e8f4fd','#f5eef8','#fef9e7','#2a2a2a','#BFD900','#27ae60','#e74c3c','#2980b9','#f39c12','#8e44ad']
+const GRADIENTS = [
+  'linear-gradient(135deg, #fafde8, #BFD900)',
+  'linear-gradient(135deg, #e8f4fd, #2980b9)',
+  'linear-gradient(135deg, #fdecea, #e74c3c)',
+  'linear-gradient(135deg, #f5eef8, #8e44ad)',
+  'linear-gradient(135deg, #eafaf1, #27ae60)',
+  'linear-gradient(135deg, #fef9e7, #f39c12)',
+  'linear-gradient(135deg, #fff8e1, #ff9800)',
+  'linear-gradient(135deg, #fce4ec, #e91e63)',
+]
 
+const EMOJIS = ['😊','😂','🔥','❤️','👍','🎉','✅','⚠️','📢','💪','🙏','👋','🎁','💡','📅','🏆','⭐','🎶','💃','🕺','🌟','👏','😍','🤩','💥','🚀','🎯','📌','🔑','💰','🎊','🥳','😎','🙌','💫','✨','🌈','🎵','👑','🏅']
 const REPEAT_TYPES = { none:'Не повторять', daily:'Каждый день', weekly:'Каждую неделю', monthly:'Каждый месяц' }
 
-function RichEditor({ value, onChange, defaultBold = false }) {
+function ColorPicker({ label, value, onChange, withGradients = false }) {
+  return (
+    <div style={{marginBottom:14}}>
+      {label && <div style={{fontSize:11, color:'#888', fontWeight:600, marginBottom:6}}>{label}</div>}
+      <div style={{display:'flex', flexWrap:'wrap', gap:5}}>
+        {PALETTE.map(c => (
+          <div key={c} onClick={() => onChange(c)}
+            style={{width:22, height:22, borderRadius:5, background:c, cursor:'pointer',
+              border: value===c ? '2.5px solid #2a2a2a' : '1.5px solid #e0e0e0', flexShrink:0}} />
+        ))}
+        {withGradients && GRADIENTS.map(g => (
+          <div key={g} onClick={() => onChange(g)}
+            style={{width:22, height:22, borderRadius:5, background:g, cursor:'pointer',
+              border: value===g ? '2.5px solid #2a2a2a' : '1.5px solid #e0e0e0', flexShrink:0}} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function RichEditor({ value, onChange, minHeight = 120, defaultBold = false, textColor = '#1a1a1a' }) {
   const editorRef = useRef(null)
-  const isFirstRender = useRef(true)
+  const isFirst = useRef(true)
   const [showEmoji, setShowEmoji] = useState(false)
 
   useEffect(() => {
-    if (editorRef.current && isFirstRender.current) {
+    if (editorRef.current && isFirst.current) {
       editorRef.current.innerHTML = value || ''
-      isFirstRender.current = false
+      isFirst.current = false
     }
   }, [])
 
@@ -42,42 +62,34 @@ function RichEditor({ value, onChange, defaultBold = false }) {
     onChange(editorRef.current?.innerHTML || '')
   }
 
-  const insertEmoji = (emoji) => {
+  const insertEmoji = (e) => {
     editorRef.current?.focus()
-    document.execCommand('insertText', false, emoji)
+    document.execCommand('insertText', false, e)
     onChange(editorRef.current?.innerHTML || '')
     setShowEmoji(false)
   }
 
-  const setColor = (color) => exec('foreColor', color)
-
-  const toolBtn = (label, action, title) => (
+  const btn = (label, action, title) => (
     <button type="button" title={title} onClick={action}
-      style={{padding:'5px 10px', background:'#f5f5f5', border:'1px solid #e0e0e0', borderRadius:6, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight:600}}>
+      style={{padding:'4px 8px', background:'#f5f5f5', border:'1px solid #e0e0e0', borderRadius:6, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight:600}}>
       {label}
     </button>
   )
 
   return (
     <div>
-      <div style={{display:'flex', gap:6, flexWrap:'wrap', marginBottom:8, alignItems:'center'}}>
-        {toolBtn('Ж', () => exec('bold'), 'Жирный')}
-        {toolBtn(<em>К</em>, () => exec('italic'), 'Курсив')}
-        {toolBtn(<u>П</u>, () => exec('underline'), 'Подчёркивание')}
-        {toolBtn('🔗', () => { const url = prompt('Введите URL:'); if (url) exec('createLink', url) }, 'Вставить ссылку')}
-        <div style={{display:'flex', gap:3, alignItems:'center'}}>
-          {['#2a2a2a','#e74c3c','#2980b9','#27ae60','#f39c12','#8e44ad','#BFD900'].map(c => (
-            <div key={c} onClick={() => setColor(c)}
-              style={{width:16, height:16, borderRadius:'50%', background:c, cursor:'pointer', border:'1.5px solid #e0e0e0'}} />
-          ))}
-        </div>
+      <div style={{display:'flex', gap:5, flexWrap:'wrap', marginBottom:8, alignItems:'center'}}>
+        {btn('Ж', () => exec('bold'), 'Жирный')}
+        {btn(<em>К</em>, () => exec('italic'), 'Курсив')}
+        {btn(<u>П</u>, () => exec('underline'), 'Подчёркивание')}
+        {btn('🔗', () => { const url = prompt('URL:'); if (url) exec('createLink', url) }, 'Ссылка')}
         <div style={{position:'relative'}}>
           <button type="button" onClick={() => setShowEmoji(!showEmoji)}
-            style={{padding:'5px 10px', background:'#f5f5f5', border:'1px solid #e0e0e0', borderRadius:6, fontSize:13, cursor:'pointer'}}>
+            style={{padding:'4px 8px', background:'#f5f5f5', border:'1px solid #e0e0e0', borderRadius:6, fontSize:13, cursor:'pointer'}}>
             😊
           </button>
           {showEmoji && (
-            <div style={{position:'absolute', top:'100%', left:0, zIndex:100, background:'#fff', border:'1px solid #e0e0e0', borderRadius:12, padding:10, width:280, display:'flex', flexWrap:'wrap', gap:4, boxShadow:'0 4px 16px rgba(0,0,0,0.12)', marginTop:4}}>
+            <div style={{position:'absolute', top:'100%', left:0, zIndex:200, background:'#fff', border:'1px solid #e0e0e0', borderRadius:12, padding:10, width:280, display:'flex', flexWrap:'wrap', gap:4, boxShadow:'0 4px 16px rgba(0,0,0,0.12)', marginTop:4}}>
               {EMOJIS.map(e => (
                 <button key={e} type="button" onClick={() => insertEmoji(e)}
                   style={{padding:'4px 6px', background:'none', border:'none', fontSize:18, cursor:'pointer', borderRadius:6}}
@@ -89,70 +101,110 @@ function RichEditor({ value, onChange, defaultBold = false }) {
             </div>
           )}
         </div>
-        <button type="button" onClick={() => { if(editorRef.current) { editorRef.current.innerHTML = ''; onChange('') } }}
-          style={{padding:'5px 10px', background:'#fdecea', border:'1px solid #e74c3c33', borderRadius:6, fontSize:11, cursor:'pointer', color:'#e74c3c'}}>
+        <button type="button" onClick={() => { if(editorRef.current) { editorRef.current.innerHTML=''; onChange('') } }}
+          style={{padding:'4px 8px', background:'#fdecea', border:'1px solid #e74c3c33', borderRadius:6, fontSize:11, cursor:'pointer', color:'#e74c3c'}}>
           Сбросить
         </button>
       </div>
-      <div
-        ref={editorRef}
-        contentEditable
-        dir="ltr"
-        suppressContentEditableWarning
+      <div ref={editorRef} contentEditable dir="ltr" suppressContentEditableWarning
         onInput={() => onChange(editorRef.current?.innerHTML || '')}
-        style={{
-          minHeight: defaultBold ? 48 : 140,
-          padding:'12px 14px',
-          border:'1px solid #e8e8e8',
-          borderRadius:10,
-          fontSize: defaultBold ? 16 : 15,
-          fontFamily:'-apple-system, BlinkMacSystemFont, Inter, sans-serif',
-          outline:'none',
-          lineHeight:1.7,
-          fontWeight: defaultBold ? 700 : 400,
-          color:'#1a1a1a',
-          letterSpacing: defaultBold ? 0 : '-0.01em',
-        }}
-      />
-      {!defaultBold && (
-        <div style={{fontSize:11, color:'#BDBDBD', marginTop:4}}>
-          Выдели текст и нажми кнопку форматирования
-        </div>
-      )}
+        style={{minHeight, padding:'10px 12px', border:'1px solid #e8e8e8', borderRadius:10,
+          fontSize: defaultBold ? 16 : 14, fontFamily:'-apple-system, BlinkMacSystemFont, Inter, sans-serif',
+          outline:'none', lineHeight:1.7, fontWeight: defaultBold ? 700 : 400, color: textColor}} />
     </div>
   )
 }
 
-function ColorPicker({ label, value, onChange }) {
+const cardStyle = { background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', padding:18, marginBottom:14 }
+const labelStyle = { fontSize:11, color:'#888', fontWeight:600, marginBottom:6, display:'block' }
+const inputStyle = { width:'100%', padding:'9px 12px', border:'1px solid #e8e8e8', borderRadius:10, fontSize:13, boxSizing:'border-box', fontFamily:'Inter,sans-serif' }
+
+const emptyForm = () => ({
+  title:'', body:'', tag:'', tag_color:'#BFD900', tag_text_color:'#2a2a2a',
+  card_bg:'#ffffff', title_color:'#2a2a2a', body_color:'#2a2a2a',
+  is_pinned:false, is_active:true, scheduled_at:'', repeat_type:'none',
+})
+
+function TagsManager({ tags, onClose, onChanged }) {
+  const [newLabel, setNewLabel] = useState('')
+  const [editingTag, setEditingTag] = useState(null)
+  const [editLabel, setEditLabel] = useState('')
+
+  const handleAdd = async () => {
+    if (!newLabel.trim()) return
+    const value = newLabel.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_а-яё]/gi, '') + '_' + Date.now()
+    await supabase.from('news_tags').insert({ value, label: newLabel.trim() })
+    setNewLabel('')
+    onChanged()
+  }
+
+  const handleUpdate = async (tag) => {
+    if (!editLabel.trim()) return
+    await supabase.from('news_tags').update({ label: editLabel.trim() }).eq('id', tag.id)
+    setEditingTag(null)
+    onChanged()
+  }
+
+  const handleDelete = async (tag) => {
+    const { count } = await supabase.from('news').select('id', { count:'exact', head:true }).eq('tag', tag.value)
+    const msg = count > 0
+      ? `У тега "${tag.label}" есть ${count} новост${count===1?'ь':count<5?'и':'ей'}. После удаления они останутся без тега. Удалить?`
+      : `Удалить тег "${tag.label}"?`
+    if (!confirm(msg)) return
+    await supabase.from('news_tags').delete().eq('id', tag.id)
+    onChanged()
+  }
+
   return (
-    <div style={{marginBottom:12}}>
-      <label style={labelStyle}>{label}</label>
-      <div style={{display:'flex', gap:6, flexWrap:'wrap', alignItems:'center'}}>
-        {PALETTE.map(c => (
-          <div key={c} onClick={() => onChange(c)}
-            style={{width:24, height:24, borderRadius:6, background:c, cursor:'pointer', border: value === c ? '3px solid #2a2a2a' : '1.5px solid #e0e0e0'}} />
+    <div style={{position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center'}}
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div style={{background:'#fff', borderRadius:16, padding:24, width:420, maxHeight:'80vh', overflowY:'auto', boxShadow:'0 8px 32px rgba(0,0,0,0.15)'}}>
+        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16}}>
+          <div style={{fontSize:15, fontWeight:600, color:'#2a2a2a'}}>Управление тегами</div>
+          <button onClick={onClose} style={{background:'none', border:'none', fontSize:20, color:'#BDBDBD', cursor:'pointer'}}>✕</button>
+        </div>
+        <div style={{display:'flex', gap:8, marginBottom:16}}>
+          <input value={newLabel} onChange={e => setNewLabel(e.target.value)}
+            placeholder="🎯 Название тега с эмодзи"
+            style={{...inputStyle, flex:1}}
+            onKeyDown={e => e.key==='Enter' && handleAdd()} />
+          <button onClick={handleAdd}
+            style={{padding:'9px 14px', background:'#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+            +
+          </button>
+        </div>
+        {tags.map(tag => (
+          <div key={tag.id} style={{display:'flex', alignItems:'center', gap:8, padding:'8px 0', borderBottom:'1px solid #f5f5f5'}}>
+            {editingTag===tag.id ? (
+              <>
+                <input value={editLabel} onChange={e => setEditLabel(e.target.value)}
+                  style={{...inputStyle, flex:1}}
+                  onKeyDown={e => e.key==='Enter' && handleUpdate(tag)} autoFocus />
+                <button onClick={() => handleUpdate(tag)}
+                  style={{padding:'6px 12px', background:'#BFD900', border:'none', borderRadius:8, fontSize:12, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>✓</button>
+                <button onClick={() => setEditingTag(null)}
+                  style={{padding:'6px 10px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:8, fontSize:12, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>✕</button>
+              </>
+            ) : (
+              <>
+                <div style={{flex:1, fontSize:13, color:'#2a2a2a'}}>{tag.label}</div>
+                <button onClick={() => { setEditingTag(tag.id); setEditLabel(tag.label) }}
+                  style={{fontSize:11, color:'#2980b9', background:'none', border:'none', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>Изменить</button>
+                <button onClick={() => handleDelete(tag)}
+                  style={{fontSize:11, color:'#e74c3c', background:'none', border:'none', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>Удалить</button>
+              </>
+            )}
+          </div>
         ))}
       </div>
     </div>
   )
 }
 
-const emptyForm = () => ({
-  title: '',
-  body: '',
-  tag: '',
-  tag_color: '#BFD900',
-  card_bg: '#ffffff',
-  title_color: '#2a2a2a',
-  is_pinned: false,
-  is_active: true,
-  scheduled_at: '',
-  repeat_type: 'none',
-})
-
 export default function AdminNews({ session }) {
   const [tab, setTab] = useState('list')
   const [news, setNews] = useState([])
+  const [tags, setTags] = useState([])
   const [loading, setLoading] = useState(true)
   const [filterTag, setFilterTag] = useState('')
   const [form, setForm] = useState(emptyForm())
@@ -161,24 +213,24 @@ export default function AdminNews({ session }) {
   const [history, setHistory] = useState([])
   const [showHistory, setShowHistory] = useState(null)
   const [userRole, setUserRole] = useState(null)
-  const titleRef = useRef(null)
-  const bodyRef = useRef(null)
+  const [showTagsManager, setShowTagsManager] = useState(false)
 
-  useEffect(() => {
-    loadNews()
-    loadRole()
-  }, [filterTag])
+  useEffect(() => { loadNews(); loadTags(); loadRole() }, [filterTag])
 
   const loadRole = async () => {
     const { data } = await supabase.from('profiles').select('role').eq('id', session.user.id).single()
     setUserRole(data?.role)
   }
 
+  const loadTags = async () => {
+    const { data } = await supabase.from('news_tags').select('*').order('created_at')
+    setTags(data || [])
+  }
+
   const loadNews = async () => {
     setLoading(true)
-    let query = supabase.from('news').select('*, profiles:created_by(full_name), updater:updated_by(full_name)')
+    let query = supabase.from('news').select('*, profiles:created_by(full_name)')
       .order('is_pinned', { ascending: false })
-      .order('scheduled_at', { ascending: false, nullsFirst: false })
       .order('published_at', { ascending: false })
     if (filterTag) query = query.eq('tag', filterTag)
     const { data } = await query
@@ -195,21 +247,16 @@ export default function AdminNews({ session }) {
 
   const handleEdit = (item) => {
     setForm({
-      title: item.title || '',
-      body: item.body || '',
-      tag: item.tag || '',
-      tag_color: item.tag_color || '#BFD900',
-      card_bg: item.card_bg || '#ffffff',
-      title_color: item.title_color || '#2a2a2a',
-      is_pinned: item.is_pinned || false,
-      is_active: item.is_active ?? true,
+      title: item.title||'', body: item.body||'', tag: item.tag||'',
+      tag_color: item.tag_color||'#BFD900', tag_text_color: item.tag_text_color||'#2a2a2a',
+      card_bg: item.card_bg||'#ffffff', title_color: item.title_color||'#2a2a2a',
+      body_color: item.body_color||'#2a2a2a',
+      is_pinned: item.is_pinned||false, is_active: item.is_active??true,
       scheduled_at: item.scheduled_at ? item.scheduled_at.slice(0,16) : '',
-      repeat_type: item.repeat_type || 'none',
+      repeat_type: item.repeat_type||'none',
     })
     setEditingId(item.id)
     setTab('form')
-    titleRef.current = null
-    bodyRef.current = null
   }
 
   const handleSave = async () => {
@@ -217,28 +264,17 @@ export default function AdminNews({ session }) {
     setSaving(true)
     const payload = {
       ...form,
-      scheduled_at: form.scheduled_at || null,
+      scheduled_at: form.scheduled_at||null,
       published_at: form.scheduled_at ? form.scheduled_at : new Date().toISOString(),
       updated_at: new Date().toISOString(),
       updated_by: session.user.id,
     }
-
     if (editingId) {
       await supabase.from('news').update(payload).eq('id', editingId)
-      await supabase.from('news_history').insert({
-        news_id: editingId, action: 'edited', author_id: session.user.id,
-        changes: { title: form.title, tag: form.tag }
-      })
+      await supabase.from('news_history').insert({ news_id: editingId, action:'edited', author_id: session.user.id, changes:{ title: form.title } })
     } else {
-      const { data } = await supabase.from('news').insert({
-        ...payload, created_by: session.user.id,
-      }).select().single()
-      if (data) {
-        await supabase.from('news_history').insert({
-          news_id: data.id, action: 'created', author_id: session.user.id,
-          changes: { title: form.title }
-        })
-      }
+      const { data } = await supabase.from('news').insert({ ...payload, created_by: session.user.id }).select().single()
+      if (data) await supabase.from('news_history').insert({ news_id: data.id, action:'created', author_id: session.user.id, changes:{ title: form.title } })
     }
     setSaving(false)
     setForm(emptyForm())
@@ -248,30 +284,67 @@ export default function AdminNews({ session }) {
   }
 
   const handleDelete = async (id, title) => {
-    if (!confirm(`Удалить новость "${title}"?`)) return
-    await supabase.from('news').update({ is_active: false, updated_by: session.user.id, updated_at: new Date().toISOString() }).eq('id', id)
-    await supabase.from('news_history').insert({ news_id: id, action: 'deleted', author_id: session.user.id, changes: { title } })
+    if (!confirm('Архивировать новость?')) return
+    await supabase.from('news').update({ is_active:false, updated_by: session.user.id, updated_at: new Date().toISOString() }).eq('id', id)
+    await supabase.from('news_history').insert({ news_id: id, action:'deleted', author_id: session.user.id, changes:{ title } })
     loadNews()
   }
 
   const handleTogglePin = async (id, pinned) => {
-    await supabase.from('news').update({ is_pinned: !pinned, updated_by: session.user.id, updated_at: new Date().toISOString() }).eq('id', id)
+    await supabase.from('news').update({ is_pinned:!pinned, updated_by: session.user.id, updated_at: new Date().toISOString() }).eq('id', id)
     loadNews()
   }
 
-  const tagLabel = (tag) => TAGS.find(t => t.value === tag)?.label || tag
+  const tagLabel = (tag) => tags.find(t => t.value===tag)?.label || tag
   const fmtDT = (dt) => dt ? new Date(dt).toLocaleString('ru-RU', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' }) : '—'
-
+  const stripHtml = (html) => html?.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>') || ''
   const isManagerPlus = ['owner','manager'].includes(userRole)
+
+  const Preview = () => (
+    <div style={{background: form.card_bg||'#fff', borderRadius:16, border:'1px solid #f0f0f0', padding:14, boxShadow:'0 2px 8px rgba(0,0,0,0.06)', position:'relative', overflow:'hidden'}}>
+      {form.is_pinned && (
+        <div style={{position:'absolute', top:0, left:0, right:0, height:4, background:'linear-gradient(90deg, #BFD900 0%, #a0b800 40%, transparent 100%)', borderRadius:'16px 16px 0 0'}} />
+      )}
+      {form.tag && (
+        <div style={{marginBottom:8, marginTop: form.is_pinned ? 8 : 0}}>
+          <span style={{fontSize:9, fontWeight:700, background: form.tag_color||'#BFD900', color: form.tag_text_color||'#2a2a2a', padding:'2px 8px', borderRadius:6}}>
+            {tagLabel(form.tag)}
+          </span>
+        </div>
+      )}
+      {form.title && (
+        <div style={{fontSize:14, fontWeight:600, color: form.title_color||'#2a2a2a', marginBottom:4, lineHeight:1.4}}
+          dangerouslySetInnerHTML={{ __html: form.title }} />
+      )}
+      {form.body && (
+        <div style={{fontSize:12, color: form.body_color||'#2a2a2a', lineHeight:1.5, maxHeight:48, overflow:'hidden'}}>
+          {stripHtml(form.body).slice(0, 100)}
+        </div>
+      )}
+      <div style={{fontSize:10, color:'#BDBDBD', marginTop:6}}>
+        {form.scheduled_at ? new Date(form.scheduled_at).toLocaleDateString('ru-RU', {day:'numeric', month:'short'}) : new Date().toLocaleDateString('ru-RU', {day:'numeric', month:'short'})}
+      </div>
+    </div>
+  )
 
   return (
     <div>
+      {showTagsManager && (
+        <TagsManager tags={tags} onClose={() => setShowTagsManager(false)} onChanged={() => { loadTags(); setShowTagsManager(true) }} />
+      )}
+
       <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20}}>
         <h1 style={{fontSize:24, fontWeight:600, color:'#1f2024', margin:0}}>Новости</h1>
-        <button onClick={() => { setForm(emptyForm()); setEditingId(null); setTab('form') }}
-          style={{padding:'9px 20px', background:'#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-          + Новость
-        </button>
+        <div style={{display:'flex', gap:8}}>
+          <button onClick={() => setShowTagsManager(true)}
+            style={{padding:'9px 16px', background:'#fff', border:'1px solid #e0e0e0', borderRadius:10, fontSize:13, fontWeight:600, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+            🏷 Теги
+          </button>
+          <button onClick={() => { setForm(emptyForm()); setEditingId(null); setTab('form') }}
+            style={{padding:'9px 20px', background:'#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+            + Новость
+          </button>
+        </div>
       </div>
 
       <div style={{display:'flex', gap:4, borderBottom:'1px solid #f0f0f0', marginBottom:20}}>
@@ -285,14 +358,13 @@ export default function AdminNews({ session }) {
 
       {tab === 'list' && (
         <div>
-          {/* Фильтр по тегам */}
           <div style={{display:'flex', gap:6, flexWrap:'wrap', marginBottom:16}}>
             <button onClick={() => setFilterTag('')}
               style={{padding:'5px 12px', borderRadius:10, border: filterTag==='' ? 'none' : '1px solid #e0e0e0', background: filterTag==='' ? '#BFD900' : '#fff', fontSize:12, cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight: filterTag==='' ? 600 : 400}}>
               Все
             </button>
-            {TAGS.map(t => (
-              <button key={t.value} onClick={() => setFilterTag(filterTag === t.value ? '' : t.value)}
+            {tags.map(t => (
+              <button key={t.value} onClick={() => setFilterTag(filterTag===t.value ? '' : t.value)}
                 style={{padding:'5px 12px', borderRadius:10, border: filterTag===t.value ? 'none' : '1px solid #e0e0e0', background: filterTag===t.value ? '#BFD900' : '#fff', fontSize:12, cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight: filterTag===t.value ? 600 : 400}}>
                 {t.label}
               </button>
@@ -302,80 +374,63 @@ export default function AdminNews({ session }) {
           {loading ? (
             <div style={{textAlign:'center', color:'#BDBDBD', padding:40}}>Загрузка...</div>
           ) : news.length === 0 ? (
-            <div style={{textAlign:'center', color:'#BDBDBD', padding:60, background:'#fff', borderRadius:14, border:'1px solid #f0f0f0'}}>
-              Новостей нет — создай первую!
-            </div>
+            <div style={{textAlign:'center', color:'#BDBDBD', padding:60, background:'#fff', borderRadius:14}}>Новостей нет — создай первую!</div>
           ) : news.map(item => (
-            <div key={item.id} style={{background: item.card_bg || '#fff', borderRadius:14, border:'1px solid #f0f0f0', padding:18, marginBottom:12, opacity: item.is_active ? 1 : 0.5}}>
+            <div key={item.id} style={{background: item.card_bg||'#fff', borderRadius:14, border:'1px solid #f0f0f0', padding:16, marginBottom:10, opacity: item.is_active ? 1 : 0.5, position:'relative', overflow:'hidden'}}>
+              {item.is_pinned && (
+                <div style={{position:'absolute', top:0, left:0, right:0, height:4, background:'linear-gradient(90deg, #BFD900 0%, #a0b800 40%, transparent 100%)', borderRadius:'14px 14px 0 0'}} />
+              )}
               <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:12}}>
                 <div style={{flex:1}}>
-                  <div style={{display:'flex', alignItems:'center', gap:8, marginBottom:6, flexWrap:'wrap'}}>
-                    {item.is_pinned && <span style={{fontSize:11, fontWeight:700, color:'#2a2a2a', background:'#f5f5f5', padding:'2px 8px', borderRadius:6}}>📌 Закреп</span>}
+                  <div style={{display:'flex', alignItems:'center', gap:6, marginBottom:8, flexWrap:'wrap', marginTop: item.is_pinned ? 8 : 0}}>
                     {!item.is_active && <span style={{fontSize:11, fontWeight:700, color:'#e74c3c', background:'#fdecea', padding:'2px 8px', borderRadius:6}}>Архив</span>}
                     {item.tag && (
-                      <span style={{fontSize:11, fontWeight:600, background: item.tag_color || '#BFD900', color:'#2a2a2a', padding:'2px 10px', borderRadius:8}}>
+                      <span style={{fontSize:11, fontWeight:600, background: item.tag_color||'#BFD900', color: item.tag_text_color||'#2a2a2a', padding:'2px 10px', borderRadius:8}}>
                         {tagLabel(item.tag)}
                       </span>
                     )}
                     {item.scheduled_at && new Date(item.scheduled_at) > new Date() && (
-                      <span style={{fontSize:11, color:'#f39c12', background:'#fef9e7', padding:'2px 8px', borderRadius:6, fontWeight:600}}>
-                        ⏰ {fmtDT(item.scheduled_at)}
-                      </span>
+                      <span style={{fontSize:11, color:'#f39c12', background:'#fef9e7', padding:'2px 8px', borderRadius:6, fontWeight:600}}>⏰ {fmtDT(item.scheduled_at)}</span>
                     )}
                     {item.repeat_type && item.repeat_type !== 'none' && (
-                      <span style={{fontSize:11, color:'#2980b9', background:'#e8f4fd', padding:'2px 8px', borderRadius:6}}>
-                        🔄 {REPEAT_TYPES[item.repeat_type]}
-                      </span>
+                      <span style={{fontSize:11, color:'#2980b9', background:'#e8f4fd', padding:'2px 8px', borderRadius:6}}>🔄 {REPEAT_TYPES[item.repeat_type]}</span>
                     )}
                   </div>
-                  <div style={{fontSize:15, fontWeight:600, color: item.title_color || '#2a2a2a', marginBottom:4}}
-                    dangerouslySetInnerHTML={{ __html: item.title }} />
-                  {item.body && (
-                    <div style={{fontSize:12, color:'#2a2a2a', lineHeight:1.5, maxHeight:48, overflow:'hidden'}}
-                      dangerouslySetInnerHTML={{ __html: item.body }} />
-                  )}
+                  <div style={{fontSize:14, fontWeight:600, color: item.title_color||'#2a2a2a', marginBottom:4}} dangerouslySetInnerHTML={{ __html: item.title }} />
+                  {item.body && <div style={{fontSize:12, color: item.body_color||'#888', lineHeight:1.5, maxHeight:40, overflow:'hidden'}}>{stripHtml(item.body).slice(0,120)}</div>}
                   <div style={{fontSize:11, color:'#BDBDBD', marginTop:6}}>
-                    {fmtDT(item.published_at)}
-                    {item.profiles?.full_name && ` · ${item.profiles.full_name}`}
-                    {item.views_count > 0 && ` · 👁 ${item.views_count}`}
+                    {fmtDT(item.published_at)}{item.profiles?.full_name && ` · ${item.profiles.full_name}`}
                   </div>
                 </div>
                 <div style={{display:'flex', flexDirection:'column', gap:6, flexShrink:0}}>
-                  <button onClick={() => handleEdit(item)}
-                    style={{fontSize:11, color:'#2980b9', background:'none', border:'none', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>Изменить</button>
-                  <button onClick={() => handleTogglePin(item.id, item.is_pinned)}
-                    style={{fontSize:11, color:'#888', background:'none', border:'none', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+                  <button onClick={() => handleEdit(item)} style={{fontSize:11, color:'#2980b9', background:'none', border:'none', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>Изменить</button>
+                  <button onClick={() => handleTogglePin(item.id, item.is_pinned)} style={{fontSize:11, color:'#888', background:'none', border:'none', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
                     {item.is_pinned ? '📌 Откреп' : '📌 Закреп'}
                   </button>
                   {isManagerPlus && (
-                    <button onClick={() => loadHistory(item.id)}
-                      style={{fontSize:11, color:'#8e44ad', background:'none', border:'none', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>История</button>
+                    <button onClick={() => loadHistory(item.id)} style={{fontSize:11, color:'#8e44ad', background:'none', border:'none', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>История</button>
                   )}
                   {item.is_active && (
-                    <button onClick={() => handleDelete(item.id, item.title)}
-                      style={{fontSize:11, color:'#e74c3c', background:'none', border:'none', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>Архив</button>
+                    <button onClick={() => handleDelete(item.id, item.title)} style={{fontSize:11, color:'#e74c3c', background:'none', border:'none', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>Архив</button>
                   )}
                 </div>
               </div>
-
-              {/* История изменений */}
               {showHistory === item.id && isManagerPlus && (
                 <div style={{marginTop:12, paddingTop:12, borderTop:'1px solid #f0f0f0'}}>
-                  <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8}}>
+                  <div style={{display:'flex', justifyContent:'space-between', marginBottom:8}}>
                     <div style={{fontSize:12, fontWeight:600, color:'#888'}}>История изменений</div>
                     <button onClick={() => setShowHistory(null)} style={{fontSize:11, color:'#888', background:'none', border:'none', cursor:'pointer'}}>Скрыть</button>
                   </div>
-                  {history.length === 0 ? (
-                    <div style={{fontSize:12, color:'#BDBDBD'}}>Изменений нет</div>
-                  ) : history.map(h => (
-                    <div key={h.id} style={{display:'flex', gap:8, padding:'5px 0', borderBottom:'1px solid #f8f8f8', fontSize:12}}>
-                      <span style={{color: h.action==='deleted'?'#e74c3c': h.action==='created'?'#27ae60':'#2980b9', fontWeight:600}}>
-                        {h.action==='created'?'✅ Создана': h.action==='edited'?'✏️ Изменена':'🗑 Архив'}
-                      </span>
-                      <span style={{color:'#888'}}>{h.profiles?.full_name || '—'}</span>
-                      <span style={{color:'#BDBDBD', marginLeft:'auto'}}>{fmtDT(h.created_at)}</span>
-                    </div>
-                  ))}
+                  {history.length === 0 ? <div style={{fontSize:12, color:'#BDBDBD'}}>Изменений нет</div>
+                    : history.map(h => (
+                      <div key={h.id} style={{display:'flex', gap:8, padding:'5px 0', borderBottom:'1px solid #f8f8f8', fontSize:12}}>
+                        <span style={{color: h.action==='deleted'?'#e74c3c': h.action==='created'?'#27ae60':'#2980b9', fontWeight:600}}>
+                          {h.action==='created'?'✅ Создана': h.action==='edited'?'✏️ Изменена':'🗑 Архив'}
+                        </span>
+                        <span style={{color:'#888'}}>{h.profiles?.full_name || '—'}</span>
+                        <span style={{color:'#BDBDBD', marginLeft:'auto'}}>{fmtDT(h.created_at)}</span>
+                      </div>
+                    ))}
                 </div>
               )}
             </div>
@@ -384,35 +439,30 @@ export default function AdminNews({ session }) {
       )}
 
       {tab === 'form' && (
-        <div style={{display:'grid', gridTemplateColumns:'1fr 320px', gap:20, alignItems:'start'}}>
+        <div style={{display:'grid', gridTemplateColumns:'1fr 300px', gap:20, alignItems:'start'}}>
           <div>
+            {/* Заголовок */}
             <div style={cardStyle}>
               <label style={labelStyle}>Заголовок *</label>
-              <RichEditor key={`title-${editingId}`} value={form.title} onChange={v => setForm(f => ({...f, title:v}))} defaultBold />
+              <RichEditor key={`title-${editingId}`} value={form.title} onChange={v => setForm(f => ({...f, title:v}))} defaultBold minHeight={60} textColor={form.title_color} />
+              <div style={{marginTop:12}}>
+                <ColorPicker label="Цвет текста заголовка" value={form.title_color} onChange={v => setForm(f => ({...f, title_color:v}))} />
+              </div>
             </div>
 
+            {/* Основной текст */}
             <div style={cardStyle}>
               <label style={labelStyle}>Текст новости</label>
-              <RichEditor key={`body-${editingId}`} value={form.body} onChange={v => setForm(f => ({...f, body:v}))} />
+              <RichEditor key={`body-${editingId}`} value={form.body} onChange={v => setForm(f => ({...f, body:v}))} minHeight={140} textColor={form.body_color} />
+              <div style={{marginTop:12}}>
+                <ColorPicker label="Цвет текста" value={form.body_color} onChange={v => setForm(f => ({...f, body_color:v}))} />
+              </div>
             </div>
 
+            {/* Фон карточки */}
             <div style={cardStyle}>
-              <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a', marginBottom:14}}>🎨 Оформление</div>
-              <ColorPicker label="Фон карточки" value={form.card_bg} onChange={v => setForm(f => ({...f, card_bg:v}))} />
-              <ColorPicker label="Цвет заголовка" value={form.title_color} onChange={v => setForm(f => ({...f, title_color:v}))} />
-              <ColorPicker label="Цвет фона тега" value={form.tag_color} onChange={v => setForm(f => ({...f, tag_color:v}))} />
-
-              {/* Предпросмотр */}
-              <div style={{marginTop:12, padding:14, borderRadius:12, background: form.card_bg || '#fff', border:'1px solid #f0f0f0'}}>
-                <div style={{fontSize:11, color:'#BDBDBD', marginBottom:6}}>Предпросмотр карточки:</div>
-                {form.tag && (
-                  <span style={{display:'inline-block', fontSize:11, fontWeight:600, background: form.tag_color, color:'#2a2a2a', padding:'2px 10px', borderRadius:8, marginBottom:6}}>
-                    {tagLabel(form.tag)}
-                  </span>
-                )}
-                <div style={{fontSize:14, fontWeight:600, color: form.title_color}}
-                  dangerouslySetInnerHTML={{ __html: form.title || 'Заголовок новости' }} />
-              </div>
+              <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a', marginBottom:14}}>🎨 Фон карточки</div>
+              <ColorPicker value={form.card_bg} onChange={v => setForm(f => ({...f, card_bg:v}))} withGradients />
             </div>
           </div>
 
@@ -421,10 +471,23 @@ export default function AdminNews({ session }) {
               <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a', marginBottom:14}}>Настройки</div>
 
               <label style={labelStyle}>Тег</label>
-              <select value={form.tag} onChange={e => setForm(f => ({...f, tag:e.target.value}))} style={{...inputStyle, marginBottom:12}}>
-                <option value="">Без тега</option>
-                {TAGS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-              </select>
+              <div style={{display:'flex', gap:6, marginBottom:8}}>
+                <select value={form.tag} onChange={e => setForm(f => ({...f, tag:e.target.value}))} style={{...inputStyle, flex:1}}>
+                  <option value="">Без тега</option>
+                  {tags.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                </select>
+                <button onClick={() => setShowTagsManager(true)}
+                  style={{padding:'9px 10px', background:'#f5f5f5', border:'1px solid #e0e0e0', borderRadius:10, fontSize:12, cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+                  🏷
+                </button>
+              </div>
+
+              {form.tag && (
+                <div style={{marginBottom:12}}>
+                  <ColorPicker label="Фон тега" value={form.tag_color} onChange={v => setForm(f => ({...f, tag_color:v}))} />
+                  <ColorPicker label="Цвет текста тега" value={form.tag_text_color} onChange={v => setForm(f => ({...f, tag_text_color:v}))} />
+                </div>
+              )}
 
               <label style={labelStyle}>Отложенная публикация</label>
               <input type="datetime-local" value={form.scheduled_at} onChange={e => setForm(f => ({...f, scheduled_at:e.target.value}))}
@@ -435,7 +498,7 @@ export default function AdminNews({ session }) {
                 {Object.entries(REPEAT_TYPES).map(([k,v]) => <option key={k} value={k}>{v}</option>)}
               </select>
 
-              <div style={{display:'flex', flexDirection:'column', gap:10, marginBottom:16}}>
+              <div style={{display:'flex', flexDirection:'column', gap:8, marginBottom:16}}>
                 <label style={{display:'flex', alignItems:'center', gap:8, fontSize:13, cursor:'pointer'}}>
                   <input type="checkbox" checked={form.is_pinned} onChange={e => setForm(f => ({...f, is_pinned:e.target.checked}))} />
                   📌 Закрепить новость
@@ -447,45 +510,18 @@ export default function AdminNews({ session }) {
               </div>
 
               <button onClick={handleSave} disabled={saving || (!form.title && !form.body)}
-                style={{width:'100%', padding:'11px', background:'#BFD900', border:'none', borderRadius:10, fontSize:14, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif', opacity: (saving || (!form.title && !form.body)) ? 0.5 : 1}}>
+                style={{width:'100%', padding:'11px', background:'#BFD900', border:'none', borderRadius:10, fontSize:14, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif', opacity: (saving||(!form.title&&!form.body)) ? 0.5 : 1, marginBottom:8}}>
                 {saving ? 'Сохраняем...' : editingId ? '💾 Сохранить' : '🚀 Опубликовать'}
               </button>
               <button onClick={() => { setTab('list'); setEditingId(null); setForm(emptyForm()) }}
-                style={{width:'100%', padding:'9px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:10, fontSize:13, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif', marginTop:8}}>
+                style={{width:'100%', padding:'9px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:10, fontSize:13, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
                 Отмена
               </button>
-              <div style={{marginTop:16}}>
-              <div style={{fontSize:12, fontWeight:600, color:'#888', marginBottom:10}}>📱 Предпросмотр в ленте</div>
-              <div style={{
-                background: form.card_bg || '#fff',
-                borderRadius:16, border:'1px solid #f0f0f0',
-                padding:16, boxShadow:'0 2px 8px rgba(0,0,0,0.06)'
-              }}>
-                {form.is_pinned && (
-                  <div style={{fontSize:10, fontWeight:700, color:'#888', marginBottom:6}}>📌 ЗАКРЕПЛЕНО</div>
-                )}
-                {form.tag && (
-                  <span style={{display:'inline-block', fontSize:10, fontWeight:700, background: form.tag_color || '#BFD900', color:'#2a2a2a', padding:'2px 10px', borderRadius:8, marginBottom:8}}>
-                    {tagLabel(form.tag)}
-                  </span>
-                )}
-                {form.title && (
-                  <div style={{fontSize:14, fontWeight:600, color: form.title_color || '#2a2a2a', marginBottom:6, lineHeight:1.4}}
-                    dangerouslySetInnerHTML={{ __html: form.title }} />
-                )}
-                {form.body && (
-                  <div style={{fontSize:12, color:'#2a2a2a', lineHeight:1.5, maxHeight:60, overflow:'hidden'}}
-                    dangerouslySetInnerHTML={{ __html: form.body }} />
-                )}
-                <div style={{fontSize:10, color:'#BDBDBD', marginTop:8}}>
-                  {form.scheduled_at
-                    ? `⏰ ${new Date(form.scheduled_at).toLocaleDateString('ru-RU', {day:'numeric', month:'short'})}`
-                    : new Date().toLocaleDateString('ru-RU', {day:'numeric', month:'short'})
-                  }
-                  {form.repeat_type && form.repeat_type !== 'none' && ` · 🔄 ${REPEAT_TYPES[form.repeat_type]}`}
-                </div>
-              </div>
             </div>
+
+            <div style={cardStyle}>
+              <div style={{fontSize:12, fontWeight:600, color:'#888', marginBottom:10}}>📱 Предпросмотр в ленте</div>
+              <Preview />
             </div>
           </div>
         </div>
