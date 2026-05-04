@@ -143,7 +143,7 @@ export default function AdminStaffCard({ session }) {
       {tab === 'stats' && <StatsTab staff={staff} />}
       {tab === 'subs' && <SubsTab staff={staff} />}
       {tab === 'absences' && <AbsencesTab staff={staff} session={session} />}
-      {tab === 'tasks' && <TasksTab staffId={staff.id} />}
+      {tab === 'tasks' && <TasksTab staffId={staff.id} session={session} />}
     </div>
   )
 }
@@ -719,9 +719,12 @@ function AbsencesTab({ staff, session }) {
   )
 }
 
-function TasksTab({ staffId }) {
+function TasksTab({ staffId, session }) {
   const [tasks, setTasks] = useState([])
   const [loading, setLoading] = useState(true)
+  const [showForm, setShowForm] = useState(false)
+  const [form, setForm] = useState({ title:'', description:'', priority:'medium', deadline:'' })
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => { load() }, [])
 
@@ -734,22 +737,105 @@ function TasksTab({ staffId }) {
     setLoading(false)
   }
 
+  const handleCreate = async () => {
+    if (!form.title.trim()) return
+    setSaving(true)
+    const { data: task } = await supabase.from('tasks').insert({
+      title: form.title.trim(),
+      description: form.description || null,
+      priority: form.priority,
+      deadline: form.deadline || null,
+      status: 'new',
+      task_type: 'regular',
+      created_by: session?.user?.id,
+    }).select().single()
+    if (task) {
+      await supabase.from('task_assignees').insert({ task_id: task.id, user_id: staffId })
+      await supabase.from('task_history').insert({ task_id: task.id, action: 'created', author_id: session?.user?.id, changes: { title: form.title } })
+    }
+    setForm({ title:'', description:'', priority:'medium', deadline:'' })
+    setShowForm(false)
+    setSaving(false)
+    load()
+  }
+
+  const PRIORITY_LABELS = { low:'Низкий', medium:'Средний', high:'Высокий', urgent:'Срочный' }
+  const PRIORITY_COLORS = { low:'#27ae60', medium:'#f39c12', high:'#e74c3c', urgent:'#8e44ad' }
+
   if (loading) return <div style={{color:'#BDBDBD', textAlign:'center', padding:30}}>Загрузка...</div>
-  if (tasks.length === 0) return <div style={{color:'#BDBDBD', textAlign:'center', padding:30}}>Задач нет</div>
 
   return (
-    <div style={{background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', padding:20}}>
-      {tasks.map(t => (
-        <div key={t.id} style={{padding:'10px 0', borderBottom:'1px solid #f8f8f8'}}>
-          <div style={{display:'flex', alignItems:'center', gap:8}}>
-            <span style={{fontSize:13, fontWeight:600}}>{t.title}</span>
-            <span style={{background: TASK_STATUS[t.status].color+'22', color: TASK_STATUS[t.status].color, padding:'2px 8px', borderRadius:6, fontSize:11, fontWeight:600}}>
-              {TASK_STATUS[t.status].label}
-            </span>
+    <div>
+      <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14}}>
+        <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a'}}>Задачи сотрудника</div>
+        <button onClick={() => setShowForm(!showForm)}
+          style={{padding:'7px 14px', background:'#BFD900', border:'none', borderRadius:8, fontSize:12, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+          {showForm ? 'Отмена' : '+ Задача'}
+        </button>
+      </div>
+
+      {showForm && (
+        <div style={{background:'#f9f9f9', borderRadius:12, padding:16, marginBottom:16, border:'1px solid #f0f0f0'}}>
+          <div style={{fontSize:13, fontWeight:600, color:'#2a2a2a', marginBottom:12}}>Новая задача</div>
+
+          <label style={labelStyle}>Заголовок *</label>
+          <input value={form.title} onChange={e => setForm({...form, title:e.target.value})}
+            placeholder="Что нужно сделать" style={inputStyle} />
+
+          <label style={labelStyle}>Описание</label>
+          <textarea value={form.description} onChange={e => setForm({...form, description:e.target.value})}
+            placeholder="Подробности..." rows={3}
+            style={{...inputStyle, resize:'vertical', lineHeight:1.5}} />
+
+          <label style={labelStyle}>Приоритет</label>
+          <div style={{display:'flex', gap:6, marginBottom:8}}>
+            {Object.entries(PRIORITY_LABELS).map(([k,v]) => (
+              <button key={k} onClick={() => setForm({...form, priority:k})}
+                style={{flex:1, padding:'6px 0', borderRadius:8, border:'none', fontSize:12, cursor:'pointer', fontFamily:'Inter,sans-serif',
+                  fontWeight:form.priority===k?700:400,
+                  background:form.priority===k?PRIORITY_COLORS[k]+'22':'#f5f5f5',
+                  color:form.priority===k?PRIORITY_COLORS[k]:'#888',
+                  outline:form.priority===k?`1.5px solid ${PRIORITY_COLORS[k]}`:'none'}}>
+                {v}
+              </button>
+            ))}
           </div>
-          {t.deadline && <div style={{fontSize:11, color:'#888', marginTop:3}}>⏰ {new Date(t.deadline).toLocaleDateString('ru-RU')}</div>}
+
+          <label style={labelStyle}>Дедлайн</label>
+          <input type="date" value={form.deadline} onChange={e => setForm({...form, deadline:e.target.value})} style={inputStyle} />
+
+          <button onClick={handleCreate} disabled={saving || !form.title.trim()}
+            style={{width:'100%', padding:'10px', background:'#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif', opacity:(saving||!form.title.trim())?0.5:1}}>
+            {saving ? 'Создаём...' : 'Создать задачу'}
+          </button>
         </div>
-      ))}
+      )}
+
+      {tasks.length === 0 ? (
+        <div style={{background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', padding:30, textAlign:'center', color:'#BDBDBD', fontSize:13}}>
+          Задач нет
+        </div>
+      ) : (
+        <div style={{background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', padding:20}}>
+          {tasks.map(t => (
+            <div key={t.id} style={{padding:'10px 0', borderBottom:'1px solid #f8f8f8'}}>
+              <div style={{display:'flex', alignItems:'center', gap:8, flexWrap:'wrap'}}>
+                <span style={{fontSize:13, fontWeight:600, color:'#2a2a2a'}}>{t.title}</span>
+                <span style={{background:TASK_STATUS[t.status]?.color+'22', color:TASK_STATUS[t.status]?.color, padding:'2px 8px', borderRadius:6, fontSize:11, fontWeight:600}}>
+                  {TASK_STATUS[t.status]?.label}
+                </span>
+                {t.priority && (
+                  <span style={{background:PRIORITY_COLORS[t.priority]+'22', color:PRIORITY_COLORS[t.priority], padding:'2px 8px', borderRadius:6, fontSize:11}}>
+                    {PRIORITY_LABELS[t.priority]}
+                  </span>
+                )}
+              </div>
+              {t.description && <div style={{fontSize:12, color:'#888', marginTop:3}}>{t.description}</div>}
+              {t.deadline && <div style={{fontSize:11, color:'#BDBDBD', marginTop:3}}>⏰ {new Date(t.deadline).toLocaleDateString('ru-RU')}</div>}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
