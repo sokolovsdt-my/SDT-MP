@@ -21,8 +21,8 @@ const TASK_STATUS = {
   problem: { label: 'Есть трудности', color: '#e74c3c' },
 }
 
-const PRIORITY_LABELS = { low:'Низкий', normal:'Средний', high:'Высокий', urgent:'Срочный' }
-const PRIORITY_COLORS = { low:'#27ae60', normal:'#f39c12', high:'#e74c3c', urgent:'#8e44ad' }
+const PRIORITY_LABELS = { low:'Низкий', normal:'Средний', high:'Высокий' }
+const PRIORITY_COLORS = { low:'#27ae60', normal:'#f39c12', high:'#e74c3c' }
 
 const inputStyle = { width:'100%', padding:'8px 12px', border:'1px solid #e8e8e8', borderRadius:8, fontSize:13, boxSizing:'border-box', fontFamily:'Inter,sans-serif', marginBottom:8 }
 const labelStyle = { fontSize:12, color:'#888', marginBottom:4, fontWeight:600, display:'block' }
