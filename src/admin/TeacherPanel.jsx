@@ -6,6 +6,7 @@ const MONTHS = ['янв','фев','мар','апр','май','июн','июл','
 
 const fmtTime = (d) => new Date(d).toLocaleTimeString('ru-RU', { hour:'2-digit', minute:'2-digit' })
 const fmtDate = (d) => { const dt = new Date(d); return `${dt.getDate()} ${MONTHS[dt.getMonth()]}` }
+const fmtDT = (d) => { if (!d) return '—'; const dt = new Date(d); return `${dt.getDate()} ${MONTHS[dt.getMonth()]}, ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}` }
 const isToday = (d) => { const n = new Date(), dt = new Date(d); return dt.getDate()===n.getDate() && dt.getMonth()===n.getMonth() }
 const isTomorrow = (d) => { const n = new Date(); n.setDate(n.getDate()+1); const dt = new Date(d); return dt.getDate()===n.getDate() && dt.getMonth()===n.getMonth() }
 
@@ -17,12 +18,53 @@ const TASK_STATUSES = [
   { value:'done', label:'Выполнена', color:'#27ae60', bg:'#eafaf1' },
 ]
 
+function TaskHistory({ taskId, createdAt, completedAt }) {
+  const [history, setHistory] = useState([])
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    supabase.from('task_history').select('*').eq('task_id', taskId).order('created_at')
+      .then(({ data }) => { setHistory(data || []); setLoaded(true) })
+  }, [taskId])
+
+  if (!loaded) return <div style={{fontSize:11, color:'#BDBDBD'}}>Загрузка...</div>
+
+  return (
+    <div style={{marginTop:12, paddingTop:12, borderTop:'1px solid #f0f0f0'}}>
+      <div style={{fontSize:11, color:'#888', fontWeight:600, marginBottom:6}}>История:</div>
+      <div style={{fontSize:11, color:'#BDBDBD', marginBottom:4}}>
+        📅 Назначена: <span style={{color:'#2a2a2a'}}>{fmtDT(createdAt)}</span>
+      </div>
+      {history.map((h,i) => (
+        <div key={i} style={{fontSize:11, color:'#BDBDBD', marginBottom:3}}>
+          <span style={{color:'#2a2a2a'}}>{fmtDT(h.created_at)}</span> — {h.comment || h.action}
+        </div>
+      ))}
+      {completedAt && (
+        <div style={{fontSize:11, color:'#27ae60', marginTop:4}}>
+          ✅ Выполнена: <span style={{fontWeight:600}}>{fmtDT(completedAt)}</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function TasksSection({ tasks, session, onReload }) {
   const [expanded, setExpanded] = useState(null)
 
   const handleStatus = async (taskId, newStatus) => {
-    await supabase.from('tasks').update({ status: newStatus }).eq('id', taskId)
-    await supabase.from('task_history').insert({ task_id: taskId, action: 'status_changed', author_id: session.user.id, changes: { status: newStatus } })
+    const isDone = newStatus === 'done'
+    await supabase.from('tasks').update({
+      status: newStatus,
+      completed_at: isDone ? new Date().toISOString() : null,
+    }).eq('id', taskId)
+    await supabase.from('task_history').insert({
+      task_id: taskId,
+      action: 'status_changed',
+      author_id: session.user.id,
+      changes: { status: newStatus },
+      comment: `Статус изменён на: ${TASK_STATUSES.find(s=>s.value===newStatus)?.label || newStatus}`
+    })
     onReload()
   }
 
@@ -45,21 +87,25 @@ function TasksSection({ tasks, session, onReload }) {
                 <span style={{fontSize:11, color:'#BDBDBD', marginLeft:'auto'}}>{expanded===t.id ? '▲' : '▼'}</span>
               </div>
             </div>
+
             {expanded === t.id && (
-              <div style={{marginTop:12, paddingTop:12, borderTop:'1px solid #f0f0f0'}}>
-                <div style={{fontSize:11, color:'#888', marginBottom:8, fontWeight:600}}>Изменить статус:</div>
-                <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
-                  {TASK_STATUSES.map(s => (
-                    <button key={s.value} onClick={() => handleStatus(t.id, s.value)}
-                      style={{padding:'6px 12px', borderRadius:8, border:'none', fontSize:12, cursor:'pointer', fontFamily:'Inter,sans-serif',
-                        fontWeight:t.status===s.value?700:400,
-                        background:t.status===s.value?s.bg:'#f5f5f5',
-                        color:t.status===s.value?s.color:'#888',
-                        outline:t.status===s.value?`1.5px solid ${s.color}`:'none'}}>
-                      {s.label}
-                    </button>
-                  ))}
+              <div>
+                <div style={{marginTop:12, paddingTop:12, borderTop:'1px solid #f0f0f0'}}>
+                  <div style={{fontSize:11, color:'#888', marginBottom:8, fontWeight:600}}>Изменить статус:</div>
+                  <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
+                    {TASK_STATUSES.map(s => (
+                      <button key={s.value} onClick={() => handleStatus(t.id, s.value)}
+                        style={{padding:'6px 12px', borderRadius:8, border:'none', fontSize:12, cursor:'pointer', fontFamily:'Inter,sans-serif',
+                          fontWeight:t.status===s.value?700:400,
+                          background:t.status===s.value?s.bg:'#f5f5f5',
+                          color:t.status===s.value?s.color:'#888',
+                          outline:t.status===s.value?`1.5px solid ${s.color}`:'none'}}>
+                        {s.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
+                <TaskHistory taskId={t.id} createdAt={t.created_at} completedAt={t.completed_at} />
               </div>
             )}
           </div>

@@ -206,7 +206,11 @@ function TaskCard({ task, session, staff, onUpdate }) {
               </span>
             ))}
             {task.deadline && (
-              <span style={{fontSize:11, color:isOverdue?'#e74c3c':'#BDBDBD'}}>⏰ {formatDT(task.deadline)}</span>
+              <span style={{fontSize:11, color:isOverdue?'#e74c3c':'#BDBDBD'}}>⏰ Дедлайн: {formatDT(task.deadline)}</span>
+            )}
+            <span style={{fontSize:11, color:'#BDBDBD'}}>📅 Назначена: {formatDT(task.created_at)}</span>
+            {task.completed_at && (
+              <span style={{fontSize:11, color:'#27ae60'}}>✅ Выполнена: {formatDT(task.completed_at)}</span>
             )}
             {completedByProfile && (
               <span style={{fontSize:11, color:'#27ae60'}}>✓ Выполнил: {completedByProfile.full_name}</span>
@@ -224,7 +228,9 @@ function TaskCard({ task, session, staff, onUpdate }) {
         <div style={{marginTop:10, paddingTop:10, borderTop:'1px solid #f5f5f5'}}>
           <div style={{fontSize:11, color:'#BDBDBD', marginBottom:4}}>История:</div>
           {history.slice(0, visibleHistory).map((h,i)=>(
-            <div key={i} style={{fontSize:11,color:'#BDBDBD',marginBottom:2}}>{formatDT(h.created_at)} — {h.comment}</div>
+            <div key={i} style={{fontSize:11,color:'#BDBDBD',marginBottom:2}}>
+              <span style={{color:'#2a2a2a'}}>{formatDT(h.created_at)}</span> — {h.comment || h.action}
+            </div>
           ))}
           <div style={{display:'flex',gap:8,marginTop:6}}>
             {history.length > visibleHistory && (
