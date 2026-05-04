@@ -6,7 +6,7 @@ const MONTHS = ['янв','фев','мар','апр','май','июн','июл','
 
 const fmtTime = (d) => new Date(d).toLocaleTimeString('ru-RU', { hour:'2-digit', minute:'2-digit' })
 const fmtDate = (d) => { const dt = new Date(d); return `${dt.getDate()} ${MONTHS[dt.getMonth()]}` }
-const fmtDT = (d) => { if (!d) return '—'; const dt = new Date(d); return `${dt.getDate()} ${MONTHS[dt.getMonth()]}, ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}` }
+const fmtDT = (d) => { if (!d) return '—'; return new Date(d).toLocaleString('ru-RU', { timeZone:'Europe/Moscow', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' }) }
 const isToday = (d) => { const n = new Date(), dt = new Date(d); return dt.getDate()===n.getDate() && dt.getMonth()===n.getMonth() }
 const isTomorrow = (d) => { const n = new Date(); n.setDate(n.getDate()+1); const dt = new Date(d); return dt.getDate()===n.getDate() && dt.getMonth()===n.getMonth() }
 
@@ -51,6 +51,23 @@ function TaskHistory({ taskId, createdAt, completedAt }) {
 
 function TasksSection({ tasks, session, onReload }) {
   const [expanded, setExpanded] = useState(null)
+  const [taskTab, setTaskTab] = useState('active')
+  const [doneTasks, setDoneTasks] = useState([])
+  const [doneLoading, setDoneLoading] = useState(false)
+
+  useEffect(() => {
+    if (taskTab === 'done') loadDone()
+  }, [taskTab])
+
+  const loadDone = async () => {
+    setDoneLoading(true)
+    const { data: ta } = await supabase.from('task_assignees').select('task_id').eq('user_id', session.user.id)
+    const ids = (ta || []).map(x => x.task_id)
+    if (ids.length === 0) { setDoneTasks([]); setDoneLoading(false); return }
+    const { data: t } = await supabase.from('tasks').select('*').in('id', ids).in('status', ['done','cancelled']).order('completed_at', {ascending:false})
+    setDoneTasks(t || [])
+    setDoneLoading(false)
+  }
 
   const handleStatus = async (taskId, newStatus) => {
     const isDone = newStatus === 'done'
@@ -68,49 +85,96 @@ function TasksSection({ tasks, session, onReload }) {
     onReload()
   }
 
-  if (tasks.length === 0) return (
-    <div style={{textAlign:'center', color:'#BDBDBD', padding:60, fontSize:13}}>Активных задач нет 🎉</div>
-  )
+  const tabBtnStyle = (active) => ({
+    flex:1, padding:'7px 0', borderRadius:8, border:'none', fontSize:12, cursor:'pointer',
+    fontFamily:'Inter,sans-serif', fontWeight:active?600:400,
+    background:active?'#fff':'transparent', color:active?'#2a2a2a':'#888'
+  })
 
   return (
     <div>
-      {tasks.map(t => {
-        const st = TASK_STATUSES.find(s => s.value === t.status) || TASK_STATUSES[0]
-        return (
-          <div key={t.id} style={{background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', padding:14, marginBottom:10}}>
-            <div onClick={() => setExpanded(expanded===t.id ? null : t.id)} style={{cursor:'pointer'}}>
-              <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a', marginBottom:6}}>{t.title}</div>
-              {t.description && <div style={{fontSize:12, color:'#888', marginBottom:8, lineHeight:1.5}}>{t.description}</div>}
-              <div style={{display:'flex', gap:8, alignItems:'center', flexWrap:'wrap'}}>
-                <span style={{fontSize:11, padding:'3px 10px', borderRadius:6, fontWeight:600, background:st.bg, color:st.color}}>{st.label}</span>
-                {t.deadline && <span style={{fontSize:11, color: new Date(t.deadline) < new Date() ? '#e74c3c' : '#BDBDBD'}}>⏰ {fmtDate(t.deadline)}</span>}
-                <span style={{fontSize:11, color:'#BDBDBD', marginLeft:'auto'}}>{expanded===t.id ? '▲' : '▼'}</span>
-              </div>
-            </div>
+      {/* Переключатель вкладок */}
+      <div style={{display:'flex', background:'#f5f5f5', borderRadius:10, padding:4, marginBottom:16}}>
+        <button onClick={() => setTaskTab('active')} style={tabBtnStyle(taskTab==='active')}>
+          Активные {tasks.length > 0 && `(${tasks.length})`}
+        </button>
+        <button onClick={() => setTaskTab('done')} style={tabBtnStyle(taskTab==='done')}>
+          Выполненные
+        </button>
+      </div>
 
-            {expanded === t.id && (
-              <div>
-                <div style={{marginTop:12, paddingTop:12, borderTop:'1px solid #f0f0f0'}}>
-                  <div style={{fontSize:11, color:'#888', marginBottom:8, fontWeight:600}}>Изменить статус:</div>
-                  <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
-                    {TASK_STATUSES.map(s => (
-                      <button key={s.value} onClick={() => handleStatus(t.id, s.value)}
-                        style={{padding:'6px 12px', borderRadius:8, border:'none', fontSize:12, cursor:'pointer', fontFamily:'Inter,sans-serif',
-                          fontWeight:t.status===s.value?700:400,
-                          background:t.status===s.value?s.bg:'#f5f5f5',
-                          color:t.status===s.value?s.color:'#888',
-                          outline:t.status===s.value?`1.5px solid ${s.color}`:'none'}}>
-                        {s.label}
-                      </button>
-                    ))}
-                  </div>
+      {/* Активные задачи */}
+      {taskTab === 'active' && (
+        tasks.length === 0 ? (
+          <div style={{textAlign:'center', color:'#BDBDBD', padding:60, fontSize:13}}>Активных задач нет 🎉</div>
+        ) : tasks.map(t => {
+          const st = TASK_STATUSES.find(s => s.value === t.status) || TASK_STATUSES[0]
+          return (
+            <div key={t.id} style={{background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', padding:14, marginBottom:10}}>
+              <div onClick={() => setExpanded(expanded===t.id ? null : t.id)} style={{cursor:'pointer'}}>
+                <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a', marginBottom:6}}>{t.title}</div>
+                {t.description && <div style={{fontSize:12, color:'#888', marginBottom:8, lineHeight:1.5}}>{t.description}</div>}
+                <div style={{display:'flex', gap:8, alignItems:'center', flexWrap:'wrap'}}>
+                  <span style={{fontSize:11, padding:'3px 10px', borderRadius:6, fontWeight:600, background:st.bg, color:st.color}}>{st.label}</span>
+                  {t.deadline && <span style={{fontSize:11, color: new Date(t.deadline) < new Date() ? '#e74c3c' : '#BDBDBD'}}>⏰ {fmtDate(t.deadline)}</span>}
+                  <span style={{fontSize:11, color:'#BDBDBD', marginLeft:'auto'}}>{expanded===t.id ? '▲' : '▼'}</span>
                 </div>
-                <TaskHistory taskId={t.id} createdAt={t.created_at} completedAt={t.completed_at} />
               </div>
-            )}
-          </div>
-        )
-      })}
+              {expanded === t.id && (
+                <div>
+                  <div style={{marginTop:12, paddingTop:12, borderTop:'1px solid #f0f0f0'}}>
+                    <div style={{fontSize:11, color:'#888', marginBottom:8, fontWeight:600}}>Изменить статус:</div>
+                    <div style={{display:'flex', gap:6, flexWrap:'wrap', marginBottom:0}}>
+                      {TASK_STATUSES.map(s => (
+                        <button key={s.value} onClick={() => handleStatus(t.id, s.value)}
+                          style={{padding:'6px 12px', borderRadius:8, border:'none', fontSize:12, cursor:'pointer', fontFamily:'Inter,sans-serif',
+                            fontWeight:t.status===s.value?700:400,
+                            background:t.status===s.value?s.bg:'#f5f5f5',
+                            color:t.status===s.value?s.color:'#888',
+                            outline:t.status===s.value?`1.5px solid ${s.color}`:'none'}}>
+                          {s.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <TaskHistory taskId={t.id} createdAt={t.created_at} completedAt={t.completed_at} />
+                </div>
+              )}
+            </div>
+          )
+        })
+      )}
+
+      {/* Выполненные задачи */}
+      {taskTab === 'done' && (
+        doneLoading ? (
+          <div style={{textAlign:'center', color:'#BDBDBD', padding:40, fontSize:13}}>Загрузка...</div>
+        ) : doneTasks.length === 0 ? (
+          <div style={{textAlign:'center', color:'#BDBDBD', padding:60, fontSize:13}}>Выполненных задач нет</div>
+        ) : doneTasks.map(t => {
+          const st = TASK_STATUSES.find(s => s.value === t.status) || TASK_STATUSES[4]
+          return (
+            <div key={t.id} style={{background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', padding:14, marginBottom:10, opacity:0.85}}>
+              <div onClick={() => setExpanded(expanded===t.id ? null : t.id)} style={{cursor:'pointer'}}>
+                <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a', marginBottom:6}}>{t.title}</div>
+                {t.description && <div style={{fontSize:12, color:'#888', marginBottom:8, lineHeight:1.5}}>{t.description}</div>}
+                <div style={{display:'flex', gap:8, alignItems:'center', flexWrap:'wrap'}}>
+                  <span style={{fontSize:11, padding:'3px 10px', borderRadius:6, fontWeight:600, background:st.bg, color:st.color}}>{st.label}</span>
+                  {t.completed_at && (
+                    <span style={{fontSize:11, color:'#27ae60'}}>
+                      ✅ {new Date(t.completed_at).toLocaleString('ru-RU', { timeZone:'Europe/Moscow', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })}
+                    </span>
+                  )}
+                  <span style={{fontSize:11, color:'#BDBDBD', marginLeft:'auto'}}>{expanded===t.id ? '▲' : '▼'}</span>
+                </div>
+              </div>
+              {expanded === t.id && (
+                <TaskHistory taskId={t.id} createdAt={t.created_at} completedAt={t.completed_at} />
+              )}
+            </div>
+          )
+        })
+      )}
     </div>
   )
 }

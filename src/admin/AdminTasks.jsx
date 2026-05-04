@@ -168,7 +168,7 @@ function TaskCard({ task, session, staff, onUpdate }) {
 
   const formatDT = (dt) => {
     if (!dt) return '—'
-    return new Date(dt).toLocaleString('ru-RU', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })
+    return new Date(dt).toLocaleString('ru-RU', { timeZone:'Europe/Moscow', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })
   }
 
   // Кто выполнил (для выполненных задач)

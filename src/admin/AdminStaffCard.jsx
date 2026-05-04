@@ -382,7 +382,7 @@ function SalaryTab({ staff, session, onUpdate }) {
                 </div>
               </div>
               <div style={{display:'flex', alignItems:'center', gap:8}}>
-                <span style={{fontSize:11, color:'#BDBDBD'}}>{new Date(p.created_at).toLocaleDateString('ru-RU')}</span>
+                <span style={{fontSize:11, color:'#BDBDBD'}}>{new Date(p.created_at).toLocaleDateString('ru-RU', { timeZone:'Europe/Moscow' })}</span>
                 <button onClick={() => { setEditingPaymentId(p.id); setEditForm({ type:p.type, amount:p.amount, reason:p.reason || '' }) }} style={{background:'none', border:'none', cursor:'pointer', fontSize:13, color:'#888', padding:'2px 6px'}}>✎</button>
                 <button onClick={() => handleDeletePayment(p.id)} style={{background:'none', border:'none', cursor:'pointer', fontSize:16, color:'#e74c3c', padding:'2px 6px'}}>×</button>
               </div>
@@ -408,7 +408,7 @@ function SalaryTab({ staff, session, onUpdate }) {
                   <div key={h.id} style={{padding:'10px 0', borderBottom:'1px solid #f8f8f8', fontSize:12}}>
                     <div style={{display:'flex', alignItems:'center', gap:8, marginBottom:3}}>
                       <span style={{color: actionColor, fontWeight:600}}>{actionLabel}</span>
-                      <span style={{color:'#BDBDBD'}}>{new Date(h.created_at).toLocaleString('ru-RU', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})}</span>
+                      <span style={{color:'#BDBDBD'}}>{new Date(h.created_at).toLocaleString('ru-RU', { timeZone:'Europe/Moscow', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })}</span>
                       {h.profiles && <span style={{color:'#BDBDBD'}}>· {h.profiles.full_name || h.profiles.email}</span>}
                     </div>
                     {h.action === 'updated' && (
@@ -706,9 +706,9 @@ function TasksTab({ staffId, session }) {
                 )}
               </div>
               {t.description && <div style={{fontSize:12, color:'#888', marginTop:3}}>{t.description}</div>}
-              {t.created_at && <div style={{fontSize:11, color:'#BDBDBD', marginTop:3}}>📅 Назначена: {new Date(t.created_at).toLocaleString('ru-RU', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})}</div>}
+              {t.created_at && <div style={{fontSize:11, color:'#BDBDBD', marginTop:3}}>📅 Назначена: {new Date(t.created_at).toLocaleString('ru-RU', { timeZone:'Europe/Moscow', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })}</div>}
               {t.deadline && <div style={{fontSize:11, color:'#BDBDBD', marginTop:2}}>⏰ Дедлайн: {new Date(t.deadline).toLocaleDateString('ru-RU')}</div>}
-              {t.completed_at && <div style={{fontSize:11, color:'#27ae60', marginTop:2}}>✅ Выполнена: {new Date(t.completed_at).toLocaleString('ru-RU', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})}</div>}
+              {t.completed_at && <div style={{fontSize:11, color:'#27ae60', marginTop:2}}>✅ Выполнена: {new Date(t.completed_at).toLocaleString('ru-RU', { timeZone:'Europe/Moscow', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })}</div>}
             </div>
           ))}
         </div>
