@@ -301,7 +301,7 @@ export default function AdminNews({ session }) {
   const isManagerPlus = ['owner','manager'].includes(userRole)
 
   const Preview = () => (
-    <div style={{background: form.card_bg||'#fff', borderRadius:16, border:'1px solid #f0f0f0', padding:14, boxShadow:'0 2px 8px rgba(0,0,0,0.06)', position:'relative', overflow:'hidden'}}>
+    <div style={{background: form.card_bg||'#fff', borderRadius:16, border:'1px solid #f0f0f0', padding:14, boxShadow:'0 2px 8px rgba(0,0,0,0.06)', position:'relative', overflow:'hidden', textAlign:'left'}}>
       {form.is_pinned && (
         <div style={{position:'absolute', top:0, left:0, right:0, height:4, background:'linear-gradient(90deg, #BFD900 0%, #a0b800 40%, transparent 100%)', borderRadius:'16px 16px 0 0'}} />
       )}
@@ -313,15 +313,15 @@ export default function AdminNews({ session }) {
         </div>
       )}
       {form.title && (
-        <div style={{fontSize:14, fontWeight:600, color: form.title_color||'#2a2a2a', marginBottom:4, lineHeight:1.4}}
+        <div style={{fontSize:14, fontWeight:600, color: form.title_color||'#2a2a2a', marginBottom:4, lineHeight:1.4, textAlign:'center'}}
           dangerouslySetInnerHTML={{ __html: form.title }} />
       )}
       {form.body && (
-        <div style={{fontSize:12, color: form.body_color||'#2a2a2a', lineHeight:1.5, maxHeight:48, overflow:'hidden'}}>
+        <div style={{fontSize:12, color: form.body_color||'#2a2a2a', lineHeight:1.5, maxHeight:48, overflow:'hidden', textAlign:'center'}}>
           {stripHtml(form.body).slice(0, 100)}
         </div>
       )}
-      <div style={{fontSize:10, color:'#BDBDBD', marginTop:6}}>
+      <div style={{fontSize:10, color:'#BDBDBD', marginTop:6, textAlign:'center'}}>
         {form.scheduled_at ? new Date(form.scheduled_at).toLocaleDateString('ru-RU', {day:'numeric', month:'short'}) : new Date().toLocaleDateString('ru-RU', {day:'numeric', month:'short'})}
       </div>
     </div>

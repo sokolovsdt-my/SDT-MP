@@ -61,7 +61,7 @@ export default function Home({ session, onNewsAll }) {
   const formatDate = (d) => new Date(d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
   const formatTime = (d) => new Date(d).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
   const isToday = (d) => { const n = new Date(), dd = new Date(d); return dd.getDate()===n.getDate() && dd.getMonth()===n.getMonth() }
-  const stripHtml = (html) => html?.replace(/<[^>]*>/g, '') || ''
+  const stripHtml = (html) => html?.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&') || ''
   const tagLabel = (tag) => tags.find(t => t.value === tag)?.label || tag
 
   return (
