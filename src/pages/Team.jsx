@@ -28,7 +28,7 @@ export default function Team({ session }) {
     const { data } = await supabase
       .from('profiles')
       .select('id, full_name, first_name, last_name, avatar_url, bio, role')
-      .or('role.eq.teacher,id.in.(select staff_id from staff_roles where role=\'teacher\')')
+      .eq('role', 'teacher')
       .order('full_name')
     setTeachers(data || [])
     setLoading(false)
