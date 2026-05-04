@@ -23,6 +23,7 @@ import AdminCashbox from './admin/AdminCashbox'
 import AdminGroups from './admin/AdminGroups'
 import AdminBroadcasts from './admin/AdminBroadcasts'
 import AdminNews from './admin/AdminNews'
+import AdminIndivs from './admin/AdminIndivs'
 import { RequireRole } from './components/RequireRole'
 import { useUserRole } from './hooks/useUserRole'
 
@@ -100,6 +101,7 @@ function App() {
           <Route path="finance" element={<RequireRole session={session} allow={['owner']}><AdminFinance session={session} /></RequireRole>} />
           <Route path="cashbox" element={<RequireRole session={session} allow={['admin','manager','owner']}><AdminCashbox session={session} /></RequireRole>} />
           <Route path="groups" element={<RequireRole session={session} allow={['admin','manager','owner']}><AdminGroups session={session} /></RequireRole>} />
+          <Route path="indivs" element={<RequireRole session={session} allow={['admin','manager','owner']}><AdminIndivs session={session} /></RequireRole>} />
           <Route path="broadcasts" element={<RequireRole session={session} allow={['admin','manager','owner']}><AdminBroadcasts session={session} /></RequireRole>} />
           <Route path="news" element={<RequireRole session={session} allow={['admin','manager','owner']}><AdminNews session={session} /></RequireRole>} />
         </Route>
