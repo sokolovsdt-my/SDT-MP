@@ -21,6 +21,9 @@ const TASK_STATUS = {
   problem: { label: 'Есть трудности', color: '#e74c3c' },
 }
 
+const PRIORITY_LABELS = { low:'Низкий', normal:'Средний', high:'Высокий', urgent:'Срочный' }
+const PRIORITY_COLORS = { low:'#27ae60', normal:'#f39c12', high:'#e74c3c', urgent:'#8e44ad' }
+
 const inputStyle = { width:'100%', padding:'8px 12px', border:'1px solid #e8e8e8', borderRadius:8, fontSize:13, boxSizing:'border-box', fontFamily:'Inter,sans-serif', marginBottom:8 }
 const labelStyle = { fontSize:12, color:'#888', marginBottom:4, fontWeight:600, display:'block' }
 
@@ -73,8 +76,6 @@ export default function AdminStaffCard({ session }) {
     return `${years} г. ${months} мес.`
   }
 
-  const initials = staff.full_name ? staff.full_name.split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase() : (staff.email || '?')[0].toUpperCase()
-
   const tabs = [
     { id: 'main', label: 'Основное' },
     { id: 'salary', label: 'Оплата труда' },
@@ -93,12 +94,7 @@ export default function AdminStaffCard({ session }) {
 
       <div style={{background:'#fff', borderRadius:16, border:'1px solid #f0f0f0', padding:20, marginBottom:16}}>
         <div style={{display:'flex', alignItems:'flex-start', gap:16, marginBottom:16}}>
-          <AvatarUpload
-  userId={staff.id}
-  currentUrl={avatarUrl}
-  size={60}
-  onUpload={(url) => setAvatarUrl(url)}
-/>
+          <AvatarUpload userId={staff.id} currentUrl={avatarUrl} size={60} onUpload={(url) => setAvatarUrl(url)} />
           <div style={{flex:1}}>
             <div style={{fontSize:20, fontWeight:600, color:'#1f2024', marginBottom:4}}>{staff.full_name || '—'}</div>
             <div style={{fontSize:13, color:'#888', marginBottom:8}}>
@@ -168,23 +164,16 @@ function MainTab({ staff, onUpdate }) {
       phone: form.phone || null,
       birth_date: form.birth_date || null,
     }).eq('id', staff.id)
-
-    await supabase.from('staff_info').upsert({
-      staff_id: staff.id,
-      hire_date: form.hire_date || null
-    }, { onConflict: 'staff_id' })
-
+    await supabase.from('staff_info').upsert({ staff_id: staff.id, hire_date: form.hire_date || null }, { onConflict: 'staff_id' })
     await supabase.from('staff_roles').delete().eq('staff_id', staff.id)
     if (selectedRoles.length > 0) {
       const hierarchy = ['owner','manager','admin','teacher','content_creator','other']
       const primaryRole = hierarchy.find(r => selectedRoles.includes(r))
-      const rolesToInsert = selectedRoles.map(r => ({
-        staff_id: staff.id,
-        role: r,
+      await supabase.from('staff_roles').insert(selectedRoles.map(r => ({
+        staff_id: staff.id, role: r,
         custom_role_name: r === 'other' ? customRoleName : null,
         is_primary: r === primaryRole
-      }))
-      await supabase.from('staff_roles').insert(rolesToInsert)
+      })))
       await supabase.from('profiles').update({ role: primaryRole }).eq('id', staff.id)
     }
     setSaving(false)
@@ -195,16 +184,12 @@ function MainTab({ staff, onUpdate }) {
     <div style={{background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', padding:20}}>
       <label style={labelStyle}>ФИО</label>
       <input value={form.full_name} onChange={e => setForm({...form, full_name:e.target.value})} style={inputStyle} />
-
       <label style={labelStyle}>Телефон</label>
       <input value={form.phone} onChange={e => setForm({...form, phone:e.target.value})} style={inputStyle} />
-
       <label style={labelStyle}>Дата рождения</label>
       <input value={form.birth_date} onChange={e => setForm({...form, birth_date:e.target.value})} type="date" style={inputStyle} />
-
       <label style={labelStyle}>Дата найма</label>
       <input value={form.hire_date} onChange={e => setForm({...form, hire_date:e.target.value})} type="date" style={inputStyle} />
-
       <label style={labelStyle}>Роли</label>
       <div style={{display:'flex', flexWrap:'wrap', gap:6, marginBottom:12}}>
         {Object.entries(ROLE_LABELS).filter(([k]) => k !== 'owner').map(([k,v]) => (
@@ -214,14 +199,12 @@ function MainTab({ staff, onUpdate }) {
           </label>
         ))}
       </div>
-
       {selectedRoles.includes('other') && (
         <>
           <label style={labelStyle}>Название роли</label>
           <input value={customRoleName} onChange={e => setCustomRoleName(e.target.value)} placeholder="Например: Хореограф-постановщик" style={inputStyle} />
         </>
       )}
-
       <button onClick={handleSave} disabled={saving}
         style={{padding:'9px 24px', background:'#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
         {saving ? 'Сохраняем...' : 'Сохранить'}
@@ -256,39 +239,25 @@ function SalaryTab({ staff, session, onUpdate }) {
 
   const handleAddSetting = async () => {
     if (!newSetting.amount) return
-    await supabase.from('staff_salary_settings').insert({
-      staff_id: staff.id,
-      type: newSetting.type,
-      amount: parseFloat(newSetting.amount),
-      description: newSetting.description || null,
-      is_active: true
-    })
+    await supabase.from('staff_salary_settings').insert({ staff_id: staff.id, type: newSetting.type, amount: parseFloat(newSetting.amount), description: newSetting.description || null, is_active: true })
     setNewSetting({ type:'salary', amount:'', description:'' })
     setShowSettingForm(false)
-    load()
-    onUpdate()
+    load(); onUpdate()
   }
 
   const toggleSettingActive = async (s) => {
     await supabase.from('staff_salary_settings').update({ is_active: !s.is_active }).eq('id', s.id)
-    load()
-    onUpdate()
+    load(); onUpdate()
   }
 
   const handleAddPayment = async () => {
     if (!newPayment.amount) return
     const { data: inserted } = await supabase.from('staff_payments').insert({
-      staff_id: staff.id,
-      type: newPayment.type,
-      amount: parseFloat(newPayment.amount),
-      reason: newPayment.reason || null,
-      created_by: session.user.id,
+      staff_id: staff.id, type: newPayment.type, amount: parseFloat(newPayment.amount), reason: newPayment.reason || null, created_by: session.user.id,
     }).select().single()
     await supabase.from('staff_payments_history').insert({
-      payment_id: inserted.id, staff_id: staff.id,
-      action: 'created',
-      type: newPayment.type, amount: parseFloat(newPayment.amount), reason: newPayment.reason || null,
-      changed_by: session.user.id
+      payment_id: inserted.id, staff_id: staff.id, action: 'created',
+      type: newPayment.type, amount: parseFloat(newPayment.amount), reason: newPayment.reason || null, changed_by: session.user.id
     })
     setNewPayment({ type:'bonus', amount:'', reason:'' })
     setShowPaymentForm(false)
@@ -297,30 +266,21 @@ function SalaryTab({ staff, session, onUpdate }) {
 
   const handleSavePayment = async (id) => {
     const old = payments.find(p => p.id === id)
-    await supabase.from('staff_payments').update({
-      type: editForm.type,
-      amount: parseFloat(editForm.amount),
-      reason: editForm.reason || null
-    }).eq('id', id)
+    await supabase.from('staff_payments').update({ type: editForm.type, amount: parseFloat(editForm.amount), reason: editForm.reason || null }).eq('id', id)
     await supabase.from('staff_payments_history').insert({
-      payment_id: id, staff_id: staff.id,
-      action: 'updated',
+      payment_id: id, staff_id: staff.id, action: 'updated',
       type: editForm.type, amount: parseFloat(editForm.amount), reason: editForm.reason || null,
-      old_type: old?.type, old_amount: old?.amount, old_reason: old?.reason,
-      changed_by: session.user.id
+      old_type: old?.type, old_amount: old?.amount, old_reason: old?.reason, changed_by: session.user.id
     })
-    setEditingPaymentId(null)
-    load()
+    setEditingPaymentId(null); load()
   }
 
   const handleDeletePayment = async (id) => {
     if (!confirm('Удалить начисление?')) return
     const old = payments.find(p => p.id === id)
     await supabase.from('staff_payments_history').insert({
-      payment_id: id, staff_id: staff.id,
-      action: 'deleted',
-      old_type: old?.type, old_amount: old?.amount, old_reason: old?.reason,
-      changed_by: session.user.id
+      payment_id: id, staff_id: staff.id, action: 'deleted',
+      old_type: old?.type, old_amount: old?.amount, old_reason: old?.reason, changed_by: session.user.id
     })
     await supabase.from('staff_payments').delete().eq('id', id)
     load()
@@ -340,7 +300,6 @@ function SalaryTab({ staff, session, onUpdate }) {
             {showSettingForm ? 'Закрыть' : '+ Добавить ставку'}
           </button>
         </div>
-
         {showSettingForm && (
           <div style={{background:'#f9f9f9', borderRadius:10, padding:14, marginBottom:12}}>
             <label style={labelStyle}>Тип</label>
@@ -353,31 +312,22 @@ function SalaryTab({ staff, session, onUpdate }) {
             <input value={newSetting.amount} onChange={e => setNewSetting({...newSetting, amount:e.target.value})} type="number" placeholder="Например: 40000" style={inputStyle} />
             <label style={labelStyle}>Описание (необязательно)</label>
             <input value={newSetting.description} onChange={e => setNewSetting({...newSetting, description:e.target.value})} placeholder="Например: Групповое занятие" style={inputStyle} />
-            <button onClick={handleAddSetting}
-              style={{padding:'8px 20px', background:'#BFD900', border:'none', borderRadius:8, fontSize:12, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-              Сохранить
-            </button>
+            <button onClick={handleAddSetting} style={{padding:'8px 20px', background:'#BFD900', border:'none', borderRadius:8, fontSize:12, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>Сохранить</button>
           </div>
         )}
-
         {settings.length === 0 ? (
           <div style={{color:'#BDBDBD', fontSize:12, textAlign:'center', padding:20}}>Ставки не настроены</div>
-        ) : (
-          settings.map(s => (
-            <div key={s.id} style={{display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 0', borderBottom:'1px solid #f8f8f8', opacity: s.is_active ? 1 : 0.4}}>
-              <div>
-                <div style={{fontSize:13, fontWeight:600, color:'#2a2a2a'}}>
-                  {typeLabel[s.type]}: {s.amount.toLocaleString('ru-RU')} {s.type === 'percentage' ? '%' : '₽'}
-                </div>
-                {s.description && <div style={{fontSize:11, color:'#888'}}>{s.description}</div>}
-              </div>
-              <button onClick={() => toggleSettingActive(s)}
-                style={{padding:'4px 10px', background: s.is_active ? '#eafaf1' : '#f5f5f5', border:'none', borderRadius:6, fontSize:11, color: s.is_active ? '#27ae60' : '#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-                {s.is_active ? 'Активна' : 'Отключена'}
-              </button>
+        ) : settings.map(s => (
+          <div key={s.id} style={{display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 0', borderBottom:'1px solid #f8f8f8', opacity: s.is_active ? 1 : 0.4}}>
+            <div>
+              <div style={{fontSize:13, fontWeight:600, color:'#2a2a2a'}}>{typeLabel[s.type]}: {s.amount.toLocaleString('ru-RU')} {s.type === 'percentage' ? '%' : '₽'}</div>
+              {s.description && <div style={{fontSize:11, color:'#888'}}>{s.description}</div>}
             </div>
-          ))
-        )}
+            <button onClick={() => toggleSettingActive(s)} style={{padding:'4px 10px', background: s.is_active ? '#eafaf1' : '#f5f5f5', border:'none', borderRadius:6, fontSize:11, color: s.is_active ? '#27ae60' : '#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+              {s.is_active ? 'Активна' : 'Отключена'}
+            </button>
+          </div>
+        ))}
       </div>
 
       <div style={{background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', padding:20, marginBottom:16}}>
@@ -388,92 +338,64 @@ function SalaryTab({ staff, session, onUpdate }) {
             {showPaymentForm ? 'Закрыть' : '+ Премия / Штраф'}
           </button>
         </div>
-
         {showPaymentForm && (
           <div style={{background:'#f9f9f9', borderRadius:10, padding:14, marginBottom:12}}>
             <label style={labelStyle}>Тип</label>
             <select value={newPayment.type} onChange={e => setNewPayment({...newPayment, type:e.target.value})} style={inputStyle}>
-              <option value="bonus">Премия</option>
-              <option value="penalty">Штраф</option>
-              <option value="salary">Зарплата</option>
+              <option value="bonus">Премия</option><option value="penalty">Штраф</option><option value="salary">Зарплата</option>
             </select>
             <label style={labelStyle}>Сумма</label>
             <input value={newPayment.amount} onChange={e => setNewPayment({...newPayment, amount:e.target.value})} type="number" style={inputStyle} />
             <label style={labelStyle}>Причина</label>
             <input value={newPayment.reason} onChange={e => setNewPayment({...newPayment, reason:e.target.value})} placeholder="За что" style={inputStyle} />
-            <button onClick={handleAddPayment}
-              style={{padding:'8px 20px', background:'#BFD900', border:'none', borderRadius:8, fontSize:12, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-              Добавить
-            </button>
+            <button onClick={handleAddPayment} style={{padding:'8px 20px', background:'#BFD900', border:'none', borderRadius:8, fontSize:12, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>Добавить</button>
           </div>
         )}
-
         {payments.length === 0 ? (
           <div style={{color:'#BDBDBD', fontSize:12, textAlign:'center', padding:20}}>Начислений нет</div>
-        ) : (
-          payments.map(p => {
-            const lbl = paymentLabel[p.type]
-            const isEditing = editingPaymentId === p.id
-            if (isEditing) {
-              return (
-                <div key={p.id} style={{background:'#f9f9f9', borderRadius:10, padding:14, marginBottom:10}}>
-                  <label style={labelStyle}>Тип</label>
-                  <select value={editForm.type} onChange={e => setEditForm({...editForm, type:e.target.value})} style={inputStyle}>
-                    <option value="bonus">Премия</option>
-                    <option value="penalty">Штраф</option>
-                    <option value="salary">Зарплата</option>
-                  </select>
-                  <label style={labelStyle}>Сумма</label>
-                  <input value={editForm.amount} onChange={e => setEditForm({...editForm, amount:e.target.value})} type="number" style={inputStyle} />
-                  <label style={labelStyle}>Причина</label>
-                  <input value={editForm.reason} onChange={e => setEditForm({...editForm, reason:e.target.value})} style={inputStyle} />
-                  <div style={{display:'flex', gap:8}}>
-                    <button onClick={() => handleSavePayment(p.id)}
-                      style={{flex:1, padding:'8px', background:'#BFD900', border:'none', borderRadius:8, fontSize:12, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-                      Сохранить
-                    </button>
-                    <button onClick={() => setEditingPaymentId(null)}
-                      style={{padding:'8px 16px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:8, fontSize:12, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-                      Отмена
-                    </button>
-                  </div>
-                </div>
-              )
-            }
-            return (
-              <div key={p.id} style={{display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 0', borderBottom:'1px solid #f8f8f8'}}>
-                <div style={{display:'flex', alignItems:'center', gap:10}}>
-                  <span style={{background:lbl.bg, color:lbl.color, padding:'2px 8px', borderRadius:6, fontSize:11, fontWeight:600}}>{lbl.label}</span>
-                  <div>
-                    <div style={{fontSize:13, fontWeight:600, color: p.type === 'penalty' ? '#e74c3c' : '#2a2a2a'}}>
-                      {p.type === 'penalty' ? '−' : '+'} {p.amount.toLocaleString('ru-RU')} ₽
-                    </div>
-                    {p.reason && <div style={{fontSize:11, color:'#888'}}>{p.reason}</div>}
-                  </div>
-                </div>
-                <div style={{display:'flex', alignItems:'center', gap:8}}>
-                  <span style={{fontSize:11, color:'#BDBDBD'}}>{new Date(p.created_at).toLocaleDateString('ru-RU')}</span>
-                  <button onClick={() => { setEditingPaymentId(p.id); setEditForm({ type:p.type, amount:p.amount, reason:p.reason || '' }) }}
-                    style={{background:'none', border:'none', cursor:'pointer', fontSize:13, color:'#888', padding:'2px 6px'}}>
-                    ✎
-                  </button>
-                  <button onClick={() => handleDeletePayment(p.id)}
-                    style={{background:'none', border:'none', cursor:'pointer', fontSize:16, color:'#e74c3c', padding:'2px 6px'}}>
-                    ×
-                  </button>
+        ) : payments.map(p => {
+          const lbl = paymentLabel[p.type]
+          const isEditing = editingPaymentId === p.id
+          if (isEditing) return (
+            <div key={p.id} style={{background:'#f9f9f9', borderRadius:10, padding:14, marginBottom:10}}>
+              <label style={labelStyle}>Тип</label>
+              <select value={editForm.type} onChange={e => setEditForm({...editForm, type:e.target.value})} style={inputStyle}>
+                <option value="bonus">Премия</option><option value="penalty">Штраф</option><option value="salary">Зарплата</option>
+              </select>
+              <label style={labelStyle}>Сумма</label>
+              <input value={editForm.amount} onChange={e => setEditForm({...editForm, amount:e.target.value})} type="number" style={inputStyle} />
+              <label style={labelStyle}>Причина</label>
+              <input value={editForm.reason} onChange={e => setEditForm({...editForm, reason:e.target.value})} style={inputStyle} />
+              <div style={{display:'flex', gap:8}}>
+                <button onClick={() => handleSavePayment(p.id)} style={{flex:1, padding:'8px', background:'#BFD900', border:'none', borderRadius:8, fontSize:12, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>Сохранить</button>
+                <button onClick={() => setEditingPaymentId(null)} style={{padding:'8px 16px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:8, fontSize:12, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>Отмена</button>
+              </div>
+            </div>
+          )
+          return (
+            <div key={p.id} style={{display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 0', borderBottom:'1px solid #f8f8f8'}}>
+              <div style={{display:'flex', alignItems:'center', gap:10}}>
+                <span style={{background:lbl.bg, color:lbl.color, padding:'2px 8px', borderRadius:6, fontSize:11, fontWeight:600}}>{lbl.label}</span>
+                <div>
+                  <div style={{fontSize:13, fontWeight:600, color: p.type === 'penalty' ? '#e74c3c' : '#2a2a2a'}}>{p.type === 'penalty' ? '−' : '+'} {p.amount.toLocaleString('ru-RU')} ₽</div>
+                  {p.reason && <div style={{fontSize:11, color:'#888'}}>{p.reason}</div>}
                 </div>
               </div>
-            )
-          })
-        )}
+              <div style={{display:'flex', alignItems:'center', gap:8}}>
+                <span style={{fontSize:11, color:'#BDBDBD'}}>{new Date(p.created_at).toLocaleDateString('ru-RU')}</span>
+                <button onClick={() => { setEditingPaymentId(p.id); setEditForm({ type:p.type, amount:p.amount, reason:p.reason || '' }) }} style={{background:'none', border:'none', cursor:'pointer', fontSize:13, color:'#888', padding:'2px 6px'}}>✎</button>
+                <button onClick={() => handleDeletePayment(p.id)} style={{background:'none', border:'none', cursor:'pointer', fontSize:16, color:'#e74c3c', padding:'2px 6px'}}>×</button>
+              </div>
+            </div>
+          )
+        })}
       </div>
 
       {history.length > 0 && (
         <div style={{background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', padding:20}}>
           <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10}}>
             <div style={{fontSize:13, fontWeight:600, color:'#888'}}>История изменений ({history.length})</div>
-            <button onClick={() => setShowHistory(!showHistory)}
-              style={{background:'none', border:'none', color:'#888', fontSize:12, cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+            <button onClick={() => setShowHistory(!showHistory)} style={{background:'none', border:'none', color:'#888', fontSize:12, cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
               {showHistory ? 'Скрыть' : 'Показать'}
             </button>
           </div>
@@ -496,22 +418,13 @@ function SalaryTab({ staff, session, onUpdate }) {
                         {h.old_reason !== h.reason && <div>Причина: "{h.old_reason || '—'}" → "{h.reason || '—'}"</div>}
                       </div>
                     )}
-                    {h.action === 'created' && (
-                      <div style={{color:'#888', fontSize:11}}>
-                        {typeLblFull[h.type]}: {h.amount?.toLocaleString('ru-RU')} ₽{h.reason && ` · ${h.reason}`}
-                      </div>
-                    )}
-                    {h.action === 'deleted' && (
-                      <div style={{color:'#888', fontSize:11}}>
-                        {typeLblFull[h.old_type]}: {h.old_amount?.toLocaleString('ru-RU')} ₽{h.old_reason && ` · ${h.old_reason}`}
-                      </div>
-                    )}
+                    {h.action === 'created' && <div style={{color:'#888', fontSize:11}}>{typeLblFull[h.type]}: {h.amount?.toLocaleString('ru-RU')} ₽{h.reason && ` · ${h.reason}`}</div>}
+                    {h.action === 'deleted' && <div style={{color:'#888', fontSize:11}}>{typeLblFull[h.old_type]}: {h.old_amount?.toLocaleString('ru-RU')} ₽{h.old_reason && ` · ${h.old_reason}`}</div>}
                   </div>
                 )
               })}
               {history.length > historyLimit && (
-                <button onClick={() => setHistoryLimit(l => l + 5)}
-                  style={{marginTop:10, background:'none', border:'none', color:'#2980b9', fontSize:12, cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+                <button onClick={() => setHistoryLimit(l => l + 5)} style={{marginTop:10, background:'none', border:'none', color:'#2980b9', fontSize:12, cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
                   Показать ещё ({history.length - historyLimit})
                 </button>
               )}
@@ -536,7 +449,6 @@ function StatsTab({ staff }) {
     const cancelled = lessons?.filter(l => l.is_cancelled).length || 0
     const indivs = lessons?.filter(l => l.indiv_student_id).length || 0
     const groups = total - indivs
-
     const lessonIds = (lessons || []).filter(l => !l.is_cancelled).map(l => l.id)
     let attendanceRate = 0
     if (lessonIds.length > 0) {
@@ -545,12 +457,7 @@ function StatsTab({ staff }) {
       const totalMarked = att?.length || 0
       attendanceRate = totalMarked > 0 ? Math.round((present / totalMarked) * 100) : 0
     }
-
-    setStats({
-      total, cancelled, indivs, groups,
-      cancelRate: total > 0 ? Math.round((cancelled / total) * 100) : 0,
-      attendanceRate
-    })
+    setStats({ total, cancelled, indivs, groups, cancelRate: total > 0 ? Math.round((cancelled / total) * 100) : 0, attendanceRate })
   }
 
   if (!stats) return <div style={{color:'#BDBDBD', textAlign:'center', padding:30}}>Загрузка...</div>
@@ -603,7 +510,6 @@ function SubsTab({ staff }) {
         {card('Заменял других', substituted.length)}
         {card('Его заменяли', wasSubstituted.length)}
       </div>
-
       {substituted.length > 0 && (
         <div style={{background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', padding:20, marginBottom:12}}>
           <div style={{fontSize:14, fontWeight:600, marginBottom:10}}>Заменял других</div>
@@ -615,7 +521,6 @@ function SubsTab({ staff }) {
           ))}
         </div>
       )}
-
       {wasSubstituted.length > 0 && (
         <div style={{background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', padding:20}}>
           <div style={{fontSize:14, fontWeight:600, marginBottom:10}}>Его заменяли</div>
@@ -645,11 +550,7 @@ function AbsencesTab({ staff, session }) {
 
   const handleAdd = async () => {
     if (!form.date_from || !form.date_to) return
-    await supabase.from('staff_absences').insert({
-      staff_id: staff.id, type: form.type,
-      date_from: form.date_from, date_to: form.date_to,
-      comment: form.comment || null
-    })
+    await supabase.from('staff_absences').insert({ staff_id: staff.id, type: form.type, date_from: form.date_from, date_to: form.date_to, comment: form.comment || null })
     setForm({ type:'vacation', date_from:'', date_to:'', comment:'' })
     setShowForm(false)
     load()
@@ -667,19 +568,15 @@ function AbsencesTab({ staff, session }) {
     <div style={{background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', padding:20}}>
       <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14}}>
         <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a'}}>Отпуска и больничные</div>
-        <button onClick={() => setShowForm(!showForm)}
-          style={{padding:'6px 12px', background:'#fafde8', border:'1px solid #BFD900', borderRadius:8, fontSize:12, color:'#6a7700', cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight:600}}>
+        <button onClick={() => setShowForm(!showForm)} style={{padding:'6px 12px', background:'#fafde8', border:'1px solid #BFD900', borderRadius:8, fontSize:12, color:'#6a7700', cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight:600}}>
           {showForm ? 'Закрыть' : '+ Добавить'}
         </button>
       </div>
-
       {showForm && (
         <div style={{background:'#f9f9f9', borderRadius:10, padding:14, marginBottom:12}}>
           <label style={labelStyle}>Тип</label>
           <select value={form.type} onChange={e => setForm({...form, type:e.target.value})} style={inputStyle}>
-            <option value="vacation">Отпуск</option>
-            <option value="sick">Больничный</option>
-            <option value="dayoff">Отгул</option>
+            <option value="vacation">Отпуск</option><option value="sick">Больничный</option><option value="dayoff">Отгул</option>
           </select>
           <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8}}>
             <div><label style={labelStyle}>С</label><input value={form.date_from} onChange={e => setForm({...form, date_from:e.target.value})} type="date" style={inputStyle} /></div>
@@ -687,34 +584,26 @@ function AbsencesTab({ staff, session }) {
           </div>
           <label style={labelStyle}>Комментарий</label>
           <input value={form.comment} onChange={e => setForm({...form, comment:e.target.value})} style={inputStyle} />
-          <button onClick={handleAdd}
-            style={{padding:'8px 20px', background:'#BFD900', border:'none', borderRadius:8, fontSize:12, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-            Сохранить
-          </button>
+          <button onClick={handleAdd} style={{padding:'8px 20px', background:'#BFD900', border:'none', borderRadius:8, fontSize:12, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>Сохранить</button>
         </div>
       )}
-
       {absences.length === 0 ? (
         <div style={{color:'#BDBDBD', fontSize:12, textAlign:'center', padding:20}}>Нет записей</div>
-      ) : (
-        absences.map(a => {
-          const lbl = typeLabel[a.type]
-          return (
-            <div key={a.id} style={{display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 0', borderBottom:'1px solid #f8f8f8'}}>
-              <div style={{display:'flex', alignItems:'center', gap:10}}>
-                <span style={{background:lbl.bg, color:lbl.color, padding:'2px 8px', borderRadius:6, fontSize:11, fontWeight:600}}>{lbl.label}</span>
-                <div>
-                  <div style={{fontSize:13, color:'#2a2a2a'}}>
-                    {new Date(a.date_from).toLocaleDateString('ru-RU')} — {new Date(a.date_to).toLocaleDateString('ru-RU')}
-                  </div>
-                  {a.comment && <div style={{fontSize:11, color:'#888'}}>{a.comment}</div>}
-                </div>
+      ) : absences.map(a => {
+        const lbl = typeLabel[a.type]
+        return (
+          <div key={a.id} style={{display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 0', borderBottom:'1px solid #f8f8f8'}}>
+            <div style={{display:'flex', alignItems:'center', gap:10}}>
+              <span style={{background:lbl.bg, color:lbl.color, padding:'2px 8px', borderRadius:6, fontSize:11, fontWeight:600}}>{lbl.label}</span>
+              <div>
+                <div style={{fontSize:13, color:'#2a2a2a'}}>{new Date(a.date_from).toLocaleDateString('ru-RU')} — {new Date(a.date_to).toLocaleDateString('ru-RU')}</div>
+                {a.comment && <div style={{fontSize:11, color:'#888'}}>{a.comment}</div>}
               </div>
-              <button onClick={() => handleDelete(a.id)} style={{background:'none', border:'none', color:'#e74c3c', cursor:'pointer', fontSize:16}}>×</button>
             </div>
-          )
-        })
-      )}
+            <button onClick={() => handleDelete(a.id)} style={{background:'none', border:'none', color:'#e74c3c', cursor:'pointer', fontSize:16}}>×</button>
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -723,7 +612,7 @@ function TasksTab({ staffId, session }) {
   const [tasks, setTasks] = useState([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ title:'', description:'', priority:'medium', deadline:'' })
+  const [form, setForm] = useState({ title:'', description:'', priority:'normal', deadline:'' })
   const [saving, setSaving] = useState(false)
 
   useEffect(() => { load() }, [])
@@ -751,16 +640,13 @@ function TasksTab({ staffId, session }) {
     }).select().single()
     if (task) {
       await supabase.from('task_assignees').insert({ task_id: task.id, user_id: staffId })
-      await supabase.from('task_history').insert({ task_id: task.id, action: 'created', author_id: session?.user?.id, changes: { title: form.title } })
+      await supabase.from('task_history').insert({ task_id: task.id, action: 'created', author_id: session?.user?.id, changes: { title: form.title }, comment: 'Задача создана' })
     }
-    setForm({ title:'', description:'', priority:'medium', deadline:'' })
+    setForm({ title:'', description:'', priority:'normal', deadline:'' })
     setShowForm(false)
     setSaving(false)
     load()
   }
-
-  const PRIORITY_LABELS = { low:'Низкий', medium:'Средний', high:'Высокий', urgent:'Срочный' }
-  const PRIORITY_COLORS = { low:'#27ae60', medium:'#f39c12', high:'#e74c3c', urgent:'#8e44ad' }
 
   if (loading) return <div style={{color:'#BDBDBD', textAlign:'center', padding:30}}>Загрузка...</div>
 
@@ -768,8 +654,7 @@ function TasksTab({ staffId, session }) {
     <div>
       <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14}}>
         <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a'}}>Задачи сотрудника</div>
-        <button onClick={() => setShowForm(!showForm)}
-          style={{padding:'7px 14px', background:'#BFD900', border:'none', borderRadius:8, fontSize:12, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+        <button onClick={() => setShowForm(!showForm)} style={{padding:'7px 14px', background:'#BFD900', border:'none', borderRadius:8, fontSize:12, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
           {showForm ? 'Отмена' : '+ Задача'}
         </button>
       </div>
@@ -777,16 +662,10 @@ function TasksTab({ staffId, session }) {
       {showForm && (
         <div style={{background:'#f9f9f9', borderRadius:12, padding:16, marginBottom:16, border:'1px solid #f0f0f0'}}>
           <div style={{fontSize:13, fontWeight:600, color:'#2a2a2a', marginBottom:12}}>Новая задача</div>
-
           <label style={labelStyle}>Заголовок *</label>
-          <input value={form.title} onChange={e => setForm({...form, title:e.target.value})}
-            placeholder="Что нужно сделать" style={inputStyle} />
-
+          <input value={form.title} onChange={e => setForm({...form, title:e.target.value})} placeholder="Что нужно сделать" style={inputStyle} />
           <label style={labelStyle}>Описание</label>
-          <textarea value={form.description} onChange={e => setForm({...form, description:e.target.value})}
-            placeholder="Подробности..." rows={3}
-            style={{...inputStyle, resize:'vertical', lineHeight:1.5}} />
-
+          <textarea value={form.description} onChange={e => setForm({...form, description:e.target.value})} placeholder="Подробности..." rows={3} style={{...inputStyle, resize:'vertical', lineHeight:1.5}} />
           <label style={labelStyle}>Приоритет</label>
           <div style={{display:'flex', gap:6, marginBottom:8}}>
             {Object.entries(PRIORITY_LABELS).map(([k,v]) => (
@@ -800,10 +679,8 @@ function TasksTab({ staffId, session }) {
               </button>
             ))}
           </div>
-
           <label style={labelStyle}>Дедлайн</label>
           <input type="date" value={form.deadline} onChange={e => setForm({...form, deadline:e.target.value})} style={inputStyle} />
-
           <button onClick={handleCreate} disabled={saving || !form.title.trim()}
             style={{width:'100%', padding:'10px', background:'#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif', opacity:(saving||!form.title.trim())?0.5:1}}>
             {saving ? 'Создаём...' : 'Создать задачу'}
@@ -812,9 +689,7 @@ function TasksTab({ staffId, session }) {
       )}
 
       {tasks.length === 0 ? (
-        <div style={{background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', padding:30, textAlign:'center', color:'#BDBDBD', fontSize:13}}>
-          Задач нет
-        </div>
+        <div style={{background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', padding:30, textAlign:'center', color:'#BDBDBD', fontSize:13}}>Задач нет</div>
       ) : (
         <div style={{background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', padding:20}}>
           {tasks.map(t => (
@@ -831,7 +706,9 @@ function TasksTab({ staffId, session }) {
                 )}
               </div>
               {t.description && <div style={{fontSize:12, color:'#888', marginTop:3}}>{t.description}</div>}
-              {t.deadline && <div style={{fontSize:11, color:'#BDBDBD', marginTop:3}}>⏰ {new Date(t.deadline).toLocaleDateString('ru-RU')}</div>}
+              {t.created_at && <div style={{fontSize:11, color:'#BDBDBD', marginTop:3}}>📅 Назначена: {new Date(t.created_at).toLocaleString('ru-RU', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})}</div>}
+              {t.deadline && <div style={{fontSize:11, color:'#BDBDBD', marginTop:2}}>⏰ Дедлайн: {new Date(t.deadline).toLocaleDateString('ru-RU')}</div>}
+              {t.completed_at && <div style={{fontSize:11, color:'#27ae60', marginTop:2}}>✅ Выполнена: {new Date(t.completed_at).toLocaleString('ru-RU', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})}</div>}
             </div>
           ))}
         </div>
