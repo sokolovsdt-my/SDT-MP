@@ -4,7 +4,9 @@ import { supabase } from '../supabase'
 export default function Bonus({ session }) {
   const [profile, setProfile] = useState(null)
   const [history, setHistory] = useState([])
-  const [tab, setTab] = useState('history')
+  const [tab, setTab] = useState(() => localStorage.getItem('bonus_tab') || 'history')
+
+  const goTab = (t) => { setTab(t); localStorage.setItem('bonus_tab', t) }
 
   useEffect(() => {
     const getData = async () => {
@@ -22,7 +24,6 @@ export default function Bonus({ session }) {
     <div style={{fontFamily:'Inter,sans-serif', maxWidth:480, margin:'0 auto'}}>
       <div style={{padding:'16px 20px 0'}}>
         <div style={{fontSize:18, color:'#2a2a2a', fontWeight:300, marginBottom:16}}>Бонусы</div>
-
         <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:20}}>
           <div style={{background:'#fafde8', border:'1.5px solid #BFD900', borderRadius:20, padding:16}}>
             <div style={{fontSize:10, color:'#8a9900', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:8}}>Рубли-бонусы</div>
@@ -35,15 +36,13 @@ export default function Bonus({ session }) {
             <div style={{fontSize:11, color:'#BDBDBD', marginTop:4}}>Обмен на призы</div>
           </div>
         </div>
-
         <div style={{display:'flex', gap:4, marginBottom:16, borderBottom:'1px solid #f0f0f0'}}>
           {[['history','История'],['prizes','Призы']].map(t => (
-            <div key={t[0]} onClick={() => setTab(t[0])} style={{padding:'8px 16px', fontSize:13, cursor:'pointer', color:tab===t[0]?'#2a2a2a':'#BDBDBD', borderBottom:tab===t[0]?'2px solid #BFD900':'2px solid transparent', fontWeight:tab===t[0]?500:400, marginBottom:-1}}>
+            <div key={t[0]} onClick={() => goTab(t[0])} style={{padding:'8px 16px', fontSize:13, cursor:'pointer', color:tab===t[0]?'#2a2a2a':'#BDBDBD', borderBottom:tab===t[0]?'2px solid #BFD900':'2px solid transparent', fontWeight:tab===t[0]?500:400, marginBottom:-1}}>
               {t[1]}
             </div>
           ))}
         </div>
-
         {tab === 'history' && (
           <div>
             {history.length === 0 ? (
@@ -61,7 +60,6 @@ export default function Bonus({ session }) {
             ))}
           </div>
         )}
-
         {tab === 'prizes' && (
           <div>
             <div style={{fontSize:13, color:'#BDBDBD', marginBottom:16}}>Обменяйте SDTшки на призы в студии</div>

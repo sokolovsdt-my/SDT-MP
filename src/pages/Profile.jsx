@@ -4,7 +4,8 @@ import AvatarUpload from '../components/AvatarUpload'
 import { requestPermission } from '../firebase'
 
 function MyLessons({ session, onBack }) {
-  const [tab, setTab] = useState('upcoming')
+  const [tab, setTab] = useState(() => localStorage.getItem('lessons_tab') || 'upcoming')
+const goTab = (t) => { setTab(t); localStorage.setItem('lessons_tab', t) }
   const [upcoming, setUpcoming] = useState([])
   const [history, setHistory] = useState([])
   const [loading, setLoading] = useState(true)
@@ -54,7 +55,7 @@ function MyLessons({ session, onBack }) {
       </div>
       <div style={{display:'flex', padding:'0 20px', borderBottom:'1px solid #f0f0f0'}}>
         {[['upcoming','Предстоящие'],['history','История']].map(([v,l]) => (
-          <div key={v} onClick={() => setTab(v)} style={{padding:'12px 16px', fontSize:13, cursor:'pointer', color: tab===v?'#2a2a2a':'#BDBDBD', borderBottom: tab===v?'2px solid #BFD900':'2px solid transparent', fontWeight: tab===v?600:400}}>
+          <div key={v} onClick={() => goTab(v)} style={{padding:'12px 16px', fontSize:13, cursor:'pointer', color: tab===v?'#2a2a2a':'#BDBDBD', borderBottom: tab===v?'2px solid #BFD900':'2px solid transparent', fontWeight: tab===v?600:400}}>
             {l}
           </div>
         ))}
