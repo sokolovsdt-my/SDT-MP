@@ -49,7 +49,7 @@ export default function AdminStaff() {
       })
       const result = await res.json()
       if (!res.ok) throw new Error(result.error || 'Ошибка')
-      setSaveResult({ success: true, message: result.message })
+      setSaveResult({ success: true, message: result.message, temp_password: result.temp_password })
       setNewStaff({ email:'', full_name:'', phone:'', role:'teacher', hire_date: new Date().toISOString().split('T')[0] })
       loadAll()
     } catch (err) {
@@ -106,6 +106,13 @@ export default function AdminStaff() {
           {saveResult && (
             <div style={{padding:'10px 14px', borderRadius:10, marginBottom:12, fontSize:13, background: saveResult.success ? '#eafaf1' : '#fdecea', color: saveResult.success ? '#27ae60' : '#e74c3c'}}>
               {saveResult.success ? '✅ ' : '❌ '}{saveResult.message}
+            {saveResult.success && saveResult.temp_password && (
+              <div style={{marginTop:8, padding:'8px 12px', background:'#fff', borderRadius:8, border:'1px solid #BFD900'}}>
+                <div style={{fontSize:11, color:'#888', marginBottom:4}}>Временный пароль — передай сотруднику:</div>
+                <div style={{fontSize:16, fontWeight:700, color:'#2a2a2a', letterSpacing:1}}>{saveResult.temp_password}</div>
+                <div style={{fontSize:11, color:'#888', marginTop:4}}>Сотрудник сможет сменить пароль после входа</div>
+              </div>
+            )}
             </div>
           )}
 
@@ -138,7 +145,7 @@ export default function AdminStaff() {
             style={{width:'100%', padding:'8px 12px', border:'1px solid #e8e8e8', borderRadius:8, fontSize:13, marginBottom:16, fontFamily:'Inter,sans-serif', boxSizing:'border-box'}} />
 
           <div style={{fontSize:11, color:'#888', background:'#f9f9f9', borderRadius:8, padding:'8px 12px', marginBottom:14}}>
-            💡 Сотрудник получит письмо с приглашением для входа в систему
+            💡 После создания вы увидите временный пароль — передайте его сотруднику
           </div>
 
           <button onClick={handleCreateStaff} disabled={saving || !newStaff.email}
