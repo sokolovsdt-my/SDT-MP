@@ -24,6 +24,7 @@ import AdminGroups from './admin/AdminGroups'
 import AdminBroadcasts from './admin/AdminBroadcasts'
 import AdminNews from './admin/AdminNews'
 import AdminIndivs from './admin/AdminIndivs'
+import TeacherPanel from './admin/TeacherPanel'
 import { RequireRole } from './components/RequireRole'
 import { useUserRole } from './hooks/useUserRole'
 
@@ -54,7 +55,8 @@ function ClientApp({ session }) {
 function RootRedirect({ session }) {
   const { role, loading } = useUserRole(session)
   if (loading) return <Loader />
-  if (role && ['teacher','admin','manager','owner'].includes(role))
+  if (role === 'teacher') return <TeacherPanel session={session} />
+  if (role && ['admin','manager','owner'].includes(role))
     return <Navigate to="/admin/dashboard" replace />
   return <ClientApp session={session} />
 }
