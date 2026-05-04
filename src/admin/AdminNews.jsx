@@ -262,10 +262,14 @@ export default function AdminNews({ session }) {
   const handleSave = async () => {
     if (!form.title && !form.body) { alert('Введи хотя бы заголовок или текст'); return }
     setSaving(true)
-    const payload = {
+    const toUTC = (localStr) => {
+  if (!localStr) return null
+  return new Date(localStr).toISOString()
+}
+const payload = {
       ...form,
-      scheduled_at: form.scheduled_at||null,
-      published_at: form.scheduled_at ? form.scheduled_at : new Date().toISOString(),
+      scheduled_at: toUTC(form.scheduled_at),
+      published_at: form.scheduled_at ? toUTC(form.scheduled_at) : new Date().toISOString(),
       updated_at: new Date().toISOString(),
       updated_by: session.user.id,
     }
