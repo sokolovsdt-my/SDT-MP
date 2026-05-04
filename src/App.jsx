@@ -28,9 +28,9 @@ import { useUserRole } from './hooks/useUserRole'
 const TG_LOGIN_URL = 'https://momqnoeogfjjexwcwlpu.supabase.co/functions/v1/telegram-login'
 
 function ClientApp({ session }) {
-  const [page, setPage] = useState('home')
+  const [page, setPage] = useState(() => localStorage.getItem('activePage') || 'home')
   const [prevPage, setPrevPage] = useState('home')
-  const goTo = (p) => { setPrevPage(page); setPage(p) }
+  const goTo = (p) => { setPrevPage(page); setPage(p); localStorage.setItem('activePage', p) }
   return (
     <div style={{maxWidth:480,margin:'0 auto',background:'#F8F8F8',minHeight:'100vh',paddingBottom:80,width:'100%',boxSizing:'border-box'}}>
       {page==='news' && <News session={session} onBack={() => setPage('home')} />}
@@ -39,7 +39,7 @@ function ClientApp({ session }) {
       {page==='shop' && <Shop session={session} />}
       {page==='bonus' && <Bonus session={session} />}
       {page==='profile' && <Profile session={session} />}
-      <BottomNav active={page} onChange={setPage} />
+      <BottomNav active={page} onChange={(p) => { setPage(p); localStorage.setItem('activePage', p) }} />
     </div>
   )
 }

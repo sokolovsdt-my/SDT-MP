@@ -3,7 +3,6 @@ import { supabase } from '../supabase'
 import AvatarUpload from '../components/AvatarUpload'
 import { requestPermission } from '../firebase'
 
-// ─── Мои занятия ─────────────────────────────────────────────────────────────
 function MyLessons({ session, onBack }) {
   const [tab, setTab] = useState('upcoming')
   const [upcoming, setUpcoming] = useState([])
@@ -122,7 +121,6 @@ function MyLessons({ session, onBack }) {
   )
 }
 
-// ─── Моя статистика ──────────────────────────────────────────────────────────
 function MyStats({ session, onBack }) {
   const [loading, setLoading] = useState(true)
   const [totalLessons, setTotalLessons] = useState(0)
@@ -158,12 +156,10 @@ function MyStats({ session, onBack }) {
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
     setThisMonth(present.filter(a => new Date(a.marked_at) >= monthStart).length)
 
-    // Серия подряд
     let s = 0
     for (const a of all) { if (a.status === 'present') s++; else break }
     setStreak(s)
 
-    // По месяцам
     const byMonth = {}
     present.forEach(a => {
       const d = new Date(a.marked_at)
@@ -217,7 +213,6 @@ function MyStats({ session, onBack }) {
               <div style={{fontSize:11, color:'#BDBDBD', marginTop:4}}>В этом месяце</div>
             </div>
           </div>
-
           {chartData.length > 0 && (
             <div style={{background:'#fff', borderRadius:14, padding:16, border:'1px solid #f0f0f0', marginBottom:12}}>
               <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16}}>
@@ -240,7 +235,6 @@ function MyStats({ session, onBack }) {
               </div>
             </div>
           )}
-
           {bestMonth && (
             <div style={{background:'#fff', borderRadius:14, padding:16, border:'1px solid #f0f0f0'}}>
               <div style={{fontSize:11, color:'#BDBDBD', marginBottom:4}}>⭐ Самый активный месяц</div>
@@ -254,7 +248,6 @@ function MyStats({ session, onBack }) {
   )
 }
 
-// ─── Привести друга ──────────────────────────────────────────────────────────
 function Referral({ session, onBack }) {
   const refLink = `https://sdt-mp.vercel.app?ref=${session.user.id.slice(0,8)}`
   return (
@@ -294,15 +287,20 @@ function Referral({ session, onBack }) {
   )
 }
 
-// ─── Главный экран ───────────────────────────────────────────────────────────
 export default function Profile({ session }) {
-  const [screen, setScreen] = useState(null)
+  const [screen, setScreen] = useState(() => localStorage.getItem('profileScreen') || null)
   const [profile, setProfile] = useState(null)
   const [activeSub, setActiveSub] = useState(null)
   const [avatarUrl, setAvatarUrl] = useState(null)
   const [form, setForm] = useState({ last_name:'', first_name:'', patronymic:'', phone:'', birth_date:'', email:'' })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+
+  // Сохраняем экран в localStorage при каждом переходе
+  const goScreen = (s) => {
+    setScreen(s)
+    localStorage.setItem('profileScreen', s || '')
+  }
 
   useEffect(() => { load() }, [session])
 
@@ -325,12 +323,12 @@ export default function Profile({ session }) {
     setSaving(true)
     const full_name = [form.last_name, form.first_name, form.patronymic].filter(Boolean).join(' ')
     const { error } = await supabase.from('profiles').update({ full_name:full_name||null, last_name:form.last_name||null, first_name:form.first_name||null, patronymic:form.patronymic||null, phone:form.phone||null, birth_date:form.birth_date||null, email:form.email||null }).eq('id', session.user.id)
-    if (!error) { setProfile(p=>({...p,...form,full_name})); setSaved(true); setTimeout(()=>{setSaved(false);setScreen(null)},1500) }
+    if (!error) { setProfile(p=>({...p,...form,full_name})); setSaved(true); setTimeout(()=>{setSaved(false); goScreen(null)},1500) }
     setSaving(false)
   }
 
   const isTechEmail = session.user.email?.startsWith('tg_')
-  const greetName = profile?.first_name || profile?.full_name || ''
+  const greetName = [profile?.first_name, profile?.last_name].filter(Boolean).join(' ') || profile?.full_name || ''
   const initials = greetName ? greetName[0].toUpperCase() : '?'
 
   const subDaysLeft = activeSub ? Math.ceil((new Date(activeSub.expires_at) - new Date()) / 86400000) : 0
@@ -338,13 +336,13 @@ export default function Profile({ session }) {
   const subProgress = activeSub ? Math.max(0, Math.min(100, (1 - subDaysLeft/subTotal)*100)) : 0
   const subExpDate = activeSub ? new Date(activeSub.expires_at).toLocaleDateString('ru-RU',{day:'numeric',month:'short'}) : ''
 
-  if (screen === 'lessons')  return <MyLessons  session={session} onBack={() => setScreen(null)} />
-  if (screen === 'stats')    return <MyStats    session={session} onBack={() => setScreen(null)} />
-  if (screen === 'referral') return <Referral   session={session} onBack={() => setScreen(null)} />
+  if (screen === 'lessons')  return <MyLessons  session={session} onBack={() => goScreen(null)} />
+  if (screen === 'stats')    return <MyStats    session={session} onBack={() => goScreen(null)} />
+  if (screen === 'referral') return <Referral   session={session} onBack={() => goScreen(null)} />
   if (screen === 'editing') return (
     <div style={{fontFamily:'Inter,sans-serif', padding:20, maxWidth:480, margin:'0 auto'}}>
       <div style={{display:'flex', alignItems:'center', gap:12, marginBottom:24}}>
-        <div onClick={() => setScreen(null)} style={{cursor:'pointer', color:'#BDBDBD', fontSize:20}}>←</div>
+        <div onClick={() => goScreen(null)} style={{cursor:'pointer', color:'#BDBDBD', fontSize:20}}>←</div>
         <div style={{fontSize:16, color:'#2a2a2a', fontWeight:300}}>Редактировать профиль</div>
       </div>
       {[
@@ -397,20 +395,20 @@ export default function Profile({ session }) {
       </div>
 
       {[
-        {label:'Мои занятия', action:()=>setScreen('lessons')},
-        {label:'Моя статистика', action:()=>setScreen('stats')},
-        {label:'Привести друга ✦', accent:true, action:()=>setScreen('referral')},
+        {label:'Мои занятия', action:() => goScreen('lessons')},
+        {label:'Моя статистика', action:() => goScreen('stats')},
+        {label:'Привести друга ✦', accent:true, action:() => goScreen('referral')},
       ].map((item,i) => (
         <div key={i} onClick={item.action} style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'14px 20px', borderBottom:'1px solid #f5f5f5', cursor:'pointer'}}>
           <div style={{fontSize:14, color:item.accent?'#6a7700':'#3a3a3a', fontWeight:item.accent?600:400}}>{item.label}</div>
           <div style={{color:'#d0d0d0', fontSize:16}}>›</div>
         </div>
       ))}
-      <div onClick={()=>setScreen('editing')} style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'14px 20px', borderBottom:'1px solid #f5f5f5', cursor:'pointer'}}>
+      <div onClick={() => goScreen('editing')} style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'14px 20px', borderBottom:'1px solid #f5f5f5', cursor:'pointer'}}>
         <div style={{fontSize:14, color:'#3a3a3a'}}>Редактировать профиль</div>
         <div style={{color:'#d0d0d0', fontSize:16}}>›</div>
       </div>
-      <div onClick={()=>supabase.auth.signOut()} style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'14px 20px', cursor:'pointer'}}>
+      <div onClick={() => supabase.auth.signOut()} style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'14px 20px', cursor:'pointer'}}>
         <div style={{fontSize:14, color:'#ccc'}}>Выйти</div>
         <div style={{color:'#d0d0d0', fontSize:16}}>›</div>
       </div>

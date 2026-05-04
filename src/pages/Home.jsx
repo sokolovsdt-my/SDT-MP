@@ -56,7 +56,7 @@ export default function Home({ session, onNewsAll }) {
     load()
   }, [session])
 
-  const name = profile?.full_name?.split(' ')[0] || session.user.email
+  const name = profile?.first_name || profile?.full_name?.split(' ')[0] || session.user.email
 
   const formatDate = (dateStr) => new Date(dateStr).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
   const formatTime = (dateStr) => new Date(dateStr).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
