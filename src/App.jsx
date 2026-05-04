@@ -7,6 +7,7 @@ import Shop from './pages/Shop'
 import News from './pages/News'
 import Profile from './pages/Profile'
 import Bonus from './pages/Bonus'
+import Team from './pages/Team'
 import BottomNav from './components/BottomNav'
 import AdminLayout from './admin/AdminLayout'
 import AdminDashboard from './admin/AdminDashboard'
@@ -37,11 +38,12 @@ function ClientApp({ session }) {
 
   return (
     <div style={{maxWidth:480,margin:'0 auto',background:'#F8F8F8',minHeight:'100vh',paddingBottom:80,width:'100%',boxSizing:'border-box'}}>
-      {page==='home'     && <Home     session={session} onNewsAll={() => goTo('news')} />}
+      {page==='home'     && <Home     session={session} onNewsAll={() => goTo('news')} onTeam={() => goTo('team')} onBonus={() => goTo('bonus')} />}
       {page==='schedule' && <Schedule session={session} />}
-      {page==='shop'     && <Shop     session={session} />}
+      {page==='shop'     && <Shop     session={session} onTeam={() => goTo('team')} />}
       {page==='news'     && <News     session={session} onBack={() => goTo('home')} />}
       {page==='bonus'    && <Bonus    session={session} />}
+      {page==='team'     && <Team     session={session} />}
       {page==='profile'  && <Profile  session={session} />}
       <BottomNav active={page} onChange={goTo} />
     </div>
@@ -188,7 +190,6 @@ function Login() {
         try {
           const r      = await fetch(`${TG_LOGIN_URL}?action=check&code=${data.code}`)
           const result = await r.json()
-
           if (result.verified && result.hashed_token) {
             stopPolling()
             await loginWithToken(result.hashed_token, setError)
@@ -231,7 +232,6 @@ function Login() {
   return (
     <div style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:'100vh',background:'#F8F8F8',fontFamily:'Inter,sans-serif',padding:16}}>
       <div style={{background:'#fff',borderRadius:24,padding:40,width:'100%',maxWidth:360,border:'1px solid #f0f0f0',boxSizing:'border-box'}}>
-
         <div style={{marginBottom:32,textAlign:'center'}}>
           <div style={{width:48,height:48,border:'2px dashed #BDBDBD',borderRadius:12,margin:'0 auto 16px',display:'flex',alignItems:'center',justifyContent:'center',color:'#BDBDBD',fontSize:20}}>+</div>
           <div style={{fontFamily:'sans-serif',fontSize:22,fontWeight:300,color:'#2a2a2a'}}>SDT</div>
@@ -318,13 +318,11 @@ function Login() {
               style={{width:'100%',padding:'13px',background:'#229ED9',border:'none',borderRadius:12,fontSize:14,fontWeight:700,color:'#fff',cursor:'pointer',fontFamily:'Inter,sans-serif',marginBottom:16,display:'flex',alignItems:'center',justifyContent:'center',gap:8,opacity:loading?0.7:1}}>
               ✈️ Войти через Telegram
             </button>
-
             <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:16}}>
               <div style={{flex:1,height:1,background:'#e8e8e8'}} />
               <span style={{fontSize:11,color:'#BDBDBD'}}>или</span>
               <div style={{flex:1,height:1,background:'#e8e8e8'}} />
             </div>
-
             <div style={{display:'flex',background:'#f5f5f5',borderRadius:10,padding:3,marginBottom:20}}>
               <button onClick={() => { setMode('password'); setError('') }}
                 style={{flex:1,padding:'8px',border:'none',borderRadius:8,fontSize:12,cursor:'pointer',fontFamily:'Inter,sans-serif',background:mode==='password'?'#fff':'transparent',color:mode==='password'?'#2a2a2a':'#888',fontWeight:mode==='password'?600:400}}>
@@ -335,7 +333,6 @@ function Login() {
                 ✉️ Magic Link
               </button>
             </div>
-
             <form onSubmit={mode==='password' ? handleLogin : handleMagicLink}>
               <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)}
                 style={{width:'100%',padding:'12px 14px',border:'1px solid #e8e8e8',borderRadius:12,fontSize:14,marginBottom:10,boxSizing:'border-box',fontFamily:'Inter,sans-serif'}} />

@@ -24,9 +24,12 @@ export default function BottomNav({ active, onChange }) {
         <path d="M7 9H15M7 12H12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
       </svg>
     )},
-    { id:'bonus', label:'Бонусы', icon:(
+    { id:'team', label:'Команда', icon:(
       <svg viewBox="0 0 22 22" fill="none" width="22" height="22">
-        <path d="M11 2L13.5 8H20L14.5 12L16.5 18.5L11 15L5.5 18.5L7.5 12L2 8H8.5L11 2Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+        <circle cx="8" cy="8" r="3" stroke="currentColor" strokeWidth="1.5"/>
+        <circle cx="15" cy="8" r="3" stroke="currentColor" strokeWidth="1.5"/>
+        <path d="M2 19C2 16.239 4.686 14 8 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+        <path d="M20 19C20 16.239 17.314 14 14 14C12.5 14 11.1 14.5 10 15.3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
       </svg>
     )},
     { id:'profile', label:'Профиль', icon:(

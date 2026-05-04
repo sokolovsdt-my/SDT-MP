@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../supabase'
 
-export default function Home({ session, onNewsAll }) {
+export default function Home({ session, onNewsAll, onBonus }) {
   const [profile, setProfile] = useState(null)
   const [news, setNews] = useState([])
   const [tags, setTags] = useState([])
@@ -80,6 +80,7 @@ export default function Home({ session, onNewsAll }) {
         Привет, <span style={{color:'#BFD900', fontWeight:600}}>{name}!</span>
       </div>
 
+      {/* Следующее занятие */}
       <div style={{background:'#2a2a2a', borderRadius:22, padding:18, marginBottom:18, position:'relative'}}>
         {nextLesson ? (
           <>
@@ -101,6 +102,7 @@ export default function Home({ session, onNewsAll }) {
         )}
       </div>
 
+      {/* Статистика */}
       <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:18}}>
         <div style={{background:'#fff', borderRadius:16, padding:14, border:'1px solid #efefef'}}>
           <div style={{fontSize:22, color:'#2a2a2a', fontWeight:300}}>{stats.thisMonth} <span style={{fontSize:11, color:'#BFD900'}}>зан.</span></div>
@@ -112,8 +114,27 @@ export default function Home({ session, onNewsAll }) {
         </div>
       </div>
 
-      <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10}}>
+      {/* Бонусы */}
+      <div onClick={onBonus} style={{display:'flex', alignItems:'center', justifyContent:'space-between', background:'#fafde8', border:'1.5px solid #BFD900', borderRadius:16, padding:'12px 16px', marginBottom:18, cursor:'pointer'}}>
+        <div style={{display:'flex', alignItems:'center', gap:10}}>
+          <span style={{fontSize:20}}>⭐</span>
+          <div>
+            <div style={{fontSize:13, fontWeight:600, color:'#6a7700'}}>Мои бонусы</div>
+            <div style={{fontSize:11, color:'#8a9900', marginTop:2}}>{profile?.bonus_rubles || 0} ₽ · {profile?.bonus_coins || 0} SDTшек</div>
+          </div>
+        </div>
+        <div style={{color:'#BFD900', fontSize:18}}>›</div>
+      </div>
+
+      {/* Разделитель */}
+      <div style={{display:'flex', alignItems:'center', gap:10, marginBottom:14}}>
+        <div style={{flex:1, height:1, background:'#f0f0f0'}} />
         <div style={{fontSize:10, color:'#BDBDBD', letterSpacing:'0.12em', textTransform:'uppercase'}}>Новости студии</div>
+        <div style={{flex:1, height:1, background:'#f0f0f0'}} />
+      </div>
+
+      {/* Новости */}
+      <div style={{display:'flex', justifyContent:'flex-end', marginBottom:10}}>
         <div onClick={() => { localStorage.setItem('news_tag', ''); onNewsAll() }} style={{fontSize:12, color:'#BFD900', fontWeight:600, cursor:'pointer'}}>Все новости →</div>
       </div>
 
@@ -136,17 +157,17 @@ export default function Home({ session, onNewsAll }) {
           )}
 
           {n.title && (
-            <div style={{fontSize:14, fontWeight:600, color: n.title_color || '#2a2a2a', marginBottom:4, lineHeight:1.4}}
+            <div style={{fontSize:14, fontWeight:600, color: n.title_color || '#2a2a2a', marginBottom:4, lineHeight:1.4, textAlign:'center'}}
               dangerouslySetInnerHTML={{ __html: n.title }} />
           )}
 
           {n.body && (
-            <div style={{fontSize:12, color: n.body_color || '#888', lineHeight:1.5, overflow:'hidden', display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical'}}>
+            <div style={{fontSize:12, color: n.body_color || '#888', lineHeight:1.5, overflow:'hidden', display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', textAlign:'center'}}>
               {stripHtml(n.body).slice(0, 120)}
             </div>
           )}
 
-          <div style={{fontSize:11, color:'#BDBDBD', marginTop:6}}>{formatDate(n.published_at)}</div>
+          <div style={{fontSize:11, color:'#BDBDBD', marginTop:6, textAlign:'center'}}>{formatDate(n.published_at)}</div>
         </div>
       ))}
     </div>
