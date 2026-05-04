@@ -16,7 +16,7 @@ export default function AdminStaff() {
   const [loading, setLoading] = useState(true)
   const [filterRole, setFilterRole] = useState('all')
   const [showForm, setShowForm] = useState(false)
-  const [newStaff, setNewStaff] = useState({ email:'', full_name:'', phone:'', role:'teacher', hire_date: new Date().toISOString().split('T')[0] })
+  const [newStaff, setNewStaff] = useState({ email:'', first_name:'', last_name:'', patronymic:'', phone:'', role:'teacher', hire_date: new Date().toISOString().split('T')[0] })
   const [saving, setSaving] = useState(false)
   const [saveResult, setSaveResult] = useState(null)
   const navigate = useNavigate()
@@ -50,7 +50,7 @@ export default function AdminStaff() {
       const result = await res.json()
       if (!res.ok) throw new Error(result.error || 'Ошибка')
       setSaveResult({ success: true, message: result.message, temp_password: result.temp_password })
-      setNewStaff({ email:'', full_name:'', phone:'', role:'teacher', hire_date: new Date().toISOString().split('T')[0] })
+      setNewStaff({ email:'', first_name:'', last_name:'', patronymic:'', phone:'', role:'teacher', hire_date: new Date().toISOString().split('T')[0] })
       loadAll()
     } catch (err) {
       setSaveResult({ success: false, message: err.message })
@@ -121,9 +121,19 @@ export default function AdminStaff() {
             placeholder="employee@example.com"
             style={{width:'100%', padding:'8px 12px', border:'1px solid #e8e8e8', borderRadius:8, fontSize:13, marginBottom:10, fontFamily:'Inter,sans-serif', boxSizing:'border-box'}} />
 
-          <label style={{fontSize:12, color:'#888', marginBottom:4, fontWeight:600, display:'block'}}>ФИО</label>
-          <input value={newStaff.full_name} onChange={e => setNewStaff({...newStaff, full_name:e.target.value})}
-            placeholder="Иванова Мария Сергеевна"
+          <label style={{fontSize:12, color:'#888', marginBottom:4, fontWeight:600, display:'block'}}>Фамилия</label>
+          <input value={newStaff.last_name||''} onChange={e => setNewStaff({...newStaff, last_name:e.target.value})}
+            placeholder=""
+            style={{width:'100%', padding:'8px 12px', border:'1px solid #e8e8e8', borderRadius:8, fontSize:13, marginBottom:10, fontFamily:'Inter,sans-serif', boxSizing:'border-box'}} />
+
+          <label style={{fontSize:12, color:'#888', marginBottom:4, fontWeight:600, display:'block'}}>Имя</label>
+          <input value={newStaff.first_name||''} onChange={e => setNewStaff({...newStaff, first_name:e.target.value})}
+            placeholder=""
+            style={{width:'100%', padding:'8px 12px', border:'1px solid #e8e8e8', borderRadius:8, fontSize:13, marginBottom:10, fontFamily:'Inter,sans-serif', boxSizing:'border-box'}} />
+
+          <label style={{fontSize:12, color:'#888', marginBottom:4, fontWeight:600, display:'block'}}>Отчество</label>
+          <input value={newStaff.patronymic||''} onChange={e => setNewStaff({...newStaff, patronymic:e.target.value})}
+            placeholder=""
             style={{width:'100%', padding:'8px 12px', border:'1px solid #e8e8e8', borderRadius:8, fontSize:13, marginBottom:10, fontFamily:'Inter,sans-serif', boxSizing:'border-box'}} />
 
           <label style={{fontSize:12, color:'#888', marginBottom:4, fontWeight:600, display:'block'}}>Телефон</label>
