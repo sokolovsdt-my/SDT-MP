@@ -19,7 +19,7 @@ export default function TeacherPanel({ session }) {
   const [birthdays, setBirthdays] = useState([])
   const [scheduleView, setScheduleView] = useState('today')
   const [showAddSlot, setShowAddSlot] = useState(false)
-  const [newSlot, setNewSlot] = useState({ day_of_week: 1, start_time: '10:00', end_time: '11:00' })
+  const [newSlot, setNewSlot] = useState({ day_of_week: 1, start_time: '10:00', end_time: '18:00', duration: 60 })
   const [loading, setLoading] = useState(true)
   const [attendancePanel, setAttendancePanel] = useState(null)
 
@@ -101,13 +101,19 @@ export default function TeacherPanel({ session }) {
   }
 
   const handleAddSlot = async () => {
-    await supabase.from('teacher_indiv_slots').insert({
-      teacher_id: session.user.id,
-      day_of_week: Number(newSlot.day_of_week),
-      start_time: newSlot.start_time,
-      end_time: newSlot.end_time,
-      is_active: true,
-    })
+    const [sh, sm] = newSlot.start_time.split(':').map(Number)
+    const [eh, em] = newSlot.end_time.split(':').map(Number)
+    const dur = newSlot.duration || 60
+    let cur = sh * 60 + sm
+    const end = eh * 60 + em
+    const inserts = []
+    while (cur + dur <= end) {
+      const s = `${String(Math.floor(cur/60)).padStart(2,'0')}:${String(cur%60).padStart(2,'0')}`
+      const e = `${String(Math.floor((cur+dur)/60)).padStart(2,'0')}:${String((cur+dur)%60).padStart(2,'0')}`
+      inserts.push({ teacher_id: session.user.id, day_of_week: Number(newSlot.day_of_week), start_time: s, end_time: e, is_active: true })
+      cur += dur
+    }
+    if (inserts.length > 0) await supabase.from('teacher_indiv_slots').insert(inserts)
     setShowAddSlot(false)
     loadAll()
   }
@@ -357,33 +363,80 @@ export default function TeacherPanel({ session }) {
 
             {showAddSlot && (
               <div style={{background:'#fff',borderRadius:14,padding:16,marginBottom:16,border:'1px solid #f0f0f0'}}>
-                <div style={{fontSize:13,fontWeight:600,color:'#2a2a2a',marginBottom:12}}>Новый слот</div>
-                <div style={{marginBottom:10}}>
-                  <div style={{fontSize:11,color:'#888',marginBottom:4}}>День недели</div>
+                <div style={{fontSize:13,fontWeight:600,color:'#2a2a2a',marginBottom:12}}>Новые слоты</div>
+
+                <div style={{marginBottom:12}}>
+                  <div style={{fontSize:11,color:'#888',marginBottom:6}}>День недели</div>
                   <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
                     {[1,2,3,4,5,6,0].map(d => (
                       <button key={d} onClick={() => setNewSlot({...newSlot, day_of_week: d})}
-                        style={{padding:'7px 12px',borderRadius:8,border:'none',fontSize:13,cursor:'pointer',fontFamily:'Inter,sans-serif',fontWeight:Number(newSlot.day_of_week)===d?700:400,
-                          background:Number(newSlot.day_of_week)===d?'#BFD900':'#f5f5f5',color:Number(newSlot.day_of_week)===d?'#2a2a2a':'#888'}}>
+                        style={{padding:'8px 12px',borderRadius:8,border:'none',fontSize:13,cursor:'pointer',fontFamily:'Inter,sans-serif',
+                          fontWeight:Number(newSlot.day_of_week)===d?700:400,
+                          background:Number(newSlot.day_of_week)===d?'#BFD900':'#f5f5f5',
+                          color:Number(newSlot.day_of_week)===d?'#2a2a2a':'#888'}}>
                         {DAYS[d]}
                       </button>
                     ))}
                   </div>
                 </div>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:14}}>
+
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:12}}>
                   <div>
-                    <div style={{fontSize:11,color:'#888',marginBottom:4}}>Начало</div>
+                    <div style={{fontSize:11,color:'#888',marginBottom:4}}>С какого времени</div>
                     <input type="time" value={newSlot.start_time} onChange={e => setNewSlot({...newSlot, start_time:e.target.value})} style={inputStyle} />
                   </div>
                   <div>
-                    <div style={{fontSize:11,color:'#888',marginBottom:4}}>Конец</div>
+                    <div style={{fontSize:11,color:'#888',marginBottom:4}}>До какого времени</div>
                     <input type="time" value={newSlot.end_time} onChange={e => setNewSlot({...newSlot, end_time:e.target.value})} style={inputStyle} />
                   </div>
                 </div>
+
+                <div style={{marginBottom:14}}>
+                  <div style={{fontSize:11,color:'#888',marginBottom:6}}>Длительность слота</div>
+                  <div style={{display:'flex',gap:6}}>
+                    {[30,45,60,90].map(m => (
+                      <button key={m} onClick={() => setNewSlot({...newSlot, duration: m})}
+                        style={{flex:1,padding:'8px 0',borderRadius:8,border:'none',fontSize:13,cursor:'pointer',fontFamily:'Inter,sans-serif',
+                          fontWeight:newSlot.duration===m?700:400,
+                          background:newSlot.duration===m?'#BFD900':'#f5f5f5',
+                          color:newSlot.duration===m?'#2a2a2a':'#888'}}>
+                        {m} мин
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Предпросмотр слотов */}
+                {(() => {
+                  const preview = []
+                  const [sh, sm] = newSlot.start_time.split(':').map(Number)
+                  const [eh, em] = newSlot.end_time.split(':').map(Number)
+                  const dur = newSlot.duration || 60
+                  let cur = sh * 60 + sm
+                  const end = eh * 60 + em
+                  while (cur + dur <= end) {
+                    const s = `${String(Math.floor(cur/60)).padStart(2,'0')}:${String(cur%60).padStart(2,'0')}`
+                    const e = `${String(Math.floor((cur+dur)/60)).padStart(2,'0')}:${String((cur+dur)%60).padStart(2,'0')}`
+                    preview.push(`${s} — ${e}`)
+                    cur += dur
+                  }
+                  if (preview.length === 0) return null
+                  return (
+                    <div style={{background:'#f9f9f9',borderRadius:10,padding:10,marginBottom:14}}>
+                      <div style={{fontSize:11,color:'#888',marginBottom:6}}>Будет создано {preview.length} слот{preview.length===1?'':preview.length<5?'а':'ов'}:</div>
+                      <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+                        {preview.map(p => (
+                          <span key={p} style={{fontSize:12,background:'#fff',border:'1px solid #e0e0e0',borderRadius:6,padding:'3px 8px',color:'#2a2a2a'}}>{p}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })()}
+
                 <div style={{display:'flex',gap:8}}>
                   <button onClick={handleAddSlot}
                     style={{flex:1,padding:'11px',background:'#BFD900',border:'none',borderRadius:10,fontSize:14,fontWeight:700,color:'#2a2a2a',cursor:'pointer',fontFamily:'Inter,sans-serif'}}>
-                    Добавить
+                    Создать слоты
                   </button>
                   <button onClick={() => setShowAddSlot(false)}
                     style={{padding:'11px 16px',background:'transparent',border:'1px solid #e0e0e0',borderRadius:10,fontSize:13,color:'#888',cursor:'pointer',fontFamily:'Inter,sans-serif'}}>
