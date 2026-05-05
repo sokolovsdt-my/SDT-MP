@@ -251,6 +251,14 @@ export default function AdminCashbox({ session }) {
 
   const handleSubmit = async () => {
     if (!client || items.length === 0 || !paymentMethod) return
+    if (discountAmount > 0 && !discountReason.trim()) {
+      alert('Укажите причину скидки')
+      return
+    }
+    if (bonusRublesUsed > (client.bonus_rubles || 0)) {
+      alert(`Нельзя списать ${bonusRublesUsed} ₽ — на балансе только ${client.bonus_rubles || 0} ₽`)
+      return
+    }
     setSaving(true)
 
     const receiptId = crypto.randomUUID()
@@ -287,8 +295,16 @@ export default function AdminCashbox({ session }) {
       await supabase.from('profiles').update({
         bonus_rubles: Math.max(0, (client.bonus_rubles || 0) - bonusRublesUsed)
       }).eq('id', client.id)
+      await supabase.from('bonus_history').insert({
+        student_id: client.id,
+        type: 'rubles',
+        amount: -bonusRublesUsed,
+        reason: `Оплата: ${items.map(i => i.product_name).join(', ')}`,
+        created_by: session.user.id,
+        operation: 'debit',
+        client_reason: 'subscription_payment'
+      })
     }
-
     // Создаём подписки для абонементов и услуг
     const subItems = items.filter(item => item.product_type === 'subscription' || item.product_type === 'service')
     if (subItems.length > 0) {
@@ -490,10 +506,14 @@ export default function AdminCashbox({ session }) {
               </div>
               <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:16}}>
                 <input value={discountValue} onChange={e => setDiscountValue(e.target.value)} type="number" placeholder={discountMode === 'percent' ? 'Например: 10' : 'Например: 500'} style={inputStyle} />
-                <input value={discountReason} onChange={e => setDiscountReason(e.target.value)} placeholder="Причина скидки" style={inputStyle} />
+                <input value={discountReason} onChange={e => setDiscountReason(e.target.value)} placeholder={discountAmount > 0 ? 'Причина *' : 'Причина скидки'} style={{...inputStyle, borderColor: discountAmount > 0 && !discountReason.trim() ? '#f39c12' : '#e8e8e8'}} />
               </div>
               <label style={labelStyle}>Списать бонусные рубли <span style={{color:'#BDBDBD', fontWeight:400}}>(доступно: {client.bonus_rubles || 0} ₽)</span></label>
-              <input value={bonusRublesUse} onChange={e => setBonusRublesUse(e.target.value)} type="number" min="0" max={client.bonus_rubles || 0} placeholder="0" style={{...inputStyle, maxWidth:200}} />
+              <input value={bonusRublesUse} onChange={e => setBonusRublesUse(e.target.value)} type="number" min="0" placeholder="0"
+                style={{...inputStyle, maxWidth:200, borderColor: bonusRublesUsed > (client.bonus_rubles || 0) ? '#e74c3c' : '#e8e8e8', transition:'border-color 0.2s'}} />
+              {bonusRublesUsed > (client.bonus_rubles || 0) && (
+                <div style={{fontSize:11, color:'#e74c3c', marginTop:4}}>⚠️ На балансе только {client.bonus_rubles || 0} ₽</div>
+              )}
             </div>
           )}
 

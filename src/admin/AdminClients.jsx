@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../supabase'
 
 const LOYALTY = {
-  adept:  { label: '🔥 Адепт',      color: '#27ae60' },
+  adept:  { label: '👑 Адепт',      color: '#8e44ad' },
   loyal:  { label: '💚 Лояльный',   color: '#82c99a' },
   edge:   { label: '🤔 На грани',   color: '#f39c12' },
   risk:   { label: '⚠️ Риск ухода', color: '#e74c3c' },

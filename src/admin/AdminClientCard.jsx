@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import AvatarUpload from '../components/AvatarUpload'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../supabase'
@@ -22,12 +22,351 @@ const PAYMENT_LABELS = {
   coins: '🪙 SDTшки',
 }
 
-function PurchasesTab({ clientId }) {
+const toLocalDateStr = (d) => {
+  const y = d.getFullYear()
+  const mo = String(d.getMonth() + 1).padStart(2, '0')
+  const dy = String(d.getDate()).padStart(2, '0')
+  return `${y}-${mo}-${dy}`
+}
+
+const PAYMENT_METHODS = [
+  { id: 'cash',   label: '💵 Наличные',  hint: 'без комиссии' },
+  { id: 'bank',   label: '🏦 Безнал',    hint: 'без комиссии' },
+  { id: 'online', label: '💳 Эквайринг', hint: 'комиссия по настройкам' },
+  { id: 'bonus',  label: '🎁 Баллы',     hint: '1 балл = 1 ₽, выручка 0' },
+  { id: 'coins',  label: '🪙 SDTшки',    hint: 'списание с баланса, выручка 0' },
+]
+
+const PRODUCT_TYPES = [
+  { id: 'subscription', label: 'Абонемент' },
+  { id: 'service',      label: 'Услуга' },
+  { id: 'indiv',        label: 'Индив' },
+  { id: 'event',        label: 'Мероприятие' },
+  { id: 'merch',        label: 'Мерч' },
+]
+
+function SaleModal({ client, session, onClose, onSuccess }) {
+  const [items, setItems] = useState([])
+  const [groups, setGroups] = useState([])
+  const [selectedGroupIds, setSelectedGroupIds] = useState([])
+  const [representatives, setRepresentatives] = useState([])
+  const [payerType, setPayerType] = useState('client')
+  const [payerRepId, setPayerRepId] = useState('')
+  const [payerName, setPayerName] = useState('')
+  const [discountMode, setDiscountMode] = useState('percent')
+  const [discountValue, setDiscountValue] = useState('')
+  const [discountReason, setDiscountReason] = useState('')
+  const [bonusRublesUse, setBonusRublesUse] = useState('')
+  const [paymentMethod, setPaymentMethod] = useState('cash')
+  const [comment, setComment] = useState('')
+  const [acquiringPercent, setAcquiringPercent] = useState(2.5)
+  const [saving, setSaving] = useState(false)
+  const [productsByType, setProductsByType] = useState([])
+  const [productType, setProductType] = useState('subscription')
+  const [selectedProduct, setSelectedProduct] = useState('')
+  const [loadingProducts, setLoadingProducts] = useState(false)
+
+  const hasSubItems = items.some(i => i.product_type === 'subscription' || i.product_type === 'service')
+  const fmtMoney = (n) => (Number(n) || 0).toLocaleString('ru-RU') + ' ₽'
+
+  useEffect(() => {
+    supabase.from('finance_settings').select('value').eq('key', 'acquiring_fee_percent').single()
+      .then(({ data }) => { if (data) setAcquiringPercent(parseFloat(data.value) || 2.5) })
+    supabase.from('groups').select('*').order('name').then(({ data }) => setGroups(data || []))
+    supabase.from('client_representatives').select('*').eq('client_id', client.id).then(({ data }) => setRepresentatives(data || []))
+  }, [])
+
+  useEffect(() => {
+    setLoadingProducts(true); setSelectedProduct('')
+    supabase.from('products')
+      .select('*, product_indivs(teacher_id, profiles:teacher_id(full_name)), product_subscriptions(available_from_day, available_to_day)')
+      .eq('type', productType).eq('is_active', true).order('price')
+      .then(({ data }) => {
+        const today = new Date().getDate()
+        const filtered = (data || []).filter(p => {
+          const ps = p.product_subscriptions?.[0]
+          if (!ps?.available_from_day || !ps?.available_to_day) return true
+          return today >= ps.available_from_day && today <= ps.available_to_day
+        })
+        setProductsByType(filtered)
+        setLoadingProducts(false)
+      })
+  }, [productType])
+
+  useEffect(() => { if (!hasSubItems) setSelectedGroupIds([]) }, [hasSubItems])
+
+  const subtotal = items.reduce((sum, i) => sum + i.price, 0)
+  const discountAmount = discountValue
+    ? discountMode === 'percent' ? Math.round(subtotal * parseFloat(discountValue) / 100) : parseFloat(discountValue) || 0
+    : 0
+  const bonusRublesUsed = parseFloat(bonusRublesUse) || 0
+  const afterDiscount = Math.max(0, subtotal - discountAmount - bonusRublesUsed)
+  const acquiringFee = paymentMethod === 'online' ? Math.round(afterDiscount * acquiringPercent / 100) : 0
+  const totalNet = paymentMethod === 'bonus' || paymentMethod === 'coins' ? 0 : afterDiscount - acquiringFee
+
+  const addProduct = () => {
+    const p = productsByType.find(p => p.id === selectedProduct)
+    if (!p) return
+    setItems([...items, {
+      product_id: p.id, product_type: productType, product_name: p.name, price: p.price,
+      teacher_id: p.product_indivs?.[0]?.teacher_id || null,
+      teacher_name: p.product_indivs?.[0]?.profiles?.full_name || null
+    }])
+    setSelectedProduct('')
+  }
+
+  const handleSubmit = async () => {
+    if (!items.length || !paymentMethod) return
+    if (discountAmount > 0 && !discountReason.trim()) {
+      alert('Укажите причину скидки')
+      return
+    }
+    if (bonusRublesUsed > 0 && bonusRublesUsed > (client.bonus_rubles || 0)) {
+      alert(`Нельзя списать ${bonusRublesUsed} ₽ — на балансе только ${client.bonus_rubles || 0} ₽`)
+      return
+    }
+    setSaving(true)
+    const receiptId = crypto.randomUUID()
+    const perItem = items.length
+    const rows = items.map(item => ({
+      receipt_id: receiptId, client_id: client.id,
+      product_id: item.product_id, product_type: item.product_type, product_name: item.product_name,
+      teacher_id: item.teacher_id || null,
+      price_original: item.price,
+      discount_percent: discountMode === 'percent' ? (parseFloat(discountValue) || 0) : 0,
+      discount_amount: discountAmount / perItem,
+      discount_reason: discountReason || null,
+      bonus_rubles_used: bonusRublesUsed / perItem,
+      bonus_coins_used: 0,
+      payment_method: paymentMethod,
+      amount_paid: afterDiscount / perItem,
+      acquiring_fee: acquiringFee / perItem,
+      total_net: totalNet / perItem,
+      payer_type: payerType,
+      payer_representative_id: payerType === 'representative' ? payerRepId || null : null,
+      payer_name: payerType === 'other' ? payerName || null : null,
+      comment: comment || null,
+      created_by: session.user.id,
+      sale_date: new Date().toISOString(),
+    }))
+
+    const { data: insertedSales, error } = await supabase.from('sales').insert(rows).select()
+    if (error) { console.error('Sale error:', error); alert('Ошибка при продаже: ' + error.message); setSaving(false); return }
+
+    if (bonusRublesUsed > 0) {
+      await supabase.from('profiles').update({ bonus_rubles: Math.max(0, (client.bonus_rubles || 0) - bonusRublesUsed) }).eq('id', client.id)
+      await supabase.from('bonus_history').insert({
+        student_id: client.id,
+        type: 'rubles',
+        amount: -bonusRublesUsed,
+        reason: `Оплата: ${items.map(i => i.product_name).join(', ')}`,
+        created_by: session.user.id,
+        operation: 'debit',
+        client_reason: 'subscription_payment'
+      })
+    }
+
+    const subItems = items.filter(i => i.product_type === 'subscription' || i.product_type === 'service')
+    if (subItems.length > 0) {
+      const { data: productSubs } = await supabase.from('product_subscriptions')
+        .select('product_id, visits_count, duration_days, fixed_end_day').in('product_id', subItems.map(i => i.product_id))
+      const today = new Date()
+      const subscriptionRows = subItems.map(item => {
+        const ps = productSubs?.find(p => p.product_id === item.product_id)
+        const saleRecord = insertedSales?.find(s => s.product_id === item.product_id)
+        let expiresAt = null
+        if (ps?.fixed_end_day) {
+          const d = new Date(today.getFullYear(), today.getMonth() + 1, ps.fixed_end_day)
+          expiresAt = toLocalDateStr(d)
+        } else if (ps?.duration_days) {
+          const d = new Date(today); d.setDate(d.getDate() + ps.duration_days)
+          expiresAt = toLocalDateStr(d)
+        }
+        return { student_id: client.id, type: item.product_name, visits_total: ps?.visits_count || null, visits_used: 0, price: item.price, activated_at: toLocalDateStr(today), expires_at: expiresAt, is_frozen: false, sale_id: saleRecord?.id || null }
+      })
+      const { data: insertedSubs } = await supabase.from('subscriptions').insert(subscriptionRows).select()
+      if (insertedSubs && selectedGroupIds.length > 0) {
+        await supabase.from('subscription_allowed_groups').insert(
+          insertedSubs.flatMap(sub => selectedGroupIds.map(groupId => ({ subscription_id: sub.id, group_id: groupId })))
+        )
+      }
+    }
+
+    setSaving(false)
+    onSuccess()
+  }
+
+  const iStyle = { width:'100%', padding:'8px 12px', border:'1px solid #e8e8e8', borderRadius:10, fontSize:13, boxSizing:'border-box', fontFamily:'Inter,sans-serif', outline:'none' }
+
+  return (
+    <div style={{position:'fixed', top:0, left:0, right:0, bottom:0, background:'rgba(0,0,0,0.5)', display:'flex', alignItems:'flex-start', justifyContent:'center', zIndex:1000, overflowY:'auto', padding:'24px 16px'}}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{background:'#fff', borderRadius:16, width:'100%', maxWidth:560, padding:24}}>
+
+        {/* Шапка */}
+        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20}}>
+          <div>
+            <div style={{fontSize:16, fontWeight:600, color:'#2a2a2a'}}>Продажа</div>
+            <div style={{fontSize:12, color:'#BDBDBD', marginTop:2}}>{client.full_name || client.email}</div>
+          </div>
+          <button onClick={onClose} style={{background:'none', border:'none', fontSize:20, cursor:'pointer', color:'#BDBDBD', lineHeight:1}}>×</button>
+        </div>
+
+        {/* Продукты */}
+        <div style={{marginBottom:16}}>
+          <div style={{fontSize:12, color:'#888', fontWeight:600, marginBottom:8}}>Что продаём</div>
+          <div style={{display:'flex', gap:6, marginBottom:8, flexWrap:'wrap'}}>
+            {PRODUCT_TYPES.map(t => (
+              <button key={t.id} onClick={() => setProductType(t.id)} style={{padding:'5px 12px', borderRadius:8, border: productType === t.id ? 'none' : '1px solid #e0e0e0', background: productType === t.id ? '#BFD900' : '#fff', fontSize:12, cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight: productType === t.id ? 600 : 400}}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <div style={{display:'flex', gap:8}}>
+            <select value={selectedProduct} onChange={e => setSelectedProduct(e.target.value)} style={{...iStyle, flex:1}}>
+              <option value="">{loadingProducts ? 'Загрузка...' : productsByType.length === 0 ? 'Нет продуктов' : 'Выберите продукт'}</option>
+              {productsByType.map(p => <option key={p.id} value={p.id}>{p.name} — {fmtMoney(p.price)}</option>)}
+            </select>
+            <button onClick={addProduct} disabled={!selectedProduct} style={{padding:'8px 16px', background: selectedProduct ? '#BFD900' : '#e8e8e8', border:'none', borderRadius:10, fontSize:12, fontWeight:700, color: selectedProduct ? '#2a2a2a' : '#BDBDBD', cursor: selectedProduct ? 'pointer' : 'not-allowed', fontFamily:'Inter,sans-serif'}}>+ В чек</button>
+          </div>
+          {items.length > 0 && (
+            <div style={{marginTop:10}}>
+              {items.map((item, idx) => (
+                <div key={idx} style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'7px 0', borderBottom:'0.5px solid #f0f0f0', fontSize:13}}>
+                  <div>
+                    <span style={{fontWeight:500, color:'#2a2a2a'}}>{item.product_name}</span>
+                    {item.teacher_name && <span style={{fontSize:11, color:'#BDBDBD', marginLeft:6}}>{item.teacher_name}</span>}
+                  </div>
+                  <div style={{display:'flex', gap:10, alignItems:'center'}}>
+                    <span style={{fontWeight:600}}>{fmtMoney(item.price)}</span>
+                    <button onClick={() => setItems(items.filter((_, i) => i !== idx))} style={{color:'#e74c3c', background:'none', border:'none', cursor:'pointer', fontSize:16, lineHeight:1}}>×</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Группы */}
+        {hasSubItems && (
+          <div style={{marginBottom:16}}>
+            <div style={{fontSize:12, color:'#888', fontWeight:600, marginBottom:8}}>Доступные группы</div>
+            <div style={{display:'flex', flexDirection:'column', gap:6}}>
+              {groups.map(g => (
+                <label key={g.id} style={{display:'flex', alignItems:'center', gap:8, padding:'7px 10px', borderRadius:10, background: selectedGroupIds.includes(g.id) ? '#fafde8' : '#f9f9f9', border: selectedGroupIds.includes(g.id) ? '1px solid #BFD900' : '1px solid #f0f0f0', cursor:'pointer', fontSize:13}}>
+                  <input type="checkbox" checked={selectedGroupIds.includes(g.id)} onChange={() => setSelectedGroupIds(prev => prev.includes(g.id) ? prev.filter(x => x !== g.id) : [...prev, g.id])} style={{accentColor:'#BFD900'}} />
+                  {g.name}{g.is_closed && <span style={{fontSize:11, color:'#e74c3c', marginLeft:4}}>🔒</span>}
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Кто платит */}
+        {items.length > 0 && (
+          <div style={{marginBottom:16}}>
+            <div style={{fontSize:12, color:'#888', fontWeight:600, marginBottom:8}}>Кто платит</div>
+            <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
+              {[['client','Сам клиент'], ['representative','Представитель'], ['other','Другой человек']].map(([v,l]) => (
+                <button key={v} onClick={() => setPayerType(v)} style={{padding:'6px 12px', borderRadius:8, border: payerType === v ? 'none' : '1px solid #e0e0e0', background: payerType === v ? '#BFD900' : '#fff', fontSize:12, cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight: payerType === v ? 600 : 400}}>{l}</button>
+              ))}
+            </div>
+            {payerType === 'representative' && representatives.length > 0 && (
+              <select value={payerRepId} onChange={e => setPayerRepId(e.target.value)} style={{...iStyle, marginTop:8}}>
+                <option value="">Выберите представителя</option>
+                {representatives.map(r => <option key={r.id} value={r.id}>{r.full_name} ({r.role})</option>)}
+              </select>
+            )}
+            {payerType === 'other' && <input value={payerName} onChange={e => setPayerName(e.target.value)} placeholder="Имя плательщика" style={{...iStyle, marginTop:8}} />}
+          </div>
+        )}
+
+        {/* Скидка и баллы */}
+        {items.length > 0 && (
+          <div style={{marginBottom:16}}>
+            <div style={{fontSize:12, color:'#888', fontWeight:600, marginBottom:8}}>Скидка и баллы</div>
+            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:8}}>
+              <div>
+                <div style={{fontSize:11, color:'#BDBDBD', marginBottom:4}}>Скидка</div>
+                <div style={{display:'flex', gap:4, marginBottom:4}}>
+                  <button onClick={() => setDiscountMode('percent')} style={{flex:1, padding:'5px', borderRadius:6, border: discountMode==='percent' ? 'none' : '1px solid #e0e0e0', background: discountMode==='percent' ? '#BFD900' : '#fff', fontSize:11, cursor:'pointer', fontFamily:'Inter,sans-serif'}}>%</button>
+                  <button onClick={() => setDiscountMode('fixed')} style={{flex:1, padding:'5px', borderRadius:6, border: discountMode==='fixed' ? 'none' : '1px solid #e0e0e0', background: discountMode==='fixed' ? '#BFD900' : '#fff', fontSize:11, cursor:'pointer', fontFamily:'Inter,sans-serif'}}>₽</button>
+                </div>
+                <input value={discountValue} onChange={e => setDiscountValue(e.target.value)} type="number" placeholder="0" style={iStyle} />
+              </div>
+              <div>
+                <div style={{fontSize:11, color:'#BDBDBD', marginBottom:4}}>Причина скидки</div>
+                <div style={{marginBottom:4, height:22}} />
+                <input value={discountReason} onChange={e => setDiscountReason(e.target.value)} placeholder={discountAmount > 0 ? 'Обязательно *' : 'Причина'} style={{...iStyle, borderColor: discountAmount > 0 && !discountReason.trim() ? '#f39c12' : '#e8e8e8'}} />
+              </div>
+            </div>
+            <div style={{fontSize:11, color:'#BDBDBD', marginBottom:4}}>Списать баллы (доступно: {client.bonus_rubles || 0} ₽)</div>
+            <input value={bonusRublesUse} onChange={e => setBonusRublesUse(e.target.value)} type="number" min="0" placeholder="0"
+                style={{...iStyle, maxWidth:160, borderColor: bonusRublesUsed > (client.bonus_rubles || 0) ? '#e74c3c' : '#e8e8e8', transition:'border-color 0.2s'}} />
+              {bonusRublesUsed > (client.bonus_rubles || 0) && (
+                <div style={{fontSize:11, color:'#e74c3c', marginTop:4}}>⚠️ На балансе только {client.bonus_rubles || 0} ₽</div>
+              )}
+          </div>
+        )}
+
+        {/* Способ оплаты */}
+        {items.length > 0 && (
+          <div style={{marginBottom:16}}>
+            <div style={{fontSize:12, color:'#888', fontWeight:600, marginBottom:8}}>Способ оплаты</div>
+            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:6}}>
+              {PAYMENT_METHODS.map(m => (
+                <button key={m.id} onClick={() => setPaymentMethod(m.id)} style={{padding:'10px 12px', borderRadius:10, border: paymentMethod === m.id ? '2px solid #BFD900' : '1px solid #e0e0e0', background: paymentMethod === m.id ? '#fafde8' : '#fff', fontSize:12, cursor:'pointer', fontFamily:'Inter,sans-serif', textAlign:'left'}}>
+                  <div style={{fontWeight: paymentMethod === m.id ? 600 : 400, color:'#2a2a2a'}}>{m.label}</div>
+                  <div style={{fontSize:10, color:'#BDBDBD', marginTop:2}}>{m.hint}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Итог и кнопка */}
+        {items.length > 0 && (
+          <div style={{background:'#f9f9f9', borderRadius:12, padding:16}}>
+            {[
+              ['Сумма позиций', fmtMoney(subtotal)],
+              discountAmount > 0 ? ['Скидка', '− ' + fmtMoney(discountAmount)] : null,
+              bonusRublesUsed > 0 ? ['Баллы', '− ' + fmtMoney(bonusRublesUsed)] : null,
+              acquiringFee > 0 ? [`Эквайринг (${acquiringPercent}%)`, '− ' + fmtMoney(acquiringFee)] : null,
+            ].filter(Boolean).map(([label, value], i) => (
+              <div key={i} style={{display:'flex', justifyContent:'space-between', fontSize:12, color:'#888', padding:'4px 0'}}>
+                <span>{label}</span><span>{value}</span>
+              </div>
+            ))}
+            <div style={{display:'flex', justifyContent:'space-between', fontSize:16, fontWeight:700, color:'#2a2a2a', marginTop:8, paddingTop:8, borderTop:'1px solid #e8e8e8'}}>
+              <span>К оплате:</span><span>{fmtMoney(afterDiscount)}</span>
+            </div>
+            <input value={comment} onChange={e => setComment(e.target.value)} placeholder="Комментарий к продаже..." style={{...iStyle, marginTop:12}} />
+            <button onClick={handleSubmit} disabled={saving} style={{width:'100%', padding:'11px', background: saving ? '#e8e8e8' : '#BFD900', border:'none', borderRadius:10, fontSize:14, fontWeight:700, color: saving ? '#BDBDBD' : '#2a2a2a', cursor: saving ? 'not-allowed' : 'pointer', fontFamily:'Inter,sans-serif', marginTop:10}}>
+              {saving ? 'Оформляем...' : '✅ Пробить продажу'}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function PurchasesTab({ clientId, userRole, session }) {
   const [purchases, setPurchases] = useState([])
   const [loading, setLoading] = useState(true)
   const [expandedId, setExpandedId] = useState(null)
+  const [historyMap, setHistoryMap] = useState({})
+  const [showHistoryId, setShowHistoryId] = useState(null)
+  const [dateModal, setDateModal] = useState(null) // { subId, field, currentVal, productSubData }
+  const [dateValue, setDateValue] = useState('')
+  const [dateReason, setDateReason] = useState('')
+  const [recalcExpires, setRecalcExpires] = useState(false)
+  const [dateSaving, setDateSaving] = useState(false)
 
-  const fmtDate = (d) => new Date(d).toLocaleDateString('ru-RU', { day:'numeric', month:'short', year:'numeric' })
+  const canEditDates = ['admin', 'manager', 'owner'].includes(userRole)
+
+  const fmtDate = (d) => d ? new Date(d).toLocaleDateString('ru-RU', { day:'numeric', month:'short', year:'numeric' }) : '—'
+  const fmtDT = (d) => d ? new Date(d).toLocaleString('ru-RU', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' }) : '—'
   const fmtMoney = (n) => (Number(n) || 0).toLocaleString('ru-RU') + ' ₽'
 
   useEffect(() => { load() }, [clientId])
@@ -37,7 +376,7 @@ function PurchasesTab({ clientId }) {
     const { data } = await supabase.from('sales')
       .select(`
         *,
-        creator:created_by(full_name, email),
+        creator:created_by(full_name, email, role),
         subscription:subscriptions!subscriptions_sale_id_fkey(
           id, activated_at, expires_at, visits_total, visits_used,
           subscription_allowed_groups(groups(id, name, is_closed))
@@ -49,13 +388,82 @@ function PurchasesTab({ clientId }) {
     setPurchases((data || []).map(p => {
       const sub = p.subscription?.[0] || null
       const groups = sub?.subscription_allowed_groups?.map(sag => sag.groups).filter(Boolean) || []
-      return { ...p, subscription: sub, allowedGroups: groups }
+      return { ...p, subscription: sub, allowedGroups: groups, productSub: null }
     }))
     setLoading(false)
   }
 
+  const loadHistory = async (subId) => {
+    const { data } = await supabase.from('subscription_date_changes')
+      .select('*, changer:changed_by(full_name, email)')
+      .eq('subscription_id', subId)
+      .order('created_at', { ascending: false })
+    setHistoryMap(prev => ({ ...prev, [subId]: data || [] }))
+  }
+
+  const toggleHistory = async (subId) => {
+    if (showHistoryId === subId) { setShowHistoryId(null); return }
+    await loadHistory(subId)
+    setShowHistoryId(subId)
+  }
+
+  const openDateModal = (subId, field, currentVal, productSub) => {
+    setDateModal({ subId, field, productSub })
+    setDateValue(currentVal ? currentVal.split('T')[0] : '')
+    setDateReason('')
+    setRecalcExpires(false)
+  }
+
+  const saveDateChange = async () => {
+    if (!dateValue || !dateReason.trim()) return
+    setDateSaving(true)
+    const { subId, field, productSub } = dateModal
+    const { data: { user } } = await supabase.auth.getUser()
+
+    const sub = purchases.find(p => p.subscription?.id === subId)?.subscription
+    const oldVal = sub?.[field] || null
+
+    const newDate = new Date(dateValue)
+    newDate.setHours(12, 0, 0, 0)
+
+    const updates = { [field]: newDate.toISOString() }
+
+    if (field === 'activated_at' && recalcExpires && productSub) {
+      if (productSub.fixed_end_day) {
+        const d = new Date(newDate)
+        d.setMonth(d.getMonth() + 1)
+        d.setDate(productSub.fixed_end_day)
+        updates.expires_at = d.toISOString()
+      } else if (productSub.duration_days) {
+        const d = new Date(newDate)
+        d.setDate(d.getDate() + productSub.duration_days)
+        updates.expires_at = d.toISOString()
+      }
+    }
+
+    await supabase.from('subscriptions').update(updates).eq('id', subId)
+    await supabase.from('subscription_date_changes').insert({
+      subscription_id: subId,
+      field,
+      old_value: oldVal,
+      new_value: newDate.toISOString(),
+      reason: dateReason,
+      changed_by: user.id
+    })
+
+    setDateModal(null)
+    setDateSaving(false)
+    await load()
+  }
+
+  const ROLE_LABELS = { owner:'Владелец', manager:'Управляющий', admin:'Администратор', teacher:'Преподаватель' }
+
   if (loading) return <div style={{textAlign:'center', color:'#BDBDBD', padding:30}}>Загрузка...</div>
   if (purchases.length === 0) return <div style={{textAlign:'center', color:'#BDBDBD', padding:30}}>Покупок нет</div>
+
+  const cellStyle = { background:'#f9f9f9', borderRadius:8, padding:'10px 12px' }
+  const cellLabel = { fontSize:11, color:'#BDBDBD', marginBottom:3 }
+  const cellValue = { fontSize:13, color:'#2a2a2a', fontWeight:500 }
 
   return (
     <div>
@@ -64,79 +472,171 @@ function PurchasesTab({ clientId }) {
         const hasDiscount = Number(p.discount_amount) > 0
         const hasBonus = Number(p.bonus_rubles_used) > 0
         const priceChanged = Number(p.price_original) !== Number(p.amount_paid)
+        const sub = p.subscription
+        const isApp = !p.created_by
+        const creatorName = p.creator?.full_name || p.creator?.email || '—'
+        const creatorRole = ROLE_LABELS[p.creator?.role] || ''
+        const hasDates = sub && (sub.activated_at || sub.expires_at)
+        const history = historyMap[sub?.id] || []
+
         return (
-          <div key={p.id} style={{background:'#fafde8', border:'1px solid #e8f0aa', borderRadius:12, padding:14, marginBottom:10}}>
-            <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start'}}>
+          <div key={p.id} style={{border:'0.5px solid #e8e8e8', borderRadius:12, marginBottom:8, overflow:'hidden', background:'#fff'}}>
+            {/* Шапка */}
+            <div onClick={() => setExpandedId(isExpanded ? null : p.id)}
+              style={{display:'flex', alignItems:'center', gap:12, padding:'14px 16px', cursor:'pointer', background: isExpanded ? '#fafafa' : '#fff'}}>
               <div style={{flex:1}}>
-                <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a', marginBottom:3}}>{p.product_name}</div>
-                <div style={{fontSize:11, color:'#888'}}>
-                  {TYPE_LABELS[p.product_type] || p.product_type} · {fmtDate(p.sale_date)}
+                <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a', marginBottom:4}}>{p.product_name}</div>
+                <div style={{display:'flex', gap:6, flexWrap:'wrap', alignItems:'center'}}>
+                  <span style={{fontSize:11, color:'#BDBDBD'}}>{fmtDate(p.sale_date)}</span>
+                  <span style={{fontSize:11, color:'#BDBDBD'}}>·</span>
+                  <span style={{background:'#f0f0f0', color:'#888', padding:'2px 8px', borderRadius:6, fontSize:11}}>{TYPE_LABELS[p.payment_method] ? PAYMENT_LABELS[p.payment_method] : PAYMENT_LABELS[p.payment_method] || p.payment_method}</span>
+                  <span style={{background:'#f0f0f0', color:'#888', padding:'2px 8px', borderRadius:6, fontSize:11}}>{TYPE_LABELS[p.product_type] || p.product_type}</span>
+                  {hasDiscount && <span style={{background:'#fef9e7', color:'#f39c12', padding:'2px 8px', borderRadius:6, fontSize:11}}>Скидка {fmtMoney(p.discount_amount)}</span>}
+                  {hasBonus && <span style={{background:'#fafde8', color:'#6a7700', padding:'2px 8px', borderRadius:6, fontSize:11}}>Баллы −{fmtMoney(p.bonus_rubles_used)}</span>}
+                  {p.is_cancelled && <span style={{background:'#fdecea', color:'#e74c3c', padding:'2px 8px', borderRadius:6, fontSize:11}}>Отменена</span>}
                 </div>
               </div>
-              <div style={{textAlign:'right', marginLeft:12}}>
-                <div style={{fontSize:15, fontWeight:700, color:'#2a2a2a'}}>{fmtMoney(p.amount_paid)}</div>
-                {priceChanged && (
-                  <div style={{fontSize:11, color:'#BDBDBD', textDecoration:'line-through'}}>{fmtMoney(p.price_original)}</div>
-                )}
+              <div style={{textAlign:'right', flexShrink:0}}>
+                <div style={{fontSize:15, fontWeight:700, color: p.is_cancelled ? '#BDBDBD' : '#2a2a2a', textDecoration: p.is_cancelled ? 'line-through' : 'none'}}>{fmtMoney(p.amount_paid)}</div>
+                {priceChanged && !p.is_cancelled && <div style={{fontSize:11, color:'#BDBDBD', textDecoration:'line-through'}}>{fmtMoney(p.price_original)}</div>}
               </div>
+              <div style={{color:'#BDBDBD', fontSize:11, marginLeft:4}}>{isExpanded ? '▲' : '▼'}</div>
             </div>
 
-            <div style={{display:'flex', gap:8, marginTop:8, flexWrap:'wrap'}}>
-              <span style={{fontSize:11, color:'#888', background:'#f0f0f0', padding:'2px 8px', borderRadius:6}}>
-                {PAYMENT_LABELS[p.payment_method] || p.payment_method}
-              </span>
-              {hasDiscount && (
-                <span style={{fontSize:11, color:'#e74c3c', background:'#fdecea', padding:'2px 8px', borderRadius:6}}>
-                  Скидка {fmtMoney(p.discount_amount)}
-                </span>
-              )}
-              {hasBonus && (
-                <span style={{fontSize:11, color:'#6a7700', background:'#fafde8', padding:'2px 8px', borderRadius:6}}>
-                  Баллы −{fmtMoney(p.bonus_rubles_used)}
-                </span>
-              )}
-            </div>
-
-            <button
-              onClick={() => setExpandedId(isExpanded ? null : p.id)}
-              style={{marginTop:8, background:'none', border:'none', color:'#2980b9', fontSize:11, cursor:'pointer', fontFamily:'Inter,sans-serif', padding:0}}>
-              {isExpanded ? 'Скрыть детали ▲' : 'Подробнее ▼'}
-            </button>
-
+            {/* Детали */}
             {isExpanded && (
-              <div style={{marginTop:10, paddingTop:10, borderTop:'1px solid #e8f0aa'}}>
-                {[
-                  ['Продавец', p.creator?.full_name || p.creator?.email || '—'],
-                  ['Способ оплаты', PAYMENT_LABELS[p.payment_method] || p.payment_method],
-                  ['Цена по прайсу', fmtMoney(p.price_original)],
-                  hasDiscount ? ['Скидка', `${fmtMoney(p.discount_amount)}${p.discount_reason ? ` (${p.discount_reason})` : ''}`] : null,
-                  hasBonus ? ['Списано баллов', fmtMoney(p.bonus_rubles_used)] : null,
-                  Number(p.acquiring_fee) > 0 ? ['Комиссия эквайринга', fmtMoney(p.acquiring_fee)] : null,
-                  ['Итого оплачено', fmtMoney(p.amount_paid)],
-                  ['Чистая выручка', fmtMoney(p.total_net)],
-                  p.payer_type && p.payer_type !== 'client' ? ['Плательщик', p.payer_type === 'representative' ? 'Представитель' : p.payer_name || 'Другой человек'] : null,
-                  p.subscription?.activated_at ? ['Действует с', fmtDate(p.subscription.activated_at)] : null,
-                  p.subscription?.expires_at ? ['Действует до', fmtDate(p.subscription.expires_at)] : null,
-                  p.subscription?.visits_total ? ['Занятий', `использовано ${p.subscription.visits_used || 0} из ${p.subscription.visits_total}`] : null,
-                  p.comment ? ['Комментарий', p.comment] : null,
-                ].filter(Boolean).map(([label, value]) => (
-                  <div key={label} style={{display:'flex', justifyContent:'space-between', padding:'5px 0', fontSize:12, borderBottom:'1px solid #f0f0f0'}}>
-                    <span style={{color:'#888'}}>{label}</span>
-                    <span style={{color:'#2a2a2a', fontWeight:500, maxWidth:'60%', textAlign:'right'}}>{value}</span>
+              <div style={{borderTop:'0.5px solid #f0f0f0', padding:'14px 16px'}}>
+                <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:10}}>
+                  {/* Инициатор */}
+                  <div style={cellStyle}>
+                    <div style={cellLabel}>Инициатор продажи</div>
+                    <div style={cellValue}>{isApp ? '📱 Через приложение' : `👤 ${creatorName}`}</div>
+                    {!isApp && creatorRole && <div style={{fontSize:11, color:'#BDBDBD', marginTop:2}}>{creatorRole}</div>}
                   </div>
-                ))}
+
+                  {/* Цена по прайсу */}
+                  <div style={cellStyle}>
+                    <div style={cellLabel}>Цена по прайсу</div>
+                    <div style={cellValue}>{fmtMoney(p.price_original)}</div>
+                  </div>
+
+                  {/* Скидка */}
+                  {hasDiscount && (
+                    <div style={{...cellStyle, background:'#fef9e7'}}>
+                      <div style={{...cellLabel, color:'#f39c12'}}>Скидка</div>
+                      <div style={{...cellValue, color:'#f39c12'}}>−{fmtMoney(p.discount_amount)}</div>
+                      {p.discount_reason && <div style={{fontSize:11, color:'#f39c12', marginTop:2, opacity:0.8}}>{p.discount_reason}</div>}
+                    </div>
+                  )}
+
+                  {/* Баллы */}
+                  {hasBonus && (
+                    <div style={{...cellStyle, background:'#fafde8'}}>
+                      <div style={{...cellLabel, color:'#6a7700'}}>Списано баллов</div>
+                      <div style={{...cellValue, color:'#6a7700'}}>−{fmtMoney(p.bonus_rubles_used)}</div>
+                    </div>
+                  )}
+
+                  {/* Итого */}
+                  <div style={cellStyle}>
+                    <div style={cellLabel}>Итого оплачено</div>
+                    <div style={{...cellValue, fontWeight:700}}>{fmtMoney(p.amount_paid)}</div>
+                  </div>
+
+                  {/* Выручка */}
+                  <div style={cellStyle}>
+                    <div style={cellLabel}>Чистая выручка</div>
+                    <div style={cellValue}>{fmtMoney(p.total_net)}</div>
+                  </div>
+
+                  {/* Эквайринг */}
+                  {Number(p.acquiring_fee) > 0 && (
+                    <div style={cellStyle}>
+                      <div style={cellLabel}>Комиссия эквайринга</div>
+                      <div style={cellValue}>{fmtMoney(p.acquiring_fee)}</div>
+                    </div>
+                  )}
+
+                  {/* Плательщик */}
+                  {p.payer_type && p.payer_type !== 'client' && (
+                    <div style={cellStyle}>
+                      <div style={cellLabel}>Плательщик</div>
+                      <div style={cellValue}>{p.payer_type === 'representative' ? 'Представитель' : p.payer_name || 'Другой человек'}</div>
+                    </div>
+                  )}
+
+                  {/* Занятия */}
+                  {sub?.visits_total && (
+                    <div style={cellStyle}>
+                      <div style={cellLabel}>Занятий использовано</div>
+                      <div style={cellValue}>{sub.visits_used || 0} из {sub.visits_total}</div>
+                    </div>
+                  )}
+
+                  {/* Дата активации */}
+                  {hasDates && (
+                    <div style={cellStyle}>
+                      <div style={cellLabel}>Активирован</div>
+                      <div style={cellValue}>{fmtDate(sub.activated_at)}</div>
+                      {canEditDates && (
+                        <div onClick={() => openDateModal(sub.id, 'activated_at', sub.activated_at, p.productSub)}
+                          style={{fontSize:11, color:'#2980b9', cursor:'pointer', marginTop:4}}>✎ Изменить</div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Дата завершения */}
+                  {hasDates && (
+                    <div style={cellStyle}>
+                      <div style={cellLabel}>Действует до</div>
+                      <div style={cellValue}>{fmtDate(sub.expires_at)}</div>
+                      {canEditDates && (
+                        <div onClick={() => openDateModal(sub.id, 'expires_at', sub.expires_at, p.productSub)}
+                          style={{fontSize:11, color:'#2980b9', cursor:'pointer', marginTop:4}}>✎ Изменить</div>
+                      )}
+                    </div>
+                  )}
+                </div>
 
                 {/* Доступные группы */}
                 {p.allowedGroups.length > 0 && (
-                  <div style={{paddingTop:8}}>
-                    <div style={{fontSize:11, color:'#888', marginBottom:6, fontWeight:600}}>Доступные группы</div>
-                    <div style={{display:'flex', flexWrap:'wrap', gap:4}}>
+                  <div style={{marginBottom:10}}>
+                    <div style={{fontSize:11, color:'#BDBDBD', fontWeight:600, textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6}}>Доступные группы</div>
+                    <div style={{display:'flex', flexWrap:'wrap', gap:6}}>
                       {p.allowedGroups.map(g => (
-                        <span key={g.id} style={{fontSize:11, color: g.is_closed ? '#e74c3c' : '#27ae60', background: g.is_closed ? '#fdecea' : '#eafaf1', padding:'3px 10px', borderRadius:8, fontWeight:500}}>
+                        <span key={g.id} style={{fontSize:12, color: g.is_closed ? '#e74c3c' : '#27ae60', background: g.is_closed ? '#fdecea' : '#eafaf1', padding:'3px 10px', borderRadius:8, fontWeight:500}}>
                           {g.is_closed ? '🔒 ' : ''}{g.name}
                         </span>
                       ))}
                     </div>
+                  </div>
+                )}
+
+                {/* Комментарий к продаже */}
+                {p.comment && (
+                  <div style={{fontSize:12, color:'#888', fontStyle:'italic', marginBottom:10}}>💬 {p.comment}</div>
+                )}
+
+                {/* История изменений дат */}
+                {sub && (
+                  <button onClick={() => toggleHistory(sub.id)}
+                    style={{background:'none', border:'none', color:'#2980b9', fontSize:12, cursor:'pointer', fontFamily:'Inter,sans-serif', padding:0}}>
+                    История изменений дат {showHistoryId === sub.id ? '▲' : '▼'}
+                  </button>
+                )}
+                {sub && showHistoryId === sub.id && (
+                  <div style={{marginTop:8}}>
+                    {history.length === 0 ? (
+                      <div style={{fontSize:12, color:'#BDBDBD', padding:'8px 0'}}>Изменений не было</div>
+                    ) : history.map((h, i) => (
+                      <div key={i} style={{padding:'8px 0', borderBottom:'0.5px solid #f0f0f0', fontSize:12}}>
+                        <div style={{color:'#2a2a2a', fontWeight:500}}>
+                          {h.field === 'activated_at' ? 'Дата активации' : 'Дата завершения'}: {fmtDate(h.old_value)} → {fmtDate(h.new_value)}
+                        </div>
+                        <div style={{color:'#888', marginTop:2}}>Причина: {h.reason}</div>
+                        <div style={{color:'#BDBDBD', marginTop:2}}>👤 {h.changer?.full_name || h.changer?.email} · {fmtDT(h.created_at)}</div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
@@ -144,6 +644,47 @@ function PurchasesTab({ clientId }) {
           </div>
         )
       })}
+
+      {/* Модалка изменения даты */}
+      {dateModal && (
+        <div style={{position:'fixed', top:0, left:0, right:0, bottom:0, background:'rgba(0,0,0,0.4)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000}}
+          onClick={e => e.target === e.currentTarget && setDateModal(null)}>
+          <div style={{background:'#fff', borderRadius:16, padding:24, width:360, maxWidth:'90%'}}>
+            <div style={{fontSize:15, fontWeight:600, color:'#2a2a2a', marginBottom:16}}>
+              {dateModal.field === 'activated_at' ? 'Изменить дату активации' : 'Изменить дату завершения'}
+            </div>
+            <div style={{marginBottom:12}}>
+              <div style={{fontSize:11, color:'#BDBDBD', marginBottom:6, fontWeight:600}}>Новая дата</div>
+              <input type="date" value={dateValue} onChange={e => setDateValue(e.target.value)}
+                style={{width:'100%', padding:'9px 12px', border:'1px solid #e8e8e8', borderRadius:10, fontSize:13, boxSizing:'border-box', fontFamily:'Inter,sans-serif', outline:'none'}}
+                onFocus={e => e.target.style.borderColor='#BFD900'} onBlur={e => e.target.style.borderColor='#e8e8e8'} />
+            </div>
+            {dateModal.field === 'activated_at' && dateModal.productSub && (
+              <label style={{display:'flex', alignItems:'center', gap:8, fontSize:13, color:'#2a2a2a', marginBottom:12, cursor:'pointer'}}>
+                <input type="checkbox" checked={recalcExpires} onChange={e => setRecalcExpires(e.target.checked)} style={{accentColor:'#BFD900'}} />
+                Пересчитать дату завершения автоматически
+              </label>
+            )}
+            <div style={{marginBottom:16}}>
+              <div style={{fontSize:11, color:'#BDBDBD', marginBottom:6, fontWeight:600}}>Причина *</div>
+              <textarea value={dateReason} onChange={e => setDateReason(e.target.value)}
+                placeholder="Обязательно укажите причину..."
+                style={{width:'100%', padding:'9px 12px', border: dateReason.trim() ? '1px solid #e8e8e8' : '1px solid #e8e8e8', borderRadius:10, fontSize:13, boxSizing:'border-box', fontFamily:'Inter,sans-serif', resize:'vertical', minHeight:70, outline:'none'}}
+                onFocus={e => e.target.style.borderColor='#BFD900'} onBlur={e => e.target.style.borderColor='#e8e8e8'} />
+            </div>
+            <div style={{display:'flex', gap:8}}>
+              <button onClick={saveDateChange} disabled={!dateValue || !dateReason.trim() || dateSaving}
+                style={{padding:'9px 24px', background: (!dateValue || !dateReason.trim()) ? '#e8e8e8' : '#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color: (!dateValue || !dateReason.trim()) ? '#BDBDBD' : '#2a2a2a', cursor: (!dateValue || !dateReason.trim()) ? 'not-allowed' : 'pointer', fontFamily:'Inter,sans-serif'}}>
+                {dateSaving ? 'Сохраняем...' : 'Сохранить'}
+              </button>
+              <button onClick={() => setDateModal(null)}
+                style={{padding:'9px 16px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:10, fontSize:13, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+                Отмена
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -151,7 +692,7 @@ function PurchasesTab({ clientId }) {
 function RepresentativesTab({ clientId }) {
   const [reps, setReps] = useState([])
   const [editing, setEditing] = useState(null)
-  const [form, setForm] = useState({ full_name:'', role:'', phone:'', birth_date:'', contact:'', comment:'', is_payer:false })
+  const [form, setForm] = useState({ last_name:'', first_name:'', patronymic:'', role:'', phone:'', birth_date:'', contact:'', comment:'', is_payer:false })
   const [showForm, setShowForm] = useState(false)
 
   useEffect(() => { load() }, [clientId])
@@ -161,11 +702,12 @@ function RepresentativesTab({ clientId }) {
     setReps(data || [])
   }
 
-  const resetForm = () => setForm({ full_name:'', role:'', phone:'', birth_date:'', contact:'', comment:'', is_payer:false })
+  const resetForm = () => setForm({ last_name:'', first_name:'', patronymic:'', role:'', phone:'', birth_date:'', contact:'', comment:'', is_payer:false })
 
   const handleSave = async () => {
-    if (!form.full_name || !form.role) return
-    const dataToSave = { ...form, birth_date: form.birth_date || null, phone: form.phone || null, contact: form.contact || null, comment: form.comment || null }
+    if (!form.first_name || !form.last_name || !form.role) return
+    const full_name = [form.last_name, form.first_name, form.patronymic].filter(Boolean).join(' ')
+    const dataToSave = { full_name, role: form.role, phone: form.phone || null, birth_date: form.birth_date || null, contact: form.contact || null, comment: form.comment || null, is_payer: form.is_payer }
     if (editing) {
       await supabase.from('client_representatives').update(dataToSave).eq('id', editing)
     } else {
@@ -175,7 +717,8 @@ function RepresentativesTab({ clientId }) {
   }
 
   const handleEdit = (rep) => {
-    setForm({ full_name: rep.full_name, role: rep.role, phone: rep.phone || '', birth_date: rep.birth_date || '', contact: rep.contact || '', comment: rep.comment || '', is_payer: rep.is_payer || false })
+    const parts = (rep.full_name || '').split(' ')
+    setForm({ last_name: parts[0] || '', first_name: parts[1] || '', patronymic: parts[2] || '', role: rep.role, phone: rep.phone || '', birth_date: rep.birth_date || '', contact: rep.contact || '', comment: rep.comment || '', is_payer: rep.is_payer || false })
     setEditing(rep.id); setShowForm(true)
   }
 
@@ -220,15 +763,56 @@ function RepresentativesTab({ clientId }) {
       {showForm && (
         <div style={{background:'#f9f9f9', borderRadius:12, padding:16, marginTop:10}}>
           <div style={{fontSize:13, fontWeight:600, color:'#2a2a2a', marginBottom:12}}>{editing ? 'Редактировать представителя' : 'Новый представитель'}</div>
-          <input value={form.full_name} onChange={e => setForm({...form, full_name:e.target.value})} placeholder="ФИО *" style={inputStyle} />
-          <select value={form.role} onChange={e => setForm({...form, role:e.target.value})} style={inputStyle}>
-            <option value="">Выберите роль *</option>
-            {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
-          </select>
-          <input value={form.phone} onChange={e => setForm({...form, phone:e.target.value})} placeholder="Телефон" style={inputStyle} />
-          <input value={form.contact} onChange={e => setForm({...form, contact:e.target.value})} placeholder="Telegram / другой канал связи" style={inputStyle} />
-          <input value={form.birth_date} onChange={e => setForm({...form, birth_date:e.target.value})} type="date" style={inputStyle} />
-          <textarea value={form.comment} onChange={e => setForm({...form, comment:e.target.value})} placeholder="Комментарий" style={{...inputStyle, resize:'vertical', minHeight:60}} />
+          <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, marginBottom:2}}>
+            {[['Фамилия *','last_name'],['Имя *','first_name'],['Отчество','patronymic']].map(([label, key]) => (
+              <div key={key}>
+                <div style={{fontSize:11, color:'#BDBDBD', marginBottom:6, fontWeight:600}}>{label}</div>
+                <input value={form[key]} onChange={e => setForm({...form, [key]:e.target.value})}
+                  style={{...inputStyle, marginBottom:0}}
+                  onFocus={e => e.target.style.borderColor='#BFD900'}
+                  onBlur={e => e.target.style.borderColor='#e8e8e8'}/>
+              </div>
+            ))}
+          </div>
+          <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:2}}>
+            <div>
+              <div style={{fontSize:11, color:'#BDBDBD', marginBottom:6, fontWeight:600}}>Роль *</div>
+              <select value={form.role} onChange={e => setForm({...form, role:e.target.value})} style={{...inputStyle, marginBottom:0, background:'#fff'}}
+                onFocus={e => e.target.style.borderColor='#BFD900'}
+                onBlur={e => e.target.style.borderColor='#e8e8e8'}>
+                <option value="">Выберите роль</option>
+                {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={{fontSize:11, color:'#BDBDBD', marginBottom:6, fontWeight:600}}>Дата рождения</div>
+              <input value={form.birth_date} onChange={e => setForm({...form, birth_date:e.target.value})} type="date"
+                style={{...inputStyle, marginBottom:0}}
+                onFocus={e => e.target.style.borderColor='#BFD900'}
+                onBlur={e => e.target.style.borderColor='#e8e8e8'}/>
+            </div>
+            <div>
+              <div style={{fontSize:11, color:'#BDBDBD', marginBottom:6, fontWeight:600}}>Телефон</div>
+              <input value={form.phone} onChange={e => setForm({...form, phone:e.target.value})} placeholder="+7 900 000 00 00"
+                style={{...inputStyle, marginBottom:0}}
+                onFocus={e => e.target.style.borderColor='#BFD900'}
+                onBlur={e => e.target.style.borderColor='#e8e8e8'}/>
+            </div>
+            <div>
+              <div style={{fontSize:11, color:'#BDBDBD', marginBottom:6, fontWeight:600}}>Telegram / другой канал</div>
+              <input value={form.contact} onChange={e => setForm({...form, contact:e.target.value})} placeholder="@username"
+                style={{...inputStyle, marginBottom:0}}
+                onFocus={e => e.target.style.borderColor='#BFD900'}
+                onBlur={e => e.target.style.borderColor='#e8e8e8'}/>
+            </div>
+          </div>
+          <div style={{marginBottom:2}}>
+            <div style={{fontSize:11, color:'#BDBDBD', marginBottom:6, fontWeight:600}}>Комментарий</div>
+            <textarea value={form.comment} onChange={e => setForm({...form, comment:e.target.value})} placeholder="Заметки..."
+              style={{...inputStyle, marginBottom:0, resize:'vertical', minHeight:60}}
+              onFocus={e => e.target.style.borderColor='#BFD900'}
+              onBlur={e => e.target.style.borderColor='#e8e8e8'}/>
+          </div>
           <label style={{display:'flex', alignItems:'center', gap:8, fontSize:13, color:'#2a2a2a', marginBottom:12, cursor:'pointer'}}>
             <input type="checkbox" checked={form.is_payer} onChange={e => setForm({...form, is_payer:e.target.checked})} />
             Является плательщиком
@@ -562,23 +1146,28 @@ function BasicTab({ client, clientId, userRole, onUpdate }) {
   if (!editing) {
     return (
       <div>
-        {[
-          ['Фамилия', client.last_name || '—'],
-          ['Имя', client.first_name || '—'],
-          ['Отчество', client.patronymic || '—'],
-          ['Email', client.email],
-          ['Телефон', client.phone || '—'],
-          ['Дата рождения', formatDate(client.birth_date)],
-          ['Рекламный источник', adSourceLabel],
-        ].map(([label, value]) => (
-          <div key={label} style={{display:'flex', justifyContent:'space-between', padding:'10px 0', borderBottom:'1px solid #f8f8f8', fontSize:13}}>
-            <span style={{color:'#BDBDBD'}}>{label}</span>
-            <span style={{color:'#2a2a2a', fontWeight:500}}>{value}</span>
-          </div>
-        ))}
+        <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10}}>
+          {[
+            ['Имя', client.first_name || '—'],
+            ['Фамилия', client.last_name || '—'],
+            ['Отчество', client.patronymic || '—'],
+            ['Телефон', client.phone || '—'],
+            ['Дата рождения', formatDate(client.birth_date)],
+            ['Рекламный источник', adSourceLabel],
+          ].map(([label, value]) => (
+            <div key={label} style={{background:'#f9f9f9', borderRadius:10, padding:'12px 14px'}}>
+              <div style={{fontSize:11, color:'#BDBDBD', marginBottom:4}}>{label}</div>
+              <div style={{fontSize:14, color:'#2a2a2a', fontWeight:500}}>{value}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{background:'#f9f9f9', borderRadius:10, padding:'12px 14px', marginBottom:16}}>
+          <div style={{fontSize:11, color:'#BDBDBD', marginBottom:4}}>Email</div>
+          <div style={{fontSize:14, color:'#2a2a2a', fontWeight:500}}>{client.email}</div>
+        </div>
         {canEdit && (
           <button onClick={() => setEditing(true)}
-            style={{marginTop:16, padding:'8px 20px', background:'#f5f5f5', border:'none', borderRadius:10, fontSize:13, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+            style={{padding:'8px 20px', background:'#f5f5f5', border:'none', borderRadius:10, fontSize:13, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
             ✎ Редактировать
           </button>
         )}
@@ -586,48 +1175,70 @@ function BasicTab({ client, clientId, userRole, onUpdate }) {
     )
   }
 
+  const editInputStyle = {
+    width:'100%', padding:'9px 12px', border:'1px solid #e8e8e8', borderRadius:10,
+    fontSize:13, boxSizing:'border-box', fontFamily:'Inter,sans-serif', color:'#2a2a2a', outline:'none'
+  }
+
   return (
     <div>
-      {[
-        ['Фамилия', 'last_name', 'text'],
-        ['Имя', 'first_name', 'text'],
-        ['Отчество', 'patronymic', 'text'],
-        ['Телефон', 'phone', 'text'],
-        ['Дата рождения', 'birth_date', 'date'],
-      ].map(([label, key, type]) => (
-        <div key={key} style={{marginBottom:12}}>
-          <label style={{fontSize:12, color:'#888', marginBottom:4, fontWeight:600, display:'block'}}>{label}</label>
-          <input value={form[key]} onChange={e => setForm({...form, [key]:e.target.value})}
-            type={type} style={inputStyle} />
+      <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10}}>
+        {[
+          ['Имя', 'first_name', 'text'],
+          ['Фамилия', 'last_name', 'text'],
+          ['Отчество', 'patronymic', 'text'],
+          ['Телефон', 'phone', 'text'],
+          ['Дата рождения', 'birth_date', 'date'],
+        ].map(([label, key, type]) => (
+          <div key={key}>
+            <div style={{fontSize:11, color:'#BDBDBD', marginBottom:6, fontWeight:600}}>{label}</div>
+            <input
+              value={form[key]} onChange={e => setForm({...form, [key]:e.target.value})}
+              type={type} style={editInputStyle}
+              onFocus={e => e.target.style.borderColor='#BFD900'}
+              onBlur={e => e.target.style.borderColor='#e8e8e8'}
+            />
+          </div>
+        ))}
+        <div>
+          <div style={{fontSize:11, color:'#BDBDBD', marginBottom:6, fontWeight:600}}>Рекламный источник</div>
+          <select value={form.ad_source} onChange={e => setForm({...form, ad_source:e.target.value})}
+            style={{...editInputStyle, background:'#fff'}}
+            onFocus={e => e.target.style.borderColor='#BFD900'}
+            onBlur={e => e.target.style.borderColor='#e8e8e8'}>
+            <option value="">Не указан</option>
+            <option value="instagram">Instagram</option>
+            <option value="vk">ВКонтакте</option>
+            <option value="telegram">Telegram</option>
+            <option value="word_of_mouth">Сарафанное радио</option>
+            <option value="google">Google</option>
+            <option value="yandex">Яндекс</option>
+            <option value="2gis">2ГИС</option>
+            <option value="other">Другое</option>
+          </select>
         </div>
-      ))}
-
-      <div style={{marginBottom:12}}>
-        <label style={{fontSize:12, color:'#888', marginBottom:4, fontWeight:600, display:'block'}}>Рекламный источник</label>
-        <select value={form.ad_source} onChange={e => setForm({...form, ad_source:e.target.value})} style={inputStyle}>
-          <option value="">Не указан</option>
-          <option value="instagram">Instagram</option>
-          <option value="vk">ВКонтакте</option>
-          <option value="telegram">Telegram</option>
-          <option value="word_of_mouth">Сарафанное радио</option>
-          <option value="google">Google</option>
-          <option value="yandex">Яндекс</option>
-          <option value="2gis">2ГИС</option>
-          <option value="other">Другое</option>
-        </select>
       </div>
 
       {form.ad_source === 'other' && (
-        <div style={{marginBottom:12}}>
-          <label style={{fontSize:12, color:'#888', marginBottom:4, fontWeight:600, display:'block'}}>Уточните источник</label>
+        <div style={{marginBottom:10}}>
+          <div style={{fontSize:11, color:'#BDBDBD', marginBottom:6, fontWeight:600}}>Уточните источник</div>
           <input value={form.ad_source_custom} onChange={e => setForm({...form, ad_source_custom:e.target.value})}
-            placeholder="Например: от знакомого Ивана" style={inputStyle} />
+            placeholder="Например: от знакомого Ивана" style={editInputStyle}
+            onFocus={e => e.target.style.borderColor='#BFD900'}
+            onBlur={e => e.target.style.borderColor='#e8e8e8'}
+          />
         </div>
       )}
 
-      <div style={{display:'flex', gap:8, marginTop:16}}>
+      <div style={{marginBottom:16}}>
+        <div style={{fontSize:11, color:'#BDBDBD', marginBottom:6, fontWeight:600}}>Email</div>
+        <input value={client.email} disabled style={{...editInputStyle, color:'#BDBDBD', background:'#fafafa', border:'1px solid #f0f0f0'}} />
+        <div style={{fontSize:11, color:'#BDBDBD', marginTop:4}}>Email изменить нельзя</div>
+      </div>
+
+      <div style={{display:'flex', gap:8}}>
         <button onClick={handleSave} disabled={saving}
-          style={{padding:'9px 20px', background:'#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif', opacity: saving ? 0.7 : 1}}>
+          style={{padding:'9px 24px', background:'#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif', opacity: saving ? 0.7 : 1}}>
           {saving ? 'Сохраняем...' : 'Сохранить'}
         </button>
         <button onClick={() => setEditing(false)}
@@ -652,8 +1263,20 @@ export default function AdminClientCard({ session }) {
   const [bonusAmount, setBonusAmount] = useState('')
   const [bonusType, setBonusType] = useState('rubles')
   const [bonusReason, setBonusReason] = useState('')
+  const [bonusOperation, setBonusOperation] = useState('credit')
   const [loyaltyLevel, setLoyaltyLevel] = useState(null)
   const [userRole, setUserRole] = useState(null)
+  const [loyaltyOpen, setLoyaltyOpen] = useState(false)
+  const [showSaleModal, setShowSaleModal] = useState(false)
+  const [purchasesKey, setPurchasesKey] = useState(0)
+  const loyaltyRef = useRef(null)
+
+  useEffect(() => {
+    if (!loyaltyOpen) return
+    const handleClick = (e) => { if (loyaltyRef.current && !loyaltyRef.current.contains(e.target)) setLoyaltyOpen(false) }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [loyaltyOpen])
 
   useEffect(() => {
     const load = async () => {
@@ -676,27 +1299,40 @@ export default function AdminClientCard({ session }) {
   }, [id])
 
   const handleAddBonus = async () => {
-    if (!bonusAmount) return
+    if (!bonusAmount || !bonusReason.trim()) return
     const amount = parseInt(bonusAmount)
     const { data: { user } } = await supabase.auth.getUser()
-    await supabase.from('bonus_history').insert({ student_id: id, type: bonusType, amount, reason: bonusReason || 'Ручное начисление', created_by: user.id })
+    const operation = bonusOperation === 'credit' ? 'credit' : 'debit'
+    const clientReason = bonusOperation === 'credit' ? 'manual_credit' : 'manual_debit'
+    const finalAmount = bonusOperation === 'debit' ? -Math.abs(amount) : Math.abs(amount)
+    await supabase.from('bonus_history').insert({
+      student_id: id,
+      type: bonusType,
+      amount: finalAmount,
+      reason: bonusReason,
+      created_by: user.id,
+      operation,
+      client_reason: clientReason
+    })
     const field = bonusType === 'rubles' ? 'bonus_rubles' : 'bonus_coins'
     const current = bonusType === 'rubles' ? client.bonus_rubles : client.bonus_coins
-    await supabase.from('profiles').update({ [field]: (current || 0) + amount }).eq('id', id)
-    setClient({ ...client, [field]: (current || 0) + amount })
-    setBonusHistory([{ type: bonusType, amount, reason: bonusReason || 'Ручное начисление', created_at: new Date().toISOString() }, ...bonusHistory])
+    const newVal = Math.max(0, (current || 0) + finalAmount)
+    await supabase.from('profiles').update({ [field]: newVal }).eq('id', id)
+    setClient({ ...client, [field]: newVal })
+    const { data: hist } = await supabase.from('bonus_history').select('*, created_by_profile:profiles!bonus_history_created_by_fkey(full_name, email)').eq('student_id', id).order('created_at', { ascending: false })
+    setBonusHistory(hist || [])
     setBonusAmount(''); setBonusReason('')
   }
 
   const LOYALTY = {
-    adept:  { label: '🔥 Адепт',      color: '#27ae60', bg: '#eafaf1' },
+    adept:  { label: '👑 Адепт',      color: '#8e44ad', bg: '#f5eef8' },
     loyal:  { label: '💚 Лояльный',   color: '#82c99a', bg: '#f0faf3' },
     edge:   { label: '🤔 На грани',   color: '#f39c12', bg: '#fef9e7' },
     risk:   { label: '⚠️ Риск ухода', color: '#e74c3c', bg: '#fdecea' },
   }
 
   const handleSetLoyalty = async (level) => {
-    const newLevel = loyaltyLevel === level ? null : level
+    const newLevel = level === null ? null : loyaltyLevel === level ? null : level
     if (newLevel) {
       await supabase.from('client_loyalty').upsert({ client_id: id, level: newLevel, updated_by: session.user.id, updated_at: new Date().toISOString() }, { onConflict: 'client_id' })
     } else {
@@ -714,40 +1350,64 @@ export default function AdminClientCard({ session }) {
   if (loading) return <div style={{textAlign:'center', color:'#BDBDBD', padding:40}}>Загрузка...</div>
   if (!client) return <div style={{textAlign:'center', color:'#BDBDBD', padding:40}}>Клиент не найден</div>
 
+  const handleSaleSuccess = () => {
+    setShowSaleModal(false)
+    setTab('Покупки')
+    setPurchasesKey(k => k + 1)
+  }
+
   return (
     <div>
       <div onClick={() => navigate('/admin/clients')} style={{display:'flex', alignItems:'center', gap:6, color:'#BDBDBD', fontSize:13, cursor:'pointer', marginBottom:20}}>
         ← Назад к клиентам
       </div>
 
-      <div style={{background:'#fff', borderRadius:16, border:'1px solid #f0f0f0', padding:'20px 24px', marginBottom:16, display:'flex', alignItems:'center', gap:16, flexWrap:'wrap'}}>
-        <AvatarUpload
-  userId={client.id}
-  currentUrl={avatarUrl}
-  size={52}
-  onUpload={(url) => setAvatarUrl(url)}
-/>
-        <div style={{flex:1}}>
-          <div style={{fontSize:18, fontWeight:600, color:'#2a2a2a', marginBottom:2}}>{client.full_name || '—'}</div>
-          <div style={{fontSize:12, color:'#BDBDBD'}}>{client.email} · {client.phone || 'телефон не указан'}</div>
+      <div style={{background:'#fff', borderRadius:16, border:'1px solid #f0f0f0', padding:'20px 24px', marginBottom:4, display:'flex', alignItems:'center', gap:16, flexWrap:'wrap'}}>
+        <AvatarUpload userId={client.id} currentUrl={avatarUrl} size={52} onUpload={(url) => setAvatarUrl(url)} />
+
+        <div style={{flex:1, minWidth:0}}>
+          <div style={{fontSize:17, fontWeight:600, color:'#2a2a2a', marginBottom:4}}>{client.full_name || '—'}</div>
+          <div style={{fontSize:12, color:'#BDBDBD'}}>{client.email}</div>
         </div>
+
         {['admin','manager','owner'].includes(userRole) && (
-          <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
-            {Object.entries(LOYALTY).map(([key, l]) => (
-              <button key={key} onClick={() => handleSetLoyalty(key)}
-                style={{padding:'5px 12px', borderRadius:8, border: loyaltyLevel === key ? 'none' : '1px solid #e0e0e0', background: loyaltyLevel === key ? l.bg : '#fff', color: loyaltyLevel === key ? l.color : '#888', fontSize:12, cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight: loyaltyLevel === key ? 700 : 400}}>
-                {l.label}
-              </button>
-            ))}
+          <div style={{position:'relative', flexShrink:0}} ref={loyaltyRef}>
+            <div onClick={() => setLoyaltyOpen(o => !o)}
+              style={{background: loyaltyLevel ? LOYALTY[loyaltyLevel].bg : '#f5f5f5', color: loyaltyLevel ? LOYALTY[loyaltyLevel].color : '#BDBDBD', borderRadius:8, padding:'5px 12px', fontSize:12, fontWeight:600, cursor:'pointer', userSelect:'none'}}>
+              {loyaltyLevel ? LOYALTY[loyaltyLevel].label : 'Лояльность'} ▾
+            </div>
+            {loyaltyOpen && (
+              <div style={{position:'absolute', right:0, top:'calc(100% + 6px)', background:'#fff', border:'1px solid #f0f0f0', borderRadius:12, padding:6, minWidth:160, zIndex:100, boxShadow:'0 4px 16px rgba(0,0,0,0.08)'}}>
+                {Object.entries(LOYALTY).map(([key, l]) => (
+                  <div key={key} onClick={() => { handleSetLoyalty(key); setLoyaltyOpen(false) }}
+                    style={{padding:'8px 12px', borderRadius:8, fontSize:13, cursor:'pointer', color:l.color, fontWeight: loyaltyLevel===key ? 700 : 500, background: loyaltyLevel===key ? l.bg : 'transparent'}}
+                    onMouseEnter={e => e.currentTarget.style.background = loyaltyLevel===key ? l.bg : '#f5f5f5'}
+                    onMouseLeave={e => e.currentTarget.style.background = loyaltyLevel===key ? l.bg : 'transparent'}>
+                    {l.label}
+                  </div>
+                ))}
+                <div style={{borderTop:'1px solid #f0f0f0', margin:'4px 0'}} />
+                <div onClick={() => { handleSetLoyalty(null); setLoyaltyOpen(false) }}
+                  style={{padding:'8px 12px', borderRadius:8, fontSize:13, cursor:'pointer', color:'#BDBDBD'}}
+                  onMouseEnter={e => e.currentTarget.style.background = '#f5f5f5'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                  Снять метку
+                </div>
+              </div>
+            )}
           </div>
         )}
-        <div style={{display:'flex', gap:8}}>
-          <div style={{textAlign:'center', background:'#fafde8', borderRadius:12, padding:'8px 16px'}}>
-            <div style={{fontSize:16, fontWeight:600, color:'#6a7700'}}>{client.bonus_rubles || 0} ₽</div>
+
+        <button onClick={() => setShowSaleModal(true)} style={{padding:'8px 16px', background:'#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif', flexShrink:0}}>
+          + Продать
+        </button>
+        <div style={{display:'flex', gap:8, flexShrink:0}}>
+          <div style={{background:'#fafde8', borderRadius:10, padding:'8px 14px', textAlign:'center'}}>
+            <div style={{fontSize:15, fontWeight:600, color:'#6a7700'}}>{client.bonus_rubles || 0} ₽</div>
             <div style={{fontSize:10, color:'#BDBDBD'}}>бонусы</div>
           </div>
-          <div style={{textAlign:'center', background:'#f9f9f9', borderRadius:12, padding:'8px 16px'}}>
-            <div style={{fontSize:16, fontWeight:600, color:'#2a2a2a'}}>⭐ {client.bonus_coins || 0}</div>
+          <div style={{background:'#f9f9f9', borderRadius:10, padding:'8px 14px', textAlign:'center'}}>
+            <div style={{fontSize:15, fontWeight:600, color:'#2a2a2a'}}>⭐ {client.bonus_coins || 0}</div>
             <div style={{fontSize:10, color:'#BDBDBD'}}>SDTшки</div>
           </div>
         </div>
@@ -765,7 +1425,7 @@ export default function AdminClientCard({ session }) {
           <BasicTab client={client} clientId={id} userRole={userRole} onUpdate={setClient} />
         )}
 
-        {tab === 'Покупки' && <PurchasesTab clientId={id} />}
+        {tab === 'Покупки' && <PurchasesTab key={purchasesKey} clientId={id} userRole={userRole} session={session} />}
 
         {tab === 'Посещения' && (
           <div>
@@ -800,25 +1460,34 @@ export default function AdminClientCard({ session }) {
               </div>
             </div>
             <div style={{background:'#f9f9f9', borderRadius:12, padding:14, marginBottom:16}}>
-              <div style={{fontSize:12, color:'#888', marginBottom:10, fontWeight:600}}>Начислить вручную</div>
+              <div style={{fontSize:12, color:'#888', marginBottom:10, fontWeight:600}}>Управление бонусами</div>
               <div style={{display:'flex', gap:8, marginBottom:8}}>
-                <button onClick={() => setBonusType('rubles')} style={{flex:1, padding:'8px', borderRadius:8, border: bonusType==='rubles' ? 'none' : '1px solid #e0e0e0', background: bonusType==='rubles' ? '#BFD900' : '#fff', fontSize:12, cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight: bonusType==='rubles' ? 600 : 400}}>₽ Рубли</button>
-                <button onClick={() => setBonusType('coins')} style={{flex:1, padding:'8px', borderRadius:8, border: bonusType==='coins' ? 'none' : '1px solid #e0e0e0', background: bonusType==='coins' ? '#BFD900' : '#fff', fontSize:12, cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight: bonusType==='coins' ? 600 : 400}}>⭐ SDTшки</button>
+                <button onClick={() => setBonusOperation('credit')} style={{flex:1, padding:'8px', borderRadius:8, border: bonusOperation==='credit' ? 'none' : '1px solid #e0e0e0', background: bonusOperation==='credit' ? '#BFD900' : '#fff', color:'#2a2a2a', fontSize:12, cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight: bonusOperation==='credit' ? 600 : 400}}>💰 Начислить</button>
+                <button onClick={() => setBonusOperation('debit')} style={{flex:1, padding:'8px', borderRadius:8, border: bonusOperation==='debit' ? 'none' : '1px solid #fdecea', background: bonusOperation==='debit' ? '#fdecea' : '#fff', color: bonusOperation==='debit' ? '#e74c3c' : '#888', fontSize:12, cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight: bonusOperation==='debit' ? 600 : 400}}>➖ Списать</button>
               </div>
-              <input value={bonusAmount} onChange={e => setBonusAmount(e.target.value)} placeholder="Количество" type="number" style={{width:'100%', padding:'8px 12px', border:'1px solid #e8e8e8', borderRadius:8, fontSize:13, marginBottom:8, boxSizing:'border-box', fontFamily:'Inter,sans-serif'}} />
-              <input value={bonusReason} onChange={e => setBonusReason(e.target.value)} placeholder="Причина (необязательно)" style={{width:'100%', padding:'8px 12px', border:'1px solid #e8e8e8', borderRadius:8, fontSize:13, marginBottom:8, boxSizing:'border-box', fontFamily:'Inter,sans-serif'}} />
-              <button onClick={handleAddBonus} style={{width:'100%', padding:'9px', background:'#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>Начислить</button>
+              <div style={{display:'flex', gap:8, marginBottom:8}}>
+                <button onClick={() => setBonusType('rubles')} style={{flex:1, padding:'8px', borderRadius:8, border: bonusType==='rubles' ? 'none' : '1px solid #e0e0e0', background: bonusType==='rubles' ? '#2a2a2a' : '#fff', color: bonusType==='rubles' ? '#fff' : '#888', fontSize:12, cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight: bonusType==='rubles' ? 600 : 400}}>₽ Рубли</button>
+                <button onClick={() => setBonusType('coins')} style={{flex:1, padding:'8px', borderRadius:8, border: bonusType==='coins' ? 'none' : '1px solid #e0e0e0', background: bonusType==='coins' ? '#2a2a2a' : '#fff', color: bonusType==='coins' ? '#fff' : '#888', fontSize:12, cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight: bonusType==='coins' ? 600 : 400}}>⭐ SDTшки</button>
+              </div>
+              <input value={bonusAmount} onChange={e => setBonusAmount(e.target.value)} placeholder="Количество" type="number" min="1" style={{width:'100%', padding:'8px 12px', border:'1px solid #e8e8e8', borderRadius:8, fontSize:13, marginBottom:8, boxSizing:'border-box', fontFamily:'Inter,sans-serif'}} />
+              <input value={bonusReason} onChange={e => setBonusReason(e.target.value)} placeholder="Причина (для внутренней истории)" style={{width:'100%', padding:'8px 12px', border:'1px solid #e8e8e8', borderRadius:8, fontSize:13, marginBottom:8, boxSizing:'border-box', fontFamily:'Inter,sans-serif'}} />
+              <button onClick={handleAddBonus} disabled={!bonusAmount || !bonusReason.trim()} style={{width:'100%', padding:'9px', background: (!bonusAmount || !bonusReason.trim()) ? '#e8e8e8' : bonusOperation==='debit' ? '#e74c3c' : '#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color: (!bonusAmount || !bonusReason.trim()) ? '#BDBDBD' : bonusOperation==='debit' ? '#fff' : '#2a2a2a', cursor: (!bonusAmount || !bonusReason.trim()) ? 'not-allowed' : 'pointer', fontFamily:'Inter,sans-serif', transition:'all 0.2s'}}>
+                {bonusOperation === 'credit' ? '💰 Начислить' : '➖ Списать'}
+              </button>
             </div>
             {bonusHistory.length > 0 && (
               <div>
                 <div style={{fontSize:11, color:'#BDBDBD', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:8}}>История</div>
                 {bonusHistory.slice(0, visibleBonus).map((h, i) => (
                   <div key={i} style={{display:'flex', justifyContent:'space-between', padding:'8px 0', borderBottom:'1px solid #f8f8f8', fontSize:13}}>
-                    <div>
-                      <div style={{color:'#2a2a2a'}}>{h.reason}</div>
-                      <div style={{color:'#BDBDBD', fontSize:11}}>{formatDT(h.created_at)}</div>
+                    <div style={{flex:1}}>
+                      <div style={{color:'#2a2a2a', fontWeight:500}}>{h.reason}</div>
+                      <div style={{color:'#BDBDBD', fontSize:11, marginTop:2}}>{formatDT(h.created_at)}</div>
+                      {h.created_by_profile && (
+                        <div style={{color:'#BDBDBD', fontSize:11}}>👤 {h.created_by_profile.full_name || h.created_by_profile.email}</div>
+                      )}
                     </div>
-                    <div style={{fontWeight:600, color: h.amount > 0 ? '#6a7700' : '#e74c3c'}}>
+                    <div style={{fontWeight:700, fontSize:14, color: h.amount > 0 ? '#27ae60' : '#e74c3c', marginLeft:12}}>
                       {h.amount > 0 ? '+' : ''}{h.amount} {h.type === 'rubles' ? '₽' : '⭐'}
                     </div>
                   </div>
@@ -839,6 +1508,9 @@ export default function AdminClientCard({ session }) {
           </div>
         )}
       </div>
+    {showSaleModal && (
+      <SaleModal client={client} session={session} onClose={() => setShowSaleModal(false)} onSuccess={handleSaleSuccess} />
+    )}
     </div>
   )
 }

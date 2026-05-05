@@ -7,7 +7,7 @@ const labelStyle = { fontSize:12, color:'#888', marginBottom:6, fontWeight:600, 
 const btnPrimary = { padding:'9px 20px', background:'#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif' }
 
 const EMOJIS = ['😊','😂','🔥','❤️','👍','🎉','✅','⚠️','📢','💪','🙏','👋','🎁','💡','📅','🏆','⭐','🎶','💃','🕺','🌟','👏','😍','🤩','💥','🚀','🎯','📌','🔑','💰','🎊','🥳','😎','🙌','💫','✨','🌈','🎵','👑','🏅']
-const LOYALTY_LABELS = { adept:'🔥 Адепт', loyal:'💚 Лояльный', edge:'🤔 На грани', risk:'⚠️ Риск ухода' }
+const LOYALTY_LABELS = { adept:'👑 Адепт', loyal:'💚 Лояльный', edge:'🤔 На грани', risk:'⚠️ Риск ухода' }
 const PRODUCT_TYPE_LABELS = { subscription:'Абонемент', service:'Услуга', indiv:'Индив', merch:'Мерч', event:'Мероприятие' }
 
 function RichEditor({ value, onChange, defaultBold = false }) {

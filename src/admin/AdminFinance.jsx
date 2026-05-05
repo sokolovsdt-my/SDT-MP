@@ -1149,7 +1149,7 @@ function FinanceLoyalty({ session }) {
     const levels = { adept: 0, loyal: 0, edge: 0, risk: 0 }
     ;(loyaltyData || []).forEach(l => { if (levels[l.level] !== undefined) levels[l.level]++ })
     setLoyaltyLevels([
-      { key: 'adept', label: '🔥 Адепт', color: '#27ae60', bg: '#eafaf1', count: levels.adept },
+      { key: 'adept', label: '👑 Адепт', color: '#8e44ad', bg: '#f5eef8', count: levels.adept },
       { key: 'loyal', label: '💚 Лояльный', color: '#82c99a', bg: '#f0faf3', count: levels.loyal },
       { key: 'edge', label: '🤔 На грани', color: '#f39c12', bg: '#fef9e7', count: levels.edge },
       { key: 'risk', label: '⚠️ Риск ухода', color: '#e74c3c', bg: '#fdecea', count: levels.risk },
