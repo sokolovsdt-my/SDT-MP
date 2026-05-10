@@ -32,7 +32,6 @@ function StudentRow({ booking, onStatusChange }) {
   const isNoBasis = basis === 'none'
   const isTrial = basis === 'trial'
   const currentStatus = STATUS_OPTIONS.find(s => s.value === status) || STATUS_OPTIONS[0]
-
   const formatDate = (dt) => dt ? new Date(dt).toLocaleDateString('ru-RU', { day:'numeric', month:'short', year:'numeric' }) : '—'
 
   return (
@@ -105,19 +104,24 @@ export default function AttendancePanel({ lesson, session, onClose, teachers, on
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [searchResults, setSearchResults] = useState([])
+  const [salaryCalc, setSalaryCalc] = useState(null) // результат расчёта ЗП
+  const [calcLoading, setCalcLoading] = useState(false)
+  const [calcSaved, setCalcSaved] = useState(false)
 
-  // Замена преподавателя
   const [showChangeTeacher, setShowChangeTeacher] = useState(false)
   const [newTeacherId, setNewTeacherId] = useState(lesson.teacher_id || '')
-
-  // Перенос занятия
   const [showReschedule, setShowReschedule] = useState(false)
   const [newDate, setNewDate] = useState(lesson.starts_at ? new Date(lesson.starts_at).toISOString().split('T')[0] : '')
   const [newTimeFrom, setNewTimeFrom] = useState(lesson.starts_at ? new Date(lesson.starts_at).toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'}) : '')
   const [newTimeTo, setNewTimeTo] = useState(lesson.ends_at ? new Date(lesson.ends_at).toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'}) : '')
   const [saving, setSaving] = useState(false)
 
-  useEffect(() => { if (lesson) loadBookings() }, [lesson])
+  useEffect(() => {
+    if (lesson) {
+      loadBookings()
+      checkExistingCalc()
+    }
+  }, [lesson])
 
   const loadBookings = async () => {
     setLoading(true)
@@ -136,17 +140,151 @@ export default function AttendancePanel({ lesson, session, onClose, teachers, on
     setLoading(false)
   }
 
+  const checkExistingCalc = async () => {
+    const { data } = await supabase
+      .from('lesson_payments')
+      .select('*')
+      .eq('schedule_id', lesson.id)
+      .maybeSingle()
+    if (data) {
+      setSalaryCalc({ amount: data.amount, paid_students: data.paid_students, saved: true })
+      setCalcSaved(true)
+    }
+  }
+
   const handleStatusChange = async (booking, newStatus) => {
     const { data: { user } } = await supabase.auth.getUser()
+
+    let basis = booking.basis || 'none'
+
+    // Если basis ещё не определён — ищем активный абонемент клиента
+    if (basis === 'none' && newStatus === 'present') {
+      const today = new Date().toISOString().split('T')[0]
+      const { data: subs } = await supabase
+        .from('subscriptions')
+        .select('id, type, visits_total, visits_used, expires_at, subscription_allowed_groups(group_id)')
+        .eq('student_id', booking.student_id)
+        .eq('is_frozen', false)
+        .or(`expires_at.is.null,expires_at.gte.${today}`)
+        .order('expires_at', { ascending: true })
+
+      if (subs && subs.length > 0) {
+        // Ищем абонемент на эту группу или безлимит
+        const matching = subs.find(s => {
+          const groups = s.subscription_allowed_groups || []
+          if (groups.length === 0) return true // безлимит без привязки
+          return groups.some(g => g.group_id === lesson.group_id)
+        })
+        if (matching) {
+          // Определяем тип по visits_total
+          if (matching.visits_total === null) basis = 'subscription' // безлимит
+          else if (matching.visits_total <= 1) basis = 'single'      // разовое
+          else basis = 'subscription'                                 // на N занятий
+        }
+      }
+    }
+
     if (booking.attendance_id) {
-      await supabase.from('attendance').update({ status: newStatus, marked_by: user.id }).eq('id', booking.attendance_id)
+      await supabase.from('attendance').update({ status: newStatus, basis, marked_by: user.id }).eq('id', booking.attendance_id)
     } else {
       await supabase.from('attendance').insert({
         schedule_id: lesson.id, student_id: booking.student_id,
-        status: newStatus, basis: booking.basis, marked_by: user.id
+        status: newStatus, basis, marked_by: user.id
       })
     }
-    setBookings(prev => prev.map(b => b.id === booking.id ? { ...b, attendance_status: newStatus } : b))
+    setBookings(prev => prev.map(b => b.id === booking.id ? { ...b, attendance_status: newStatus, basis } : b))
+  }
+
+  // ─── Расчёт зарплаты ────────────────────────────────────────────────────────
+  const calculateSalary = async () => {
+    setCalcLoading(true)
+
+    // 1. Кто пришёл с оплаченным абонементом (не пробный, не разовый)
+    const paidBases = ['subscription']
+    const presentPaid = bookings.filter(b =>
+      b.attendance_status === 'present' && paidBases.includes(b.basis)
+    )
+    const paidCount = presentPaid.length
+
+    // 2. Определяем кто фактически вёл (может быть замена)
+    const { data: subData } = await supabase
+      .from('teacher_substitutions')
+      .select('substitute_teacher_id')
+      .eq('schedule_id', lesson.id)
+      .maybeSingle()
+
+    const actualTeacherId = subData?.substitute_teacher_id || lesson.teacher_id
+    const isSubstitution = !!subData
+
+    // 3. Получаем ставки препода (роль teacher, прогрессивная)
+    const { data: tiers } = await supabase
+      .from('salary_tiers')
+      .select('*')
+      .eq('staff_id', actualTeacherId)
+      .eq('role_context', 'teacher')
+      .eq('is_active', true)
+
+    let amount = 0
+    let tierUsed = null
+
+    if (tiers && tiers.length > 0) {
+      // Ищем прогрессивную ставку
+      const tieredTier = tiers.find(t => t.tier_type === 'per_lesson_tiered')
+      if (tieredTier && tieredTier.tiers) {
+        // Сортируем пороги по max_students
+        const sorted = [...tieredTier.tiers].sort((a, b) => {
+          if (a.max_students === null) return 1
+          if (b.max_students === null) return -1
+          return a.max_students - b.max_students
+        })
+        // Находим нужный tier
+        for (const tier of sorted) {
+          if (tier.max_students === null || paidCount <= tier.max_students) {
+            amount = Number(tier.amount)
+            tierUsed = tier
+            break
+          }
+        }
+      } else {
+        // Фиксированная ставка за занятие
+        const perLesson = tiers.find(t => t.tier_type === 'per_lesson')
+        if (perLesson) amount = Number(perLesson.amount)
+      }
+    }
+
+    setSalaryCalc({ amount, paid_students: paidCount, actualTeacherId, isSubstitution, tierUsed })
+    setCalcLoading(false)
+  }
+
+  const saveSalaryCalc = async () => {
+    if (!salaryCalc) return
+    setCalcLoading(true)
+
+    // Удаляем старый расчёт если есть
+    await supabase.from('lesson_payments').delete().eq('schedule_id', lesson.id)
+
+    await supabase.from('lesson_payments').insert({
+      schedule_id: lesson.id,
+      staff_id: salaryCalc.actualTeacherId,
+      role_context: 'teacher',
+      paid_students: salaryCalc.paid_students,
+      amount: salaryCalc.amount,
+      is_substitution: salaryCalc.isSubstitution,
+      original_teacher_id: salaryCalc.isSubstitution ? lesson.teacher_id : null,
+      calculated_at: new Date().toISOString(),
+    })
+
+    // Пишем в историю расписания
+    await supabase.from('schedule_history').insert({
+      schedule_id: lesson.id,
+      action: 'attendance_marked',
+      author_id: session.user.id,
+      changes: { paid_students: salaryCalc.paid_students, amount: salaryCalc.amount },
+      comment: `Посещаемость закрыта. Оплаченных: ${salaryCalc.paid_students}. Начислено: ${salaryCalc.amount} ₽`
+    })
+
+    setCalcSaved(true)
+    setCalcLoading(false)
   }
 
   const handleSearch = async (val) => {
@@ -208,6 +346,7 @@ export default function AttendancePanel({ lesson, session, onClose, teachers, on
   const { date, time, title } = formatHeader()
   const presentCount = bookings.filter(b => b.attendance_status === 'present').length
   const absentCount = bookings.filter(b => b.attendance_status === 'absent').length
+  const isPast = new Date(lesson.ends_at) < new Date()
   const inputStyle = { width:'100%', padding:'8px 12px', border:'1px solid #e8e8e8', borderRadius:8, fontSize:13, boxSizing:'border-box', fontFamily:'Inter,sans-serif' }
 
   return (
@@ -268,6 +407,51 @@ export default function AttendancePanel({ lesson, session, onClose, teachers, on
         )}
       </div>
 
+      {/* Блок расчёта ЗП — только для прошедших занятий */}
+      {isPast && !showChangeTeacher && !showReschedule && (
+        <div style={{padding:'12px 16px', borderTop:'1px solid #f0f0f0', background:'#fafde8'}}>
+          {!salaryCalc ? (
+            <button onClick={calculateSalary} disabled={calcLoading}
+              style={{width:'100%', padding:'10px', background:'#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif', opacity:calcLoading?0.6:1}}>
+              {calcLoading ? 'Считаем...' : '📊 Рассчитать зарплату'}
+            </button>
+          ) : (
+            <div>
+              <div style={{fontSize:12, fontWeight:600, color:'#6a7700', marginBottom:8}}>Расчёт зарплаты</div>
+              <div style={{display:'flex', gap:16, marginBottom:10}}>
+                <div>
+                  <div style={{fontSize:11, color:'#888'}}>Оплаченных клиентов</div>
+                  <div style={{fontSize:18, fontWeight:700, color:'#2a2a2a'}}>{salaryCalc.paid_students}</div>
+                </div>
+                <div>
+                  <div style={{fontSize:11, color:'#888'}}>К начислению</div>
+                  <div style={{fontSize:18, fontWeight:700, color: salaryCalc.amount > 0 ? '#27ae60' : '#e74c3c'}}>
+                    {salaryCalc.amount > 0 ? `${salaryCalc.amount.toLocaleString('ru-RU')} ₽` : 'Ставка не настроена'}
+                  </div>
+                </div>
+                {salaryCalc.isSubstitution && (
+                  <div style={{fontSize:11, color:'#f39c12', fontWeight:600, alignSelf:'center'}}>🔄 Замена</div>
+                )}
+              </div>
+              {!calcSaved ? (
+                <div style={{display:'flex', gap:8}}>
+                  <button onClick={saveSalaryCalc} disabled={calcLoading}
+                    style={{flex:1, padding:'8px', background:'#27ae60', border:'none', borderRadius:8, fontSize:12, fontWeight:700, color:'#fff', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+                    {calcLoading ? 'Сохраняем...' : '✅ Подтвердить'}
+                  </button>
+                  <button onClick={() => setSalaryCalc(null)}
+                    style={{padding:'8px 14px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:8, fontSize:12, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+                    Пересчитать
+                  </button>
+                </div>
+              ) : (
+                <div style={{fontSize:12, color:'#27ae60', fontWeight:600}}>✅ Начислено и сохранено</div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Замена преподавателя */}
       {showChangeTeacher && (
         <div style={{padding:'12px 16px', borderTop:'1px solid #f0f0f0', background:'#f9f9f9'}}>
@@ -324,24 +508,19 @@ export default function AttendancePanel({ lesson, session, onClose, teachers, on
       {/* Кнопки внизу */}
       {!showChangeTeacher && !showReschedule && (
         <div style={{padding:'12px 16px', borderTop:'1px solid #f0f0f0', display:'flex', gap:8, flexWrap:'wrap'}}>
-          <button
-            onClick={() => {}}
+          <button onClick={() => {}}
             style={{flex:1, padding:'8px', background:'#fafde8', border:'1px solid #BFD900', borderRadius:8, fontSize:12, color:'#6a7700', cursor:'pointer', fontWeight:600, fontFamily:'Inter,sans-serif'}}>
             ✉️ Написать
           </button>
-          <button
-            onClick={() => setShowChangeTeacher(true)}
+          <button onClick={() => setShowChangeTeacher(true)}
             style={{flex:1, padding:'8px', background:'#f5f5f5', border:'none', borderRadius:8, fontSize:12, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
             👤 Заменить
           </button>
-          <button
-            onClick={() => setShowReschedule(true)}
+          <button onClick={() => setShowReschedule(true)}
             style={{flex:1, padding:'8px', background:'#f5f5f5', border:'none', borderRadius:8, fontSize:12, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
             📅 Перенести
           </button>
-          <button
-            onClick={handleCancel}
-            disabled={lesson.is_cancelled}
+          <button onClick={handleCancel} disabled={lesson.is_cancelled}
             style={{flex:1, padding:'8px', background: lesson.is_cancelled ? '#f5f5f5' : '#fdecea', border:'none', borderRadius:8, fontSize:12, color: lesson.is_cancelled ? '#BDBDBD' : '#e74c3c', cursor: lesson.is_cancelled ? 'default' : 'pointer', fontFamily:'Inter,sans-serif'}}>
             {lesson.is_cancelled ? 'Отменено' : '✕ Отменить'}
           </button>

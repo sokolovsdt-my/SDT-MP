@@ -10,7 +10,7 @@ function getDays(count = 30) {
   for (let i = 0; i < count; i++) {
     const d = new Date(today)
     d.setDate(today.getDate() + i)
-    days.push({ name: DAYS_RU[d.getDay()], num: d.getDate(), date: d.toISOString().split('T')[0] })
+    days.push({ name: DAYS_RU[d.getDay()], num: d.getDate(), date: d.toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' }) })
   }
   return days
 }
@@ -29,24 +29,72 @@ export default function Schedule({ session }) {
 
   const goDay = (i) => { setActiveDay(i); localStorage.setItem('schedule_day', i) }
 
+  // Загружаем текущие записи клиента
+  useEffect(() => {
+    const loadBooked = async () => {
+      const { data } = await supabase
+        .from('bookings')
+        .select('schedule_id')
+        .eq('student_id', session.user.id)
+        .eq('status', 'booked')
+      setBooked((data || []).map(b => b.schedule_id))
+    }
+    loadBooked()
+  }, [])
+
   useEffect(() => {
     const getClasses = async () => {
       setLoading(true)
-      const from = DAYS[activeDay].date + 'T00:00:00'
-      const to = DAYS[activeDay].date + 'T23:59:59'
-      const { data } = await supabase.from('schedule').select('*').gte('starts_at', from).lte('starts_at', to).order('starts_at')
+      const from = DAYS[activeDay].date + 'T00:00:00+03'
+      const to = DAYS[activeDay].date + 'T23:59:59+03'
+      const { data } = await supabase
+        .from('schedule')
+        .select(`
+          *,
+          groups(name, color),
+          teacher:profiles!schedule_teacher_id_fkey(full_name, first_name),
+          substitution:teacher_substitutions!teacher_substitutions_schedule_id_fkey(
+            original_teacher:profiles!teacher_substitutions_original_teacher_id_fkey(full_name, first_name),
+            substitute_teacher:profiles!teacher_substitutions_substitute_teacher_id_fkey(full_name, first_name)
+          )
+        `)
+        .gte('starts_at', from)
+        .lte('starts_at', to)
+        .eq('is_cancelled', false)
+        .order('starts_at')
       setClasses(data || [])
       setLoading(false)
     }
     getClasses()
   }, [activeDay])
 
-  const formatTime = (dt) => new Date(dt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+  const formatTime = (dt) => new Date(dt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' })
 
   const handleBook = async (cls) => {
     if (booked.includes(cls.id)) return
-    const { error } = await supabase.from('bookings').insert({ student_id: session.user.id, schedule_id: cls.id, status: 'booked' })
+    const { error } = await supabase.from('bookings').insert({
+      student_id: session.user.id,
+      schedule_id: cls.id,
+      status: 'booked',
+      group_id: cls.group_id || null,
+    })
     if (!error) { setBooked([...booked, cls.id]); setShowPushBanner(true) }
+  }
+
+  const getTeacherName = (cls) => {
+    const t = cls.teacher
+    if (!t) return null
+    return t.first_name || t.full_name?.split(' ')[1] || t.full_name || null
+  }
+
+  const getSubstitution = (cls) => {
+    const sub = cls.substitution?.[0]
+    if (!sub) return null
+    const orig = sub.original_teacher
+    const subst = sub.substitute_teacher
+    const origName = orig?.first_name || orig?.full_name?.split(' ')[1] || orig?.full_name
+    const substName = subst?.first_name || subst?.full_name?.split(' ')[1] || subst?.full_name
+    return { origName, substName }
   }
 
   return (
@@ -67,29 +115,74 @@ export default function Schedule({ session }) {
           ))}
         </div>
       </div>
+
       <div style={{padding:'12px 20px 0'}}>
         {loading ? (
           <div style={{fontSize:13, color:'#BDBDBD', padding:'20px 0', textAlign:'center'}}>Загрузка...</div>
         ) : classes.length === 0 ? (
           <div style={{fontSize:13, color:'#BDBDBD', padding:'20px 0', textAlign:'center'}}>Занятий нет</div>
-        ) : classes.map(cls => (
-          <div key={cls.id} style={{background:'#fff', borderRadius:16, padding:'14px 16px', marginBottom:10, display:'flex', justifyContent:'space-between', alignItems:'center', border:'1px solid #f0f0f0', borderLeft:'3px solid #BFD900'}}>
-            <div>
-              <div style={{fontSize:11, color:'#BFD900', fontWeight:600, marginBottom:4}}>{formatTime(cls.starts_at)} — {formatTime(cls.ends_at)}</div>
-              <div style={{fontSize:14, color:'#2a2a2a', fontWeight:500, marginBottom:2}}>{cls.title}</div>
-              <div style={{fontSize:11, color:'#BDBDBD'}}>{cls.description}</div>
-              <div style={{fontSize:10, color:'#ccc', marginTop:3}}>{cls.hall}</div>
-            </div>
-            <button onClick={() => handleBook(cls)} style={{
-              background: booked.includes(cls.id) ? '#f5f5f5' : '#BFD900',
-              color: booked.includes(cls.id) ? '#BDBDBD' : '#2a2a2a',
-              border:'none', borderRadius:10, padding:'7px 13px', fontSize:11, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap', fontFamily:'Inter,sans-serif'
+        ) : classes.map(cls => {
+          const isBooked = booked.includes(cls.id)
+          const title = cls.groups?.name || cls.title || 'Занятие'
+          const teacherName = getTeacherName(cls)
+          const sub = getSubstitution(cls)
+          const isIndiv = !!cls.indiv_student_id
+          const isEvent = !!cls.event_id
+
+          return (
+            <div key={cls.id} style={{
+              background:'#fff', borderRadius:16, padding:'14px 16px',
+              marginBottom:10, border:'1px solid #f0f0f0',
+              borderLeft: isEvent ? '3px solid #7B1FA2' : isIndiv ? '3px solid #5A8A7C' : '3px solid #BFD900'
             }}>
-              {booked.includes(cls.id) ? 'Записан ✓' : 'Записаться'}
-            </button>
-          </div>
-        ))}
+              <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8}}>
+                <div style={{flex:1}}>
+                  {/* Время */}
+                  <div style={{fontSize:11, color: isEvent ? '#7B1FA2' : isIndiv ? '#5A8A7C' : '#BFD900', fontWeight:600, marginBottom:4}}>
+                    {formatTime(cls.starts_at)} — {formatTime(cls.ends_at)}
+                  </div>
+
+                  {/* Название */}
+                  <div style={{fontSize:14, color:'#2a2a2a', fontWeight:500, marginBottom:2}}>{title}</div>
+
+                  {/* Зал */}
+                  {cls.hall && <div style={{fontSize:11, color:'#BDBDBD', marginBottom:3}}>{cls.hall}</div>}
+
+                  {/* Преподаватель — с заменой или без */}
+                  {sub ? (
+                    <div style={{fontSize:11, marginTop:2}}>
+                      <span style={{color:'#f39c12', fontWeight:600}}>Замена: </span>
+                      <span style={{color:'#2a2a2a'}}>{sub.substName}</span>
+                      <span style={{color:'#BDBDBD'}}> (вместо {sub.origName})</span>
+                    </div>
+                  ) : teacherName ? (
+                    <div style={{fontSize:11, color:'#888', marginTop:2}}>{teacherName}</div>
+                  ) : null}
+
+                  {/* Тип мероприятия */}
+                  {isEvent && (
+                    <div style={{fontSize:10, color:'#7B1FA2', marginTop:3, fontWeight:600}}>🎭 Мероприятие</div>
+                  )}
+                </div>
+
+                {/* Кнопка записи */}
+                {!isIndiv && (
+                  <button onClick={() => handleBook(cls)} style={{
+                    background: isBooked ? '#f5f5f5' : '#BFD900',
+                    color: isBooked ? '#BDBDBD' : '#2a2a2a',
+                    border:'none', borderRadius:10, padding:'7px 13px',
+                    fontSize:11, fontWeight:700, cursor: isBooked ? 'default' : 'pointer',
+                    whiteSpace:'nowrap', fontFamily:'Inter,sans-serif', flexShrink:0
+                  }}>
+                    {isBooked ? 'Записан ✓' : 'Записаться'}
+                  </button>
+                )}
+              </div>
+            </div>
+          )
+        })}
       </div>
+
       {showPushBanner && (
         <div style={{margin:'16px 20px', background:'#fff', border:'1px solid #f0f0f0', borderRadius:16, padding:16}}>
           <div style={{fontSize:13, color:'#2a2a2a', fontWeight:500, marginBottom:6}}>🔔 Узнавайте первыми об изменениях в расписании и отменах занятий</div>

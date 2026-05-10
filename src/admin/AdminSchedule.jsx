@@ -63,8 +63,11 @@ function isSameDay(a, b) {
   return a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate()
 }
 
+const EVENT_COLOR = { bg:'#F3E5F5', border:'#7B1FA2', text:'#4A148C' }
+
 function getEventColor(ev, groupColorMap, groupNameMap) {
   if (ev.indiv_student_id) return INDIV_COLOR
+  if (ev.event_id) return EVENT_COLOR
   if (ev.group_id && groupColorMap[ev.group_id]) return groupColorMap[ev.group_id]
   if (ev.title && groupNameMap?.[ev.title]) return groupNameMap[ev.title]
   if (ev.groups?.name && groupNameMap?.[ev.groups.name]) return groupNameMap[ev.groups.name]
@@ -149,7 +152,7 @@ function SubstitutionModal({ ev, teachers, session, onSave, onCancel }) {
   )
 }
 
-function ScheduleForm({ session, teachers, students, groups, onSave, onCancel, initial = null, initialDate = null }) {
+function ScheduleForm({ session, teachers, students, groups, events, onSave, onCancel, initial = null, initialDate = null }) {
   const [type, setType] = useState(initial?.indiv_student_id ? 'indiv' : 'group')
   const [form, setForm] = useState({
     title: initial?.title || '',
@@ -163,6 +166,7 @@ function ScheduleForm({ session, teachers, students, groups, onSave, onCancel, i
     repeat: 'none',
     repeat_until: '',
     repeat_days: [],
+    event_id: initial?.event_id || '',
   })
   const [conflict, setConflict] = useState(null)
   const [saving, setSaving] = useState(false)
@@ -225,7 +229,12 @@ function ScheduleForm({ session, teachers, students, groups, onSave, onCancel, i
     const dates = buildDates()
     const duration = new Date(`${form.date}T${form.time_to}`) - new Date(`${form.date}T${form.time_from}`)
     const selectedGroup = groups.find(g => g.id === form.group_id)
-    const titleToSave = type === 'group' ? (selectedGroup?.name || form.title || '') : null
+    const selectedEvent = events.find(e => e.id === form.event_id)
+    const titleToSave = type === 'group'
+      ? (selectedGroup?.name || form.title || '')
+      : type === 'event'
+      ? (selectedEvent?.name || '')
+      : null
 
     const toLocalISO = (d) => {
       const offset = d.getTimezoneOffset()
@@ -243,6 +252,7 @@ function ScheduleForm({ session, teachers, students, groups, onSave, onCancel, i
       repeat_rule: form.repeat !== 'none' ? form.repeat : null,
       repeat_id: form.repeat !== 'none' ? repeatId : null,
       indiv_student_id: type === 'indiv' ? form.student_id : null,
+      event_id: type === 'event' ? form.event_id : null,
       lesson_type: type,
     }))
 
@@ -269,7 +279,7 @@ function ScheduleForm({ session, teachers, students, groups, onSave, onCancel, i
     <div style={{background:'#fff', borderRadius:16, border:'1px solid #f0f0f0', padding:20, marginBottom:16}}>
       <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a', marginBottom:16}}>{initial ? 'Редактировать занятие' : 'Новое занятие'}</div>
       <div style={{display:'flex', gap:8, marginBottom:16}}>
-        {[['group','Групповое'],['indiv','Индивидуальное']].map(([v,l]) => (
+        {[['group','Групповое'],['indiv','Индивидуальное'],['event','Мероприятие']].map(([v,l]) => (
           <button key={v} onClick={() => setType(v)} style={{flex:1, padding:'8px', borderRadius:8, border: type===v?'none':'1px solid #e0e0e0', background: type===v?'#BFD900':'#fff', fontSize:12, cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight: type===v?600:400}}>{l}</button>
         ))}
       </div>
@@ -292,6 +302,16 @@ function ScheduleForm({ session, teachers, students, groups, onSave, onCancel, i
         <select value={form.student_id} onChange={e => setForm({...form, student_id:e.target.value})} style={inputStyle}>
           <option value="">Выберите ученика</option>
           {students.map(s => <option key={s.id} value={s.id}>{s.full_name||s.email}</option>)}
+        </select>
+      </>)}
+      {type === 'event' && (<>
+        <label style={labelStyle}>Мероприятие</label>
+        <select value={form.event_id || ''} onChange={e => {
+          const ev = events.find(ev => ev.id === e.target.value)
+          setForm({...form, event_id: e.target.value, title: ev?.name || '', teacher_id: ev?.teacher_id || '', hall: ev?.hall || ''})
+        }} style={inputStyle}>
+          <option value="">Выберите мероприятие</option>
+          {events.map(ev => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
         </select>
       </>)}
       <label style={labelStyle}>Преподаватель</label>
@@ -381,6 +401,7 @@ export default function AdminSchedule({ session }) {
   const [filterTeacher, setFilterTeacher] = useState('all')
   const [filterHall, setFilterHall] = useState('all')
   const [attendanceLesson, setAttendanceLesson] = useState(null)
+  const [eventsList, setEventsList] = useState([])
 
   useEffect(() => { loadAll() }, [currentDate, view])
 
@@ -411,6 +432,8 @@ export default function AdminSchedule({ session }) {
     setTeachers((allStaff || []).filter(p => teacherIds.has(p.id)))
 
     const { data: s } = await supabase.from('profiles').select('id, full_name, email').eq('role', 'client')
+    const { data: eventsData } = await supabase.from('events').select('*').eq('is_active', true).order('name')
+    setEventsList(eventsData || [])
     setStudents(s || [])
     const { data: g } = await supabase.from('groups').select('id, name, color')
     setGroups(g || [])
@@ -497,7 +520,7 @@ export default function AdminSchedule({ session }) {
   const EventBlock = ({ ev, width='95%', left='2%' }) => {
     const color = getEventColor(ev, groupColorMap, groupNameMap)
     const { top, height } = getEventStyle(ev)
-    const title = ev.groups?.name || ev.title || (ev.student ? `Индив: ${ev.student.full_name}` : 'Занятие')
+    const title = ev.groups?.name || ev.title || (ev.student ? `Индив: ${ev.student.full_name}` : ev.event_id ? 'Мероприятие' : 'Занятие')
     const isShort = height < 36
     const isCancelled = ev.is_cancelled
     return (
@@ -545,7 +568,7 @@ export default function AdminSchedule({ session }) {
       </div>
 
       {showForm && (
-        <ScheduleForm session={session} teachers={teachers} students={students} groups={groups}
+        <ScheduleForm session={session} teachers={teachers} students={students} groups={groups} events={eventsList}
           initialDate={currentDate}
           onSave={() => {setShowForm(false); loadAll()}}
           onCancel={() => setShowForm(false)} />
@@ -554,7 +577,7 @@ export default function AdminSchedule({ session }) {
       {editingEvent && !showSeriesModal && !showSubModal && (
         <div style={{background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', padding:16, marginBottom:16}}>
           {showEditForm ? (
-            <ScheduleForm session={session} teachers={teachers} students={students} groups={groups}
+            <ScheduleForm session={session} teachers={teachers} students={students} groups={groups} events={eventsList}
               initial={editingEvent}
               onSave={() => {setEditingEvent(null); setShowEditForm(false); loadAll()}}
               onCancel={() => setShowEditForm(false)} />
