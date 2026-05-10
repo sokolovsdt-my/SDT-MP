@@ -351,6 +351,167 @@ function SaleModal({ client, session, onClose, onSuccess }) {
   )
 }
 
+function VisitsTab({ clientId }) {
+  const [bookings, setBookings] = useState([])
+  const [attendance, setAttendance] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [view, setView] = useState('bookings')
+
+  const fmtDate = (d) => d ? new Date(d).toLocaleDateString('ru-RU', { day:'numeric', month:'short', year:'numeric' }) : '—'
+  const fmtDT = (d) => d ? new Date(d).toLocaleString('ru-RU', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' }) : '—'
+
+  useEffect(() => { load() }, [clientId])
+
+  const load = async () => {
+    setLoading(true)
+    const { data: b } = await supabase.from('bookings')
+      .select(`
+        *,
+        schedule(id, title, starts_at, ends_at, hall, teacher_id, teacher:teacher_id(full_name)),
+        creator:created_by(full_name, email, role)
+      `)
+      .eq('student_id', clientId)
+      .order('created_at', { ascending: false })
+    setBookings(b || [])
+
+    const { data: a } = await supabase.from('attendance')
+      .select(`
+        *,
+        schedule(id, title, starts_at, ends_at, hall, teacher_id, teacher:teacher_id(full_name)),
+        marker:marked_by(full_name, email)
+      `)
+      .eq('student_id', clientId)
+      .order('created_at', { ascending: false })
+    setAttendance(a || [])
+    setLoading(false)
+  }
+
+  const BOOKING_STATUS = {
+    booked:    { label: 'Записан', color: '#2980b9', bg: '#e8f4fd' },
+    confirmed: { label: 'Подтверждён', color: '#27ae60', bg: '#eafaf1' },
+    cancelled: { label: 'Отменён', color: '#e74c3c', bg: '#fdecea' },
+  }
+
+  const ATTENDANCE_STATUS = {
+    present:     { label: '✅ Присутствовал', color: '#27ae60', bg: '#eafaf1' },
+    absent:      { label: '❌ Отсутствовал', color: '#e74c3c', bg: '#fdecea' },
+    cancelled:   { label: '🚫 Отменено', color: '#BDBDBD', bg: '#f5f5f5' },
+    transferred: { label: '🔄 Перенесено', color: '#8e44ad', bg: '#f5eef8' },
+  }
+
+  const ROLE_LABELS = { owner:'Владелец', manager:'Управляющий', admin:'Администратор', teacher:'Преподаватель' }
+
+  if (loading) return <div style={{textAlign:'center', color:'#BDBDBD', padding:30}}>Загрузка...</div>
+
+  return (
+    <div>
+      {/* Переключатель */}
+      <div style={{display:'flex', gap:4, background:'#f5f5f5', borderRadius:10, padding:3, marginBottom:16, width:'fit-content'}}>
+        <button onClick={() => setView('bookings')} style={{padding:'6px 16px', borderRadius:8, border:'none', fontSize:12, cursor:'pointer', fontFamily:'Inter,sans-serif', background: view==='bookings' ? '#fff' : 'transparent', color: view==='bookings' ? '#2a2a2a' : '#888', fontWeight: view==='bookings' ? 600 : 400}}>
+          📋 Записи {bookings.length > 0 && `(${bookings.length})`}
+        </button>
+        <button onClick={() => setView('attendance')} style={{padding:'6px 16px', borderRadius:8, border:'none', fontSize:12, cursor:'pointer', fontFamily:'Inter,sans-serif', background: view==='attendance' ? '#fff' : 'transparent', color: view==='attendance' ? '#2a2a2a' : '#888', fontWeight: view==='attendance' ? 600 : 400}}>
+          ✅ Посещения {attendance.length > 0 && `(${attendance.length})`}
+        </button>
+      </div>
+
+      {/* Записи */}
+      {view === 'bookings' && (
+        <div>
+          {bookings.length === 0 ? (
+            <div style={{textAlign:'center', color:'#BDBDBD', padding:30}}>Записей нет</div>
+          ) : bookings.map(b => {
+            const st = BOOKING_STATUS[b.status] || { label: b.status, color:'#888', bg:'#f5f5f5' }
+            const isClient = !b.created_by
+            return (
+              <div key={b.id} style={{border:'0.5px solid #e8e8e8', borderRadius:12, padding:'12px 16px', marginBottom:8, background:'#fff'}}>
+                <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:12}}>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a', marginBottom:4}}>
+                      {b.schedule?.title || '—'}
+                    </div>
+                    <div style={{display:'flex', gap:8, flexWrap:'wrap', fontSize:11, color:'#BDBDBD'}}>
+                      {b.schedule?.starts_at && <span>📅 {fmtDT(b.schedule.starts_at)}</span>}
+                      {b.schedule?.hall && <span>🏛 {b.schedule.hall}</span>}
+                      {b.schedule?.teacher?.full_name && <span>👤 {b.schedule.teacher.full_name}</span>}
+                    </div>
+                    <div style={{marginTop:6, fontSize:11, color:'#BDBDBD'}}>
+                      {isClient
+                        ? '📱 Записался сам через приложение'
+                        : `👤 Записал: ${b.creator?.full_name || b.creator?.email || '—'}${b.creator?.role ? ` (${ROLE_LABELS[b.creator.role] || b.creator.role})` : ''}`
+                      }
+                      <span style={{marginLeft:8}}>· {fmtDT(b.created_at)}</span>
+                    </div>
+                  </div>
+                  <span style={{background: st.bg, color: st.color, padding:'3px 10px', borderRadius:8, fontSize:11, fontWeight:600, flexShrink:0}}>
+                    {st.label}
+                  </span>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Посещения */}
+      {view === 'attendance' && (
+        <div>
+          {attendance.length === 0 ? (
+            <div style={{textAlign:'center', color:'#BDBDBD', padding:30}}>Посещений нет</div>
+          ) : (
+            <>
+              {/* Статистика */}
+              <div style={{display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:8, marginBottom:16}}>
+                {[
+                  ['Всего', attendance.length, '#2a2a2a', '#f9f9f9'],
+                  ['Присутствовал', attendance.filter(a => a.status === 'present').length, '#27ae60', '#eafaf1'],
+                  ['Отсутствовал', attendance.filter(a => a.status === 'absent').length, '#e74c3c', '#fdecea'],
+                  ['Перенесено', attendance.filter(a => a.status === 'transferred').length, '#8e44ad', '#f5eef8'],
+                ].map(([label, count, color, bg]) => (
+                  <div key={label} style={{background: bg, borderRadius:10, padding:'10px 12px', textAlign:'center'}}>
+                    <div style={{fontSize:20, fontWeight:600, color}}>{count}</div>
+                    <div style={{fontSize:10, color:'#BDBDBD', marginTop:2}}>{label}</div>
+                  </div>
+                ))}
+              </div>
+
+              {attendance.map(a => {
+                const st = ATTENDANCE_STATUS[a.status] || { label: a.status, color:'#888', bg:'#f5f5f5' }
+                return (
+                  <div key={a.id} style={{border:'0.5px solid #e8e8e8', borderRadius:12, padding:'12px 16px', marginBottom:8, background:'#fff'}}>
+                    <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:12}}>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a', marginBottom:4}}>
+                          {a.schedule?.title || '—'}
+                        </div>
+                        <div style={{display:'flex', gap:8, flexWrap:'wrap', fontSize:11, color:'#BDBDBD'}}>
+                          {a.schedule?.starts_at && <span>📅 {fmtDT(a.schedule.starts_at)}</span>}
+                          {a.schedule?.hall && <span>🏛 {a.schedule.hall}</span>}
+                          {a.schedule?.teacher?.full_name && <span>👤 {a.schedule.teacher.full_name}</span>}
+                        </div>
+                        {a.marked_by && (
+                          <div style={{marginTop:6, fontSize:11, color:'#BDBDBD'}}>
+                            ✏️ Отметил: {a.marker?.full_name || a.marker?.email || '—'}
+                            {a.marked_at && <span style={{marginLeft:8}}>· {fmtDT(a.marked_at)}</span>}
+                          </div>
+                        )}
+                        {a.note && <div style={{marginTop:4, fontSize:11, color:'#888', fontStyle:'italic'}}>💬 {a.note}</div>}
+                      </div>
+                      <span style={{background: st.bg, color: st.color, padding:'3px 10px', borderRadius:8, fontSize:11, fontWeight:600, flexShrink:0}}>
+                        {st.label}
+                      </span>
+                    </div>
+                  </div>
+                )
+              })}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function PurchasesTab({ clientId, userRole, session }) {
   const [purchases, setPurchases] = useState([])
   const [loading, setLoading] = useState(true)
@@ -1256,7 +1417,6 @@ export default function AdminClientCard({ session }) {
   const [client, setClient] = useState(null)
   const [tab, setTab] = useState('Основное')
   const [loading, setLoading] = useState(true)
-  const [bookings, setBookings] = useState([])
   const [avatarUrl, setAvatarUrl] = useState(null)
   const [bonusHistory, setBonusHistory] = useState([])
   const [visibleBonus, setVisibleBonus] = useState(2)
@@ -1284,14 +1444,12 @@ export default function AdminClientCard({ session }) {
       const { data: profile } = await supabase.from('profiles').select('*').eq('id', id).single()
       setClient(profile)
       setAvatarUrl(profile?.avatar_url || null)
-      const { data: books } = await supabase.from('bookings').select('*, schedule(title, starts_at, hall)').eq('student_id', id).order('created_at', { ascending: false })
-      setBookings(books || [])
       const { data: loyalty } = await supabase.from('client_loyalty').select('level').eq('client_id', id).single()
       setLoyaltyLevel(loyalty?.level || null)
       const { data: { user } } = await supabase.auth.getUser()
       const { data: me } = await supabase.from('profiles').select('role').eq('id', user.id).single()
       setUserRole(me?.role)
-      const { data: hist } = await supabase.from('bonus_history').select('*').eq('student_id', id).order('created_at', { ascending: false })
+      const { data: hist } = await supabase.from('bonus_history').select('*, created_by_profile:profiles!bonus_history_created_by_fkey(full_name, email)').eq('student_id', id).order('created_at', { ascending: false })
       setBonusHistory(hist || [])
       setLoading(false)
     }
@@ -1428,19 +1586,7 @@ export default function AdminClientCard({ session }) {
         {tab === 'Покупки' && <PurchasesTab key={purchasesKey} clientId={id} userRole={userRole} session={session} />}
 
         {tab === 'Посещения' && (
-          <div>
-            {bookings.length === 0 ? (
-              <div style={{textAlign:'center', color:'#BDBDBD', padding:30}}>Записей нет</div>
-            ) : bookings.map(b => (
-              <div key={b.id} style={{display:'flex', justifyContent:'space-between', padding:'10px 0', borderBottom:'1px solid #f8f8f8', fontSize:13}}>
-                <div>
-                  <div style={{color:'#2a2a2a', fontWeight:500}}>{b.schedule?.title || '—'}</div>
-                  <div style={{color:'#BDBDBD', fontSize:11}}>{b.schedule?.hall} · {b.schedule?.starts_at ? formatDate(b.schedule.starts_at) : '—'}</div>
-                </div>
-                <span style={{background:'#f5facc', color:'#6a7700', padding:'3px 10px', borderRadius:8, fontSize:11, fontWeight:600}}>{b.status}</span>
-              </div>
-            ))}
-          </div>
+          <VisitsTab clientId={id} />
         )}
 
         {tab === 'Комментарии' && <CommentsTab clientId={id} />}

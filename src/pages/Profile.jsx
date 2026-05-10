@@ -101,21 +101,57 @@ const goTab = (t) => { setTab(t); localStorage.setItem('lessons_tab', t) }
         ) : (
           history.length === 0 ? (
             <div style={{textAlign:'center', color:'#BDBDBD', padding:40, fontSize:13}}>История пуста</div>
-          ) : history.map(b => {
-            const s = b.schedule
-            const status = b.attendance?.[0]?.status
-            return (
-              <div key={b.id} style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 0', borderBottom:'1px solid #f8f8f8'}}>
-                <div>
-                  <div style={{fontSize:13, color:'#2a2a2a', fontWeight:500}}>{s?.groups?.name || s?.title || 'Занятие'}</div>
-                  <div style={{fontSize:11, color:'#BDBDBD', marginTop:2}}>{fmtDate(s?.starts_at)} · {fmtTime(s?.starts_at)}</div>
-                </div>
-                <span style={{fontSize:11, fontWeight:600, color: status==='present'?'#27ae60':status==='absent'?'#e74c3c':'#BDBDBD', background: status==='present'?'#eafaf1':status==='absent'?'#fdecea':'#f5f5f5', padding:'2px 8px', borderRadius:6}}>
-                  {status==='present'?'✓ Был':status==='absent'?'✗ Не был':'—'}
-                </span>
-              </div>
-            )
-          })
+          ) : (
+            <>
+              {/* Статистика посещаемости */}
+              {history.length > 0 && (() => {
+                const present = history.filter(b => b.attendance?.[0]?.status === 'present').length
+                const absent = history.filter(b => b.attendance?.[0]?.status === 'absent').length
+                const total = present + absent
+                const pct = total > 0 ? Math.round(present / total * 100) : 0
+                return (
+                  <div style={{background:'#f9f9f9', borderRadius:14, padding:'12px 14px', marginBottom:12}}>
+                    <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8, marginBottom:8}}>
+                      <div style={{textAlign:'center'}}>
+                        <div style={{fontSize:20, fontWeight:300, color:'#27ae60'}}>{present}</div>
+                        <div style={{fontSize:10, color:'#BDBDBD'}}>Был</div>
+                      </div>
+                      <div style={{textAlign:'center'}}>
+                        <div style={{fontSize:20, fontWeight:300, color:'#e74c3c'}}>{absent}</div>
+                        <div style={{fontSize:10, color:'#BDBDBD'}}>Не был</div>
+                      </div>
+                      <div style={{textAlign:'center'}}>
+                        <div style={{fontSize:20, fontWeight:300, color:'#2a2a2a'}}>{pct}%</div>
+                        <div style={{fontSize:10, color:'#BDBDBD'}}>Посещ.</div>
+                      </div>
+                    </div>
+                    <div style={{background:'#e8e8e8', borderRadius:4, height:4}}>
+                      <div style={{background:'#BFD900', borderRadius:4, height:4, width:`${pct}%`}} />
+                    </div>
+                  </div>
+                )
+              })()}
+              {history.map(b => {
+                const s = b.schedule
+                const status = b.attendance?.[0]?.status
+                return (
+                  <div key={b.id} style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', padding:'10px 0', borderBottom:'1px solid #f8f8f8'}}>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:13, color:'#2a2a2a', fontWeight:500}}>{s?.groups?.name || s?.title || 'Занятие'}</div>
+                      <div style={{fontSize:11, color:'#BDBDBD', marginTop:2}}>{fmtDate(s?.starts_at)} · {fmtTime(s?.starts_at)}</div>
+                      <div style={{display:'flex', gap:8, marginTop:2, flexWrap:'wrap'}}>
+                        {s?.teacher?.full_name && <span style={{fontSize:11, color:'#BDBDBD'}}>👤 {s.teacher.full_name}</span>}
+                        {s?.hall && <span style={{fontSize:11, color:'#BDBDBD'}}>🏛 {s.hall}</span>}
+                      </div>
+                    </div>
+                    <span style={{fontSize:11, fontWeight:600, color: status==='present'?'#27ae60':status==='absent'?'#e74c3c':'#BDBDBD', background: status==='present'?'#eafaf1':status==='absent'?'#fdecea':'#f5f5f5', padding:'2px 8px', borderRadius:6, flexShrink:0, marginLeft:8}}>
+                      {status==='present'?'✓ Был':status==='absent'?'✗ Не был':'—'}
+                    </span>
+                  </div>
+                )
+              })}
+            </>
+          )
         )}
       </div>
     </div>
