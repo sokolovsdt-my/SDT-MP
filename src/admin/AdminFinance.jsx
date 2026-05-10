@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabase'
 
 const inputStyle = { width:'100%', padding:'9px 12px', border:'1px solid #e8e8e8', borderRadius:10, fontSize:13, boxSizing:'border-box', fontFamily:'Inter,sans-serif' }
@@ -13,7 +14,10 @@ const smallBtn = { padding:'5px 10px', borderRadius:7, fontSize:11, cursor:'poin
 const fmtMoney = (n) => (Number(n) || 0).toLocaleString('ru-RU') + ' ₽'
 const fmtDate = (d) => new Date(d).toLocaleDateString('ru-RU', { day:'numeric', month:'short', year:'numeric' })
 const fmtDateTime = (d) => new Date(d).toLocaleString('ru-RU', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })
-const todayStr = () => new Date().toISOString().split('T')[0]
+const todayStr = () => {
+  const d = new Date()
+  return d.toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' })
+}
 
 const PERIODS = [
   ['today', 'Сегодня'], ['week', 'Неделя'], ['month', 'Этот месяц'],
@@ -664,6 +668,27 @@ function FinanceDetail() {
             )}
           </div>
 
+          {/* По группам */}
+          {groups.length > 0 && (
+            <div style={cardStyle}>
+              <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a', marginBottom:16}}>По группам</div>
+              {groups.map(g => {
+                const pct = groups[0]?.revenue > 0 ? Math.round(g.revenue / groups[0].revenue * 100) : 0
+                return (
+                  <div key={g.id} style={{marginBottom:12}}>
+                    <div style={{display:'flex', justifyContent:'space-between', marginBottom:4}}>
+                      <span style={{fontSize:13, color:'#2a2a2a'}}>{g.name} <span style={{fontSize:11, color:'#BDBDBD'}}>({g.count} абон.)</span></span>
+                      <span style={{fontSize:13, fontWeight:600, color:'#2a2a2a'}}>{fmtMoney(g.revenue)}</span>
+                    </div>
+                    <div style={{height:6, background:'#f0f0f0', borderRadius:4}}>
+                      <div style={{height:6, background:'#BFD900', borderRadius:4, width:`${pct}%`}} />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
           {/* По категориям расходов */}
           <div style={cardStyle}>
             <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a', marginBottom:16}}>Расходы по категориям</div>
@@ -1157,8 +1182,8 @@ function FinanceLoyalty({ session }) {
 
     // Клиенты с активным абонементом, не посещавшие 10+ дней
     const { data: recentAttendance } = await supabase.from('attendance')
-      .select('student_id, marked_at')
-      .gte('marked_at', ago10 + 'T00:00:00')
+      .select('student_id, created_at')
+      .gte('created_at', ago10 + 'T00:00:00')
       .eq('status', 'present')
 
     const recentStudentIds = new Set((recentAttendance || []).map(a => a.student_id))
@@ -1185,6 +1210,7 @@ function FinanceLoyalty({ session }) {
     const { data: attendanceData } = await supabase.from('attendance')
       .select('schedule_id, student_id, status')
       .eq('status', 'present')
+      .gte('created_at', ago30 + 'T00:00:00')
 
     const scheduleByGroup = {}
     ;(scheduleData || []).forEach(s => {
@@ -1362,7 +1388,13 @@ function FinanceLoyalty({ session }) {
 }
 
 export default function AdminFinance({ session }) {
-  const [tab, setTab] = useState('overview')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tab = searchParams.get('tab') || 'overview'
+  const setTab = (t) => {
+    const next = new URLSearchParams(searchParams)
+    if (t === 'overview') next.delete('tab'); else next.set('tab', t)
+    setSearchParams(next, { replace: true })
+  }
 
   const tabs = [
     { id: 'overview', label: 'Обзор' },
@@ -1372,12 +1404,6 @@ export default function AdminFinance({ session }) {
     { id: 'loyalty', label: 'Лояльность' },
     { id: 'settings', label: 'Настройки' },
   ]
-
-  const empty = (text) => (
-    <div style={{color:'#BDBDBD', textAlign:'center', padding:60, background:'#fff', borderRadius:14, border:'1px solid #f0f0f0'}}>
-      {text} — сделаем позже
-    </div>
-  )
 
   return (
     <div>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabase'
 
 const STATUS_LABELS = {
@@ -334,17 +334,26 @@ function NewClientCard({ task, session, staff, onUpdate }) {
 
 // ─── Главный компонент ────────────────────────────────────────────────────────
 export default function AdminTasks({ session }) {
-  const [tasks,      setTasks]      = useState([])
-  const [staff,      setStaff]      = useState([])
-  const [clients,    setClients]    = useState([])
-  const [loading,    setLoading]    = useState(true)
-  const [showForm,   setShowForm]   = useState(false)
-  const [tab,        setTab]        = useState('active')    // active | new_client | done
-  const [filterStatus,   setFilterStatus]   = useState('all')
-  const [filterAssigned, setFilterAssigned] = useState('all')
-  const [sortPriority,   setSortPriority]   = useState('none')
-  const [sortDeadline,   setSortDeadline]   = useState('none')
-  const [onlyMine,       setOnlyMine]       = useState(false)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [tasks,   setTasks]   = useState([])
+  const [staff,   setStaff]   = useState([])
+  const [clients, setClients] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [showForm, setShowForm] = useState(false)
+
+  const tab            = searchParams.get('tab')            || 'active'
+  const filterStatus   = searchParams.get('status')         || 'all'
+  const filterAssigned = searchParams.get('assigned')       || 'all'
+  const sortPriority   = searchParams.get('sortPriority')   || 'none'
+  const sortDeadline   = searchParams.get('sortDeadline')   || 'none'
+  const onlyMine       = searchParams.get('onlyMine')       === 'true'
+
+  const setParam = (key, value) => {
+    const next = new URLSearchParams(searchParams)
+    if (!value || value === 'all' || value === 'none' || value === 'false') next.delete(key)
+    else next.set(key, value)
+    setSearchParams(next, { replace: true })
+  }
 
   useEffect(() => { loadAll() }, [])
 
@@ -418,7 +427,7 @@ export default function AdminTasks({ session }) {
       {/* Вкладки */}
       <div style={{display:'flex', gap:4, marginBottom:16, background:'#f5f5f5', borderRadius:10, padding:4, width:'fit-content'}}>
         {tabs.map(t => (
-          <button key={t.key} onClick={()=>setTab(t.key)}
+          <button key={t.key} onClick={()=>setParam('tab', t.key)}
             style={{display:'flex', alignItems:'center', gap:6, padding:'7px 16px', borderRadius:8, border:'none', fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif', background:tab===t.key?'#fff':'transparent', color:tab===t.key?'#2a2a2a':'#888', fontWeight:tab===t.key?600:400}}>
             {t.label}
             {t.count > 0 && (
@@ -430,31 +439,31 @@ export default function AdminTasks({ session }) {
         ))}
       </div>
 
-      {/* Фильтры (скрываем для новых клиентов) */}
+      {/* Фильтры */}
       {tab !== 'new_client' && (
         <div style={{display:'flex', gap:8, marginBottom:16, flexWrap:'wrap'}}>
-          <select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)}
+          <select value={filterStatus} onChange={e=>setParam('status', e.target.value)}
             style={{padding:'8px 12px', border:'1px solid #e8e8e8', borderRadius:10, fontSize:12, fontFamily:'Inter,sans-serif', background:'#fff'}}>
             <option value="all">Все статусы</option>
             {Object.entries(STATUS_LABELS).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
           </select>
-          <button onClick={() => setOnlyMine(v => !v)}
+          <button onClick={() => setParam('onlyMine', onlyMine ? 'false' : 'true')}
             style={{padding:'8px 16px', borderRadius:10, border: onlyMine ? 'none' : '1px solid #e8e8e8', background: onlyMine ? '#BFD900' : '#fff', fontSize:12, fontWeight: onlyMine ? 700 : 400, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
             {onlyMine ? '✓ Мои задачи' : 'Мои задачи'}
           </button>
-          <select value={sortPriority} onChange={e=>setSortPriority(e.target.value)}
+          <select value={sortPriority} onChange={e=>setParam('sortPriority', e.target.value)}
             style={{padding:'8px 12px', border:'1px solid #e8e8e8', borderRadius:10, fontSize:12, fontFamily:'Inter,sans-serif', background:'#fff'}}>
             <option value="none">Приоритет: не сортировать</option>
             <option value="asc">Сначала высокий</option>
             <option value="desc">Сначала низкий</option>
           </select>
-          <select value={sortDeadline} onChange={e=>setSortDeadline(e.target.value)}
+          <select value={sortDeadline} onChange={e=>setParam('sortDeadline', e.target.value)}
             style={{padding:'8px 12px', border:'1px solid #e8e8e8', borderRadius:10, fontSize:12, fontFamily:'Inter,sans-serif', background:'#fff'}}>
             <option value="none">Дедлайн: не сортировать</option>
             <option value="asc">Сначала ближайший</option>
             <option value="desc">Сначала дальний</option>
           </select>
-          <select value={filterAssigned} onChange={e=>setFilterAssigned(e.target.value)}
+          <select value={filterAssigned} onChange={e=>setParam('assigned', e.target.value)}
             style={{padding:'8px 12px', border:'1px solid #e8e8e8', borderRadius:10, fontSize:12, fontFamily:'Inter,sans-serif', background:'#fff'}}>
             <option value="all">Все ответственные</option>
             {staff.map(s=><option key={s.id} value={s.id}>{s.full_name||s.email}</option>)}

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabase'
 
 const GROUP_COLORS = [
@@ -19,6 +20,7 @@ const labelStyle = { fontSize:12, color:'#888', marginBottom:6, fontWeight:600, 
 const cardStyle = { background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', padding:20, marginBottom:12 }
 
 export default function AdminGroups() {
+  const [searchParams, setSearchParams] = useSearchParams()
   const [groups, setGroups] = useState([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -27,6 +29,18 @@ export default function AdminGroups() {
   const [saving, setSaving] = useState(false)
 
   useEffect(() => { loadGroups() }, [])
+
+  useEffect(() => {
+    const editId = searchParams.get('editing')
+    if (editId && groups.length > 0) {
+      const g = groups.find(g => g.id === editId)
+      if (g) {
+        setForm({ name:g.name, description:g.description||'', color:g.color||'', is_closed:g.is_closed||false })
+        setEditingId(g.id)
+        setShowForm(true)
+      }
+    }
+  }, [groups])
 
   const loadGroups = async () => {
     setLoading(true)
@@ -38,13 +52,19 @@ export default function AdminGroups() {
   const resetForm = () => {
     setForm({ name:'', description:'', color:'', is_closed:false })
     setEditingId(null)
+    const next = new URLSearchParams(searchParams)
+    next.delete('editing')
+    setSearchParams(next, { replace:true })
   }
 
   const handleStartEdit = (g) => {
-    setForm({ name: g.name, description: g.description || '', color: g.color || '', is_closed: g.is_closed || false })
+    setForm({ name:g.name, description:g.description||'', color:g.color||'', is_closed:g.is_closed||false })
     setEditingId(g.id)
     setShowForm(true)
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+    const next = new URLSearchParams(searchParams)
+    next.set('editing', g.id)
+    setSearchParams(next, { replace:true })
+    window.scrollTo({ top:0, behavior:'smooth' })
   }
 
   const handleSave = async () => {

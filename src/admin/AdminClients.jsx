@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabase'
 
 const LOYALTY = {
@@ -10,13 +10,26 @@ const LOYALTY = {
 }
 
 export default function AdminClients() {
+  const [searchParams, setSearchParams] = useSearchParams()
   const [clients, setClients] = useState([])
   const [loyaltyMap, setLoyaltyMap] = useState({})
   const [activeSubIds, setActiveSubIds] = useState(new Set())
   const [loading, setLoading] = useState(true)
-  const [search, setSearch] = useState('')
-  const [filter, setFilter] = useState('all')
   const [showAddModal, setShowAddModal] = useState(false)
+
+  const search = searchParams.get('search') || ''
+  const filter = searchParams.get('filter') || 'all'
+
+  const setSearch = (val) => {
+    const next = new URLSearchParams(searchParams)
+    if (val) next.set('search', val); else next.delete('search')
+    setSearchParams(next, { replace: true })
+  }
+  const setFilter = (val) => {
+    const next = new URLSearchParams(searchParams)
+    if (val && val !== 'all') next.set('filter', val); else next.delete('filter')
+    setSearchParams(next, { replace: true })
+  }
   const [newClient, setNewClient] = useState({ last_name:'', first_name:'', patronymic:'', birth_date:'', phone:'', email:'', ad_source:'', ad_source_custom:'' })
   const [addingSaving, setAddingSaving] = useState(false)
   const navigate = useNavigate()
