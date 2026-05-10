@@ -1,14 +1,25 @@
 import { useState, useEffect } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabase'
 
 const DAYS = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб']
 const MONTHS = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек']
 
-const fmtTime = (d) => new Date(d).toLocaleTimeString('ru-RU', { hour:'2-digit', minute:'2-digit' })
-const fmtDate = (d) => { const dt = new Date(d); return `${dt.getDate()} ${MONTHS[dt.getMonth()]}` }
+const toMoscow = (d) => new Date(new Date(d).toLocaleString('en-US', { timeZone: 'Europe/Moscow' }))
+const fmtTime = (d) => new Date(d).toLocaleTimeString('ru-RU', { hour:'2-digit', minute:'2-digit', timeZone:'Europe/Moscow' })
+const fmtDate = (d) => { const dt = toMoscow(d); return `${dt.getDate()} ${MONTHS[dt.getMonth()]}` }
 const fmtDT = (d) => { if (!d) return '—'; return new Date(d).toLocaleString('ru-RU', { timeZone:'Europe/Moscow', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' }) }
-const isToday = (d) => { const n = new Date(), dt = new Date(d); return dt.getDate()===n.getDate() && dt.getMonth()===n.getMonth() }
-const isTomorrow = (d) => { const n = new Date(); n.setDate(n.getDate()+1); const dt = new Date(d); return dt.getDate()===n.getDate() && dt.getMonth()===n.getMonth() }
+const isToday = (d) => {
+  const now = toMoscow(new Date())
+  const dt = toMoscow(d)
+  return dt.getDate()===now.getDate() && dt.getMonth()===now.getMonth() && dt.getFullYear()===now.getFullYear()
+}
+const isTomorrow = (d) => {
+  const now = toMoscow(new Date())
+  const tomorrow = new Date(now); tomorrow.setDate(now.getDate()+1)
+  const dt = toMoscow(d)
+  return dt.getDate()===tomorrow.getDate() && dt.getMonth()===tomorrow.getMonth() && dt.getFullYear()===tomorrow.getFullYear()
+}
 
 const TASK_STATUSES = [
   { value:'new', label:'Новая', color:'#2980b9', bg:'#e8f4fd' },
@@ -93,7 +104,6 @@ function TasksSection({ tasks, session, onReload }) {
 
   return (
     <div>
-      {/* Переключатель вкладок */}
       <div style={{display:'flex', background:'#f5f5f5', borderRadius:10, padding:4, marginBottom:16}}>
         <button onClick={() => setTaskTab('active')} style={tabBtnStyle(taskTab==='active')}>
           Активные {tasks.length > 0 && `(${tasks.length})`}
@@ -103,7 +113,6 @@ function TasksSection({ tasks, session, onReload }) {
         </button>
       </div>
 
-      {/* Активные задачи */}
       {taskTab === 'active' && (
         tasks.length === 0 ? (
           <div style={{textAlign:'center', color:'#BDBDBD', padding:60, fontSize:13}}>Активных задач нет 🎉</div>
@@ -124,7 +133,7 @@ function TasksSection({ tasks, session, onReload }) {
                 <div>
                   <div style={{marginTop:12, paddingTop:12, borderTop:'1px solid #f0f0f0'}}>
                     <div style={{fontSize:11, color:'#888', marginBottom:8, fontWeight:600}}>Изменить статус:</div>
-                    <div style={{display:'flex', gap:6, flexWrap:'wrap', marginBottom:0}}>
+                    <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
                       {TASK_STATUSES.map(s => (
                         <button key={s.value} onClick={() => handleStatus(t.id, s.value)}
                           style={{padding:'6px 12px', borderRadius:8, border:'none', fontSize:12, cursor:'pointer', fontFamily:'Inter,sans-serif',
@@ -145,7 +154,6 @@ function TasksSection({ tasks, session, onReload }) {
         })
       )}
 
-      {/* Выполненные задачи */}
       {taskTab === 'done' && (
         doneLoading ? (
           <div style={{textAlign:'center', color:'#BDBDBD', padding:40, fontSize:13}}>Загрузка...</div>
@@ -162,7 +170,7 @@ function TasksSection({ tasks, session, onReload }) {
                   <span style={{fontSize:11, padding:'3px 10px', borderRadius:6, fontWeight:600, background:st.bg, color:st.color}}>{st.label}</span>
                   {t.completed_at && (
                     <span style={{fontSize:11, color:'#27ae60'}}>
-                      ✅ {new Date(t.completed_at).toLocaleString('ru-RU', { timeZone:'Europe/Moscow', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })}
+                      ✅ {fmtDT(t.completed_at)}
                     </span>
                   )}
                   <span style={{fontSize:11, color:'#BDBDBD', marginLeft:'auto'}}>{expanded===t.id ? '▲' : '▼'}</span>
@@ -180,7 +188,9 @@ function TasksSection({ tasks, session, onReload }) {
 }
 
 export default function TeacherPanel({ session }) {
-  const [tab, setTab] = useState(() => localStorage.getItem('tp_tab') || 'main')
+  const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tab = searchParams.get('tab') || 'main'
   const [profile, setProfile] = useState(null)
   const [schedule, setSchedule] = useState([])
   const [tasks, setTasks] = useState([])
@@ -193,7 +203,10 @@ export default function TeacherPanel({ session }) {
   const [loading, setLoading] = useState(true)
   const [attendancePanel, setAttendancePanel] = useState(null)
 
-  const goTab = (t) => { setTab(t); localStorage.setItem('tp_tab', t) }
+  // Показываем кнопку "В AdminPanel" если основная роль выше чем teacher
+  const hasAdminAccess = profile && ['owner','manager','admin'].includes(profile.role)
+
+  const goTab = (t) => setSearchParams({ tab: t })
 
   useEffect(() => { loadAll() }, [])
 
@@ -348,8 +361,18 @@ export default function TeacherPanel({ session }) {
                 {tasks.length}
               </div>
             )}
-            <button onClick={() => supabase.auth.signOut()}
-              style={{padding:'6px 10px', background:'transparent', border:'1px solid #444', borderRadius:8, fontSize:11, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+            {hasAdminAccess && (
+              <button
+                onClick={() => navigate('/admin/dashboard')}
+                style={{padding:'6px 10px', background:'#BFD900', border:'none', borderRadius:8, fontSize:11, fontWeight:600, color:'#1f2024', cursor:'pointer', fontFamily:'Inter,sans-serif'}}
+              >
+                ← Админка
+              </button>
+            )}
+            <button
+              onClick={() => supabase.auth.signOut()}
+              style={{padding:'6px 10px', background:'transparent', border:'1px solid #444', borderRadius:8, fontSize:11, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}
+            >
               Выйти
             </button>
           </div>

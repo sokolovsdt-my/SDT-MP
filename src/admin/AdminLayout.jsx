@@ -16,6 +16,22 @@ export default function AdminLayout({ session }) {
   const { role } = useUserRole(session)
   const navigate = useNavigate()
   const [tasksCount, setTasksCount] = useState(0)
+  const [isAlsoTeacher, setIsAlsoTeacher] = useState(false)
+
+  // Проверяем есть ли роль teacher в staff_roles (дополнительно к основной)
+  useEffect(() => {
+    if (!session?.user?.id || role === 'teacher') return
+    const checkTeacherRole = async () => {
+      const { data } = await supabase
+        .from('staff_roles')
+        .select('role')
+        .eq('staff_id', session.user.id)
+        .eq('role', 'teacher')
+        .maybeSingle()
+      setIsAlsoTeacher(!!data)
+    }
+    checkTeacherRole()
+  }, [session, role])
 
   useEffect(() => {
     if (!session?.user?.id) return
@@ -28,7 +44,6 @@ export default function AdminLayout({ session }) {
       setTasksCount(data?.length || 0)
     }
     fetchCount()
-    // Обновляем каждые 30 секунд
     const interval = setInterval(fetchCount, 30000)
     window.addEventListener('focus', fetchCount)
     return () => { clearInterval(interval); window.removeEventListener('focus', fetchCount) }
@@ -79,7 +94,7 @@ export default function AdminLayout({ session }) {
               <span>{item.label}</span>
               {item.badge > 0 && (
                 <span style={{
-                  background: '#e74c3c', color:'#fff',
+                  background:'#e74c3c', color:'#fff',
                   borderRadius:10, fontSize:11, fontWeight:700,
                   padding:'1px 7px', minWidth:18, textAlign:'center',
                   lineHeight:'18px',
@@ -100,9 +115,23 @@ export default function AdminLayout({ session }) {
       </aside>
 
       <div style={{flex:1, display:'flex', flexDirection:'column'}}>
-        <header style={{height:64, background:'#fff', borderBottom:'1px solid #ececec', display:'flex', alignItems:'center', justifyContent:'flex-end', padding:'0 24px'}}>
-          <button onClick={handleLogout}
-            style={{padding:'8px 16px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:8, fontSize:13, color:'#555', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+        <header style={{height:64, background:'#fff', borderBottom:'1px solid #ececec', display:'flex', alignItems:'center', justifyContent:'flex-end', gap:12, padding:'0 24px'}}>
+          {isAlsoTeacher && (
+            <button
+              onClick={() => navigate('/teacher')}
+              style={{
+                padding:'8px 16px', background:'#BFD900', border:'none',
+                borderRadius:8, fontSize:13, fontWeight:600,
+                color:'#1f2024', cursor:'pointer', fontFamily:'Inter,sans-serif',
+              }}
+            >
+              🎓 Режим преподавателя
+            </button>
+          )}
+          <button
+            onClick={handleLogout}
+            style={{padding:'8px 16px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:8, fontSize:13, color:'#555', cursor:'pointer', fontFamily:'Inter,sans-serif'}}
+          >
             Выйти
           </button>
         </header>

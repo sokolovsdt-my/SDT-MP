@@ -55,7 +55,7 @@ function ClientApp({ session }) {
 function RootRedirect({ session }) {
   const { role, loading } = useUserRole(session)
   if (loading) return <Loader />
-  if (role === 'teacher') return <TeacherPanel session={session} />
+  if (role === 'teacher') return <Navigate to="/teacher" replace />
   if (role && ['admin','manager','owner'].includes(role))
     return <Navigate to="/admin/dashboard" replace />
   return <ClientApp session={session} />
@@ -107,6 +107,11 @@ function App() {
           <Route path="broadcasts" element={<RequireRole session={session} allow={['admin','manager','owner']}><AdminBroadcasts session={session} /></RequireRole>} />
           <Route path="news" element={<RequireRole session={session} allow={['admin','manager','owner']}><AdminNews session={session} /></RequireRole>} />
         </Route>
+        <Route path="/teacher" element={
+          <RequireRole session={session} allow={['teacher','admin','manager','owner']}>
+            <TeacherPanel session={session} />
+          </RequireRole>
+        } />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

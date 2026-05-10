@@ -56,8 +56,9 @@ export default function AdminStaff() {
       })
       const result = await res.json()
       if (!res.ok) throw new Error(result.error || 'Ошибка')
-      setSaveResult({ success: true, message: result.message, temp_password: result.temp_password })
+      const savedEmail = newStaff.email
       setNewStaff({ email:'', first_name:'', last_name:'', patronymic:'', phone:'', role:'teacher', hire_date: todayMoscow() })
+      setSaveResult({ success: true, message: result.message, temp_password: result.temp_password, email: savedEmail })
       loadAll()
     } catch (err) {
       setSaveResult({ success: false, message: err.message })
@@ -65,7 +66,13 @@ export default function AdminStaff() {
     setSaving(false)
   }
 
-  const getStaffRoles = (s) => s.staff_roles?.length > 0 ? s.staff_roles : [{ role: s.role, is_primary: true }]
+  const getStaffRoles = (s) => {
+    const roles = s.staff_roles?.length > 0 ? s.staff_roles : [{ role: s.role, is_primary: true }]
+    if (s.role === 'owner' && !roles.some(r => r.role === 'owner')) {
+      return [{ role: 'owner', is_primary: true }, ...roles]
+    }
+    return roles
+  }
 
   const getCurrentSalary = (s) => {
     const settings = (s.staff_salary_settings || []).filter(x => x.is_active)
@@ -91,6 +98,7 @@ export default function AdminStaff() {
   const filtered = staff.filter(s => {
     if (filterRole === 'all') return true
     const roles = getStaffRoles(s).map(r => r.role)
+    if (filterRole === 'owner') return s.role === 'owner' || roles.includes('owner')
     return roles.includes(filterRole)
   })
 
@@ -114,10 +122,31 @@ export default function AdminStaff() {
             <div style={{padding:'10px 14px', borderRadius:10, marginBottom:12, fontSize:13, background: saveResult.success ? '#eafaf1' : '#fdecea', color: saveResult.success ? '#27ae60' : '#e74c3c'}}>
               {saveResult.success ? '✅ ' : '❌ '}{saveResult.message}
             {saveResult.success && saveResult.temp_password && (
-              <div style={{marginTop:8, padding:'8px 12px', background:'#fff', borderRadius:8, border:'1px solid #BFD900'}}>
-                <div style={{fontSize:11, color:'#888', marginBottom:4}}>Временный пароль — передай сотруднику:</div>
-                <div style={{fontSize:16, fontWeight:700, color:'#2a2a2a', letterSpacing:1}}>{saveResult.temp_password}</div>
-                <div style={{fontSize:11, color:'#888', marginTop:4}}>Сотрудник сможет сменить пароль после входа</div>
+              <div style={{marginTop:8, padding:'12px 14px', background:'#fff', borderRadius:8, border:'1px solid #BFD900'}}>
+                <div style={{fontSize:11, color:'#888', marginBottom:8, fontWeight:600}}>Данные для входа — передай сотруднику:</div>
+                <div style={{
+                  fontFamily:'monospace', fontSize:13, color:'#2a2a2a', lineHeight:2,
+                  background:'#f9f9f9', borderRadius:6, padding:'10px 12px', marginBottom:10,
+                  whiteSpace:'pre-wrap', wordBreak:'break-all'
+                }}>
+{`Логин: ${saveResult.email}
+Пароль: ${saveResult.temp_password}
+Ссылка: https://sdt-mp.vercel.app/`}
+                </div>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(
+`Логин: ${saveResult.email}
+Пароль: ${saveResult.temp_password}
+Ссылка: https://sdt-mp.vercel.app/`
+                    )
+                    setSaveResult(r => ({...r, copied: true}))
+                    setTimeout(() => setSaveResult(r => ({...r, copied: false})), 2000)
+                  }}
+                  style={{width:'100%', padding:'8px', background: saveResult.copied ? '#eafaf1' : '#BFD900', border:'none', borderRadius:8, fontSize:13, fontWeight:700, color: saveResult.copied ? '#27ae60' : '#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif', transition:'all 0.2s'}}
+                >
+                  {saveResult.copied ? '✅ Скопировано!' : '📋 Скопировать'}
+                </button>
               </div>
             )}
             </div>
