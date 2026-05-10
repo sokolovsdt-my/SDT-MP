@@ -1184,6 +1184,21 @@ function CommentsTab({ clientId }) {
   )
 }
 
+const TASK_STATUS = {
+  new: { label: 'Новая', color: '#2980b9', bg: '#e8f4fd' },
+  in_progress: { label: 'В работе', color: '#f39c12', bg: '#fef9e7' },
+  done: { label: 'Выполнена', color: '#27ae60', bg: '#eafaf1' },
+  cancelled: { label: 'Отменена', color: '#BDBDBD', bg: '#f5f5f5' },
+  postponed: { label: 'Перенесена', color: '#8e44ad', bg: '#f5eef8' },
+  problem: { label: 'Есть трудности', color: '#e74c3c', bg: '#fdecea' },
+}
+const TASK_PRIORITY = {
+  low: { label: 'Низкий', color: '#BDBDBD' },
+  normal: { label: 'Средний', color: '#f39c12' },
+  high: { label: 'Высокий', color: '#e74c3c' },
+}
+const ACTIVE = ['new','in_progress','postponed','problem']
+
 function ClientTasksTab({ clientId, session }) {
   const [tasks, setTasks] = useState([])
   const [reps, setReps] = useState([])
