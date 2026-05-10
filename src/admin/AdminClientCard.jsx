@@ -1266,7 +1266,7 @@ function ClientTasksTab({ clientId, session }) {
       {showForm && (
         <div style={{background:'#f9f9f9', borderRadius:12, padding:14, marginBottom:14}}>
           <input value={form.title} onChange={e => setForm({...form, title:e.target.value})} placeholder="Название задачи *" style={inputStyle} />
-          <textarea value={form.description} onChange={e => setForm({...form, description:e.target.value})} placeholder="Описание (необязательно)" style={{...inputStyle, resize:'vertical', minHeight:50}} />
+          <textarea value={form.description} onChange={e => setForm({...form, description:e.target.value})} placeholder="Описание" style={{...inputStyle, resize:'vertical', minHeight:50}} />
           <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8}}>
             <select value={form.priority} onChange={e => setForm({...form, priority:e.target.value})} style={inputStyle}>
               <option value="low">Низкий приоритет</option>

@@ -30,7 +30,8 @@ export default function AdminLayout({ session }) {
     fetchCount()
     // Обновляем каждые 30 секунд
     const interval = setInterval(fetchCount, 30000)
-    return () => clearInterval(interval)
+    window.addEventListener('focus', fetchCount)
+    return () => { clearInterval(interval); window.removeEventListener('focus', fetchCount) }
   }, [session])
 
   const handleLogout = async () => {

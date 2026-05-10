@@ -342,6 +342,9 @@ export default function AdminTasks({ session }) {
   const [tab,        setTab]        = useState('active')    // active | new_client | done
   const [filterStatus,   setFilterStatus]   = useState('all')
   const [filterAssigned, setFilterAssigned] = useState('all')
+  const [sortPriority,   setSortPriority]   = useState('none')
+  const [sortDeadline,   setSortDeadline]   = useState('none')
+  const [onlyMine,       setOnlyMine]       = useState(false)
 
   useEffect(() => { loadAll() }, [])
 
@@ -369,7 +372,25 @@ export default function AdminTasks({ session }) {
   }).filter(t => {
     if (filterStatus !== 'all' && t.status !== filterStatus) return false
     if (filterAssigned !== 'all' && !t.task_assignees?.find(a=>a.user_id===filterAssigned)) return false
+    if (onlyMine && !t.task_assignees?.find(a=>a.user_id===session.user.id)) return false
     return true
+  }).sort((a, b) => {
+    const priorityOrder = { high: 0, normal: 1, low: 2 }
+    if (sortPriority !== 'none') {
+      const diff = sortPriority === 'asc'
+        ? priorityOrder[a.priority] - priorityOrder[b.priority]
+        : priorityOrder[b.priority] - priorityOrder[a.priority]
+      if (diff !== 0) return diff
+    }
+    if (sortDeadline !== 'none') {
+      const da = a.deadline ? new Date(a.deadline) : null
+      const db = b.deadline ? new Date(b.deadline) : null
+      if (!da && !db) return 0
+      if (!da) return 1
+      if (!db) return -1
+      return sortDeadline === 'asc' ? da - db : db - da
+    }
+    return 0
   })
 
   const tabs = [
@@ -416,6 +437,22 @@ export default function AdminTasks({ session }) {
             style={{padding:'8px 12px', border:'1px solid #e8e8e8', borderRadius:10, fontSize:12, fontFamily:'Inter,sans-serif', background:'#fff'}}>
             <option value="all">Все статусы</option>
             {Object.entries(STATUS_LABELS).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
+          </select>
+          <button onClick={() => setOnlyMine(v => !v)}
+            style={{padding:'8px 16px', borderRadius:10, border: onlyMine ? 'none' : '1px solid #e8e8e8', background: onlyMine ? '#BFD900' : '#fff', fontSize:12, fontWeight: onlyMine ? 700 : 400, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+            {onlyMine ? '✓ Мои задачи' : 'Мои задачи'}
+          </button>
+          <select value={sortPriority} onChange={e=>setSortPriority(e.target.value)}
+            style={{padding:'8px 12px', border:'1px solid #e8e8e8', borderRadius:10, fontSize:12, fontFamily:'Inter,sans-serif', background:'#fff'}}>
+            <option value="none">Приоритет: не сортировать</option>
+            <option value="asc">Сначала высокий</option>
+            <option value="desc">Сначала низкий</option>
+          </select>
+          <select value={sortDeadline} onChange={e=>setSortDeadline(e.target.value)}
+            style={{padding:'8px 12px', border:'1px solid #e8e8e8', borderRadius:10, fontSize:12, fontFamily:'Inter,sans-serif', background:'#fff'}}>
+            <option value="none">Дедлайн: не сортировать</option>
+            <option value="asc">Сначала ближайший</option>
+            <option value="desc">Сначала дальний</option>
           </select>
           <select value={filterAssigned} onChange={e=>setFilterAssigned(e.target.value)}
             style={{padding:'8px 12px', border:'1px solid #e8e8e8', borderRadius:10, fontSize:12, fontFamily:'Inter,sans-serif', background:'#fff'}}>
