@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabase'
 
 const PALETTE = [
@@ -206,7 +207,13 @@ export default function AdminNews({ session }) {
   const [news, setNews] = useState([])
   const [tags, setTags] = useState([])
   const [loading, setLoading] = useState(true)
-  const [filterTag, setFilterTag] = useState('')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const filterTag = searchParams.get('tag') || ''
+  const setFilterTag = (val) => {
+    const next = new URLSearchParams(searchParams)
+    if (val) next.set('tag', val); else next.delete('tag')
+    setSearchParams(next, { replace: true })
+  }
   const [form, setForm] = useState(emptyForm())
   const [editingId, setEditingId] = useState(null)
   const [saving, setSaving] = useState(false)
@@ -215,7 +222,8 @@ export default function AdminNews({ session }) {
   const [userRole, setUserRole] = useState(null)
   const [showTagsManager, setShowTagsManager] = useState(false)
 
-  useEffect(() => { loadNews(); loadTags(); loadRole() }, [filterTag])
+  useEffect(() => { loadRole(); loadTags() }, [])
+  useEffect(() => { loadNews() }, [filterTag])
 
   const loadRole = async () => {
     const { data } = await supabase.from('profiles').select('role').eq('id', session.user.id).single()

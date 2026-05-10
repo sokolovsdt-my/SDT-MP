@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import AvatarUpload from '../components/AvatarUpload'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabase'
 
 const ROLE_LABELS = {
@@ -31,7 +31,13 @@ export default function AdminStaffCard({ session }) {
   const { id } = useParams()
   const navigate = useNavigate()
   const [staff, setStaff] = useState(null)
-  const [tab, setTab] = useState('main')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tab = searchParams.get('tab') || 'main'
+  const setTab = (t) => {
+    const next = new URLSearchParams(searchParams)
+    if (t === 'main') next.delete('tab'); else next.set('tab', t)
+    setSearchParams(next, { replace: true })
+  }
   const [loading, setLoading] = useState(true)
   const [avatarUrl, setAvatarUrl] = useState(null)
 

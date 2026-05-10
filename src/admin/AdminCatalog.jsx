@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabase'
 
 const TABS = ['subscription', 'service', 'indiv', 'merch', 'event']
@@ -289,7 +290,13 @@ function ProductForm({ type, teachers, groups, onSave, onCancel, initial = null 
 }
 
 export default function AdminCatalog() {
-  const [tab, setTab] = useState('subscription')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tab = searchParams.get('tab') || 'subscription'
+  const setTab = (t) => {
+    const next = new URLSearchParams(searchParams)
+    if (t === 'subscription') next.delete('tab'); else next.set('tab', t)
+    setSearchParams(next, { replace: true })
+  }
   const [products, setProducts] = useState([])
   const [teachers, setTeachers] = useState([])
   const [groups, setGroups] = useState([])

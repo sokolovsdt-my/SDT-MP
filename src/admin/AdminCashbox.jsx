@@ -220,7 +220,7 @@ export default function AdminCashbox({ session }) {
 
   const loadTodaySales = async () => {
     setLoadingSales(true)
-    const today = new Date().toISOString().split('T')[0]
+    const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' })
     const { data } = await supabase.from('sales')
       .select('*, client:client_id(full_name), creator:created_by(full_name, email), subscription:subscriptions!subscriptions_sale_id_fkey(activated_at, expires_at)')
       .gte('sale_date', today + 'T00:00:00')

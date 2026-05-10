@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabase'
 
 const ROLE_LABELS = {
@@ -14,9 +14,16 @@ const ROLE_LABELS = {
 export default function AdminStaff() {
   const [staff, setStaff] = useState([])
   const [loading, setLoading] = useState(true)
-  const [filterRole, setFilterRole] = useState('all')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const filterRole = searchParams.get('role') || 'all'
+  const setFilterRole = (val) => {
+    const next = new URLSearchParams(searchParams)
+    if (val === 'all') next.delete('role'); else next.set('role', val)
+    setSearchParams(next, { replace: true })
+  }
   const [showForm, setShowForm] = useState(false)
-  const [newStaff, setNewStaff] = useState({ email:'', first_name:'', last_name:'', patronymic:'', phone:'', role:'teacher', hire_date: new Date().toISOString().split('T')[0] })
+  const todayMoscow = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' })
+  const [newStaff, setNewStaff] = useState({ email:'', first_name:'', last_name:'', patronymic:'', phone:'', role:'teacher', hire_date: todayMoscow() })
   const [saving, setSaving] = useState(false)
   const [saveResult, setSaveResult] = useState(null)
   const navigate = useNavigate()
@@ -50,7 +57,7 @@ export default function AdminStaff() {
       const result = await res.json()
       if (!res.ok) throw new Error(result.error || 'Ошибка')
       setSaveResult({ success: true, message: result.message, temp_password: result.temp_password })
-      setNewStaff({ email:'', first_name:'', last_name:'', patronymic:'', phone:'', role:'teacher', hire_date: new Date().toISOString().split('T')[0] })
+      setNewStaff({ email:'', first_name:'', last_name:'', patronymic:'', phone:'', role:'teacher', hire_date: todayMoscow() })
       loadAll()
     } catch (err) {
       setSaveResult({ success: false, message: err.message })

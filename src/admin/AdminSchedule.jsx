@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabase'
 import AttendancePanel from './AttendancePanel'
 
@@ -265,8 +266,16 @@ function EditSeriesModal({ onChoice, onCancel }) {
 }
 
 export default function AdminSchedule({ session }) {
-  const [view, setView] = useState('week')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [view, setViewState] = useState(searchParams.get('view') || 'week')
   const [currentDate, setCurrentDate] = useState(new Date())
+
+  const setView = (v) => {
+    setViewState(v)
+    const next = new URLSearchParams(searchParams)
+    next.set('view', v)
+    setSearchParams(next, { replace: true })
+  }
   const [events, setEvents] = useState([])
   const [teachers, setTeachers] = useState([])
   const [students, setStudents] = useState([])

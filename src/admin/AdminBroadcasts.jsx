@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabase'
 
 const cardStyle = { background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', padding:20, marginBottom:16 }
@@ -257,7 +258,13 @@ function RecipientFilter({ filters, onChange }) {
 }
 
 export default function AdminBroadcasts({ session }) {
-  const [tab, setTab] = useState('new')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tab = searchParams.get('tab') || 'new'
+  const setTab = (t) => {
+    const next = new URLSearchParams(searchParams)
+    if (t === 'new') next.delete('tab'); else next.set('tab', t)
+    setSearchParams(next, { replace: true })
+  }
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
   const [channels, setChannels] = useState({ push: true, email: false })
@@ -287,9 +294,10 @@ export default function AdminBroadcasts({ session }) {
 
   const loadRecipients = async () => {
     setLoadingRecipients(true)
-    const today = new Date().toISOString().split('T')[0]
-    const in7 = new Date(Date.now() + 7*86400000).toISOString().split('T')[0]
-    const ago30 = new Date(Date.now() - 30*86400000).toISOString().split('T')[0]
+    const toMoscowDate = (d) => d.toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' })
+    const today = toMoscowDate(new Date())
+    const in7 = toMoscowDate(new Date(Date.now() + 7*86400000))
+    const ago30 = toMoscowDate(new Date(Date.now() - 30*86400000))
 
     let query = supabase.from('profiles').select('id, full_name, email, phone, birth_date').eq('role', 'client')
 
@@ -357,7 +365,7 @@ export default function AdminBroadcasts({ session }) {
 
     if (filters.use_last_visit && filters.last_visit_days) {
       const cutoff = new Date(Date.now() - filters.last_visit_days * 86400000).toISOString()
-      const { data: visits } = await supabase.from('attendance').select('student_id').gte('marked_at', cutoff)
+      const { data: visits } = await supabase.from('attendance').select('student_id').gte('created_at', cutoff)
       const recentIds = new Set((visits || []).map(v => v.student_id))
       result = result.filter(c => !recentIds.has(c.id))
     }
