@@ -995,14 +995,18 @@ function CommentsTab({ clientId }) {
   const [text, setText] = useState('')
   const [editingId, setEditingId] = useState(null)
   const [editText, setEditText] = useState('')
-  const [visibleCount, setVisibleCount] = useState(2)
+  const [visibleCount, setVisibleCount] = useState(3)
 
   useEffect(() => { load() }, [clientId])
 
   const load = async () => {
-    const { data: active } = await supabase.from('client_comments').select('*, comment_history(*)').eq('client_id', clientId).eq('is_deleted', false).order('created_at', { ascending: false })
+    const { data: active } = await supabase.from('client_comments')
+      .select('*, comment_history(*, author:author_id(full_name, email))')
+      .eq('client_id', clientId).eq('is_deleted', false).order('created_at', { ascending: false })
     setComments(active || [])
-    const { data: del } = await supabase.from('client_comments').select('*, comment_history(*)').eq('client_id', clientId).eq('is_deleted', true).order('created_at', { ascending: false })
+    const { data: del } = await supabase.from('client_comments')
+      .select('*, comment_history(*, author:author_id(full_name, email))')
+      .eq('client_id', clientId).eq('is_deleted', true).order('created_at', { ascending: false })
     setDeleted(del || [])
   }
 
@@ -1029,75 +1033,148 @@ function CommentsTab({ clientId }) {
     load()
   }
 
-  const formatDT = (dt) => new Date(dt).toLocaleString('ru-RU', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })
+  const formatDT = (dt) => new Date(dt).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
   const visible = comments.slice(0, visibleCount)
   const hasMore = comments.length > visibleCount
-  const isExpanded = visibleCount >= comments.length && comments.length > 2
+  const isExpanded = visibleCount >= comments.length && comments.length > 3
+
+  const cardStyle = {
+    background: '#fff',
+    border: '0.5px solid #ebebeb',
+    borderRadius: 12,
+    padding: '14px 16px',
+    marginBottom: 8,
+    transition: 'border-color 0.15s',
+  }
 
   return (
     <div>
-      <div style={{display:'flex', gap:8, marginBottom:16}}>
-        <input value={text} onChange={e => setText(e.target.value)} placeholder="Добавить комментарий..."
-          style={{flex:1, padding:'9px 12px', border:'1px solid #e8e8e8', borderRadius:10, fontSize:13, fontFamily:'Inter,sans-serif'}} />
-        <button onClick={handleAdd} style={{padding:'9px 18px', background:'#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>Добавить</button>
+      {/* Поле добавления */}
+      <div style={{display:'flex', gap:10, marginBottom:20, alignItems:'flex-start'}}>
+        <textarea
+          value={text}
+          onChange={e => setText(e.target.value)}
+          placeholder="Добавить комментарий..."
+          rows={1}
+          onFocus={e => e.target.rows = 3}
+          onBlur={e => { if (!text) e.target.rows = 1 }}
+          style={{flex:1, padding:'9px 12px', border:'0.5px solid #e0e0e0', borderRadius:10, fontSize:13, fontFamily:'Inter,sans-serif', resize:'none', lineHeight:1.5, outline:'none', transition:'border-color 0.15s', color:'#2a2a2a'}}
+          onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleAdd() }}
+        />
+        <button onClick={handleAdd} style={{padding:'9px 18px', background:'#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif', flexShrink:0}}>
+          Добавить
+        </button>
       </div>
-      {comments.length === 0 && <div style={{textAlign:'center', color:'#BDBDBD', padding:20}}>Комментариев нет</div>}
-      {visible.map(c => (
-        <div key={c.id} style={{background:'#f9f9f9', borderRadius:12, padding:12, marginBottom:10}}>
-          {editingId === c.id ? (
-            <div>
-              <textarea value={editText} onChange={e => setEditText(e.target.value)} style={{width:'100%', padding:'8px 12px', border:'1px solid #e8e8e8', borderRadius:8, fontSize:13, fontFamily:'Inter,sans-serif', resize:'vertical', minHeight:60, boxSizing:'border-box'}} />
-              <div style={{display:'flex', gap:8, marginTop:8}}>
-                <button onClick={() => handleEdit(c)} style={{padding:'6px 14px', background:'#BFD900', border:'none', borderRadius:8, fontSize:12, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>Сохранить</button>
-                <button onClick={() => setEditingId(null)} style={{padding:'6px 14px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:8, fontSize:12, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>Отмена</button>
-              </div>
-            </div>
-          ) : (
-            <>
-              <div style={{fontSize:13, color:'#3a3a3a', marginBottom:6, lineHeight:1.5}}>{c.text}</div>
-              <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                <div style={{fontSize:11, color:'#BDBDBD'}}>
-                  {formatDT(c.created_at)}
-                  {c.edited_at && <span style={{marginLeft:8}}>· изменён {formatDT(c.edited_at)}</span>}
-                </div>
-                <div style={{display:'flex', gap:8}}>
-                  <button onClick={() => { setEditingId(c.id); setEditText(c.text) }} style={{fontSize:11, color:'#888', background:'none', border:'none', cursor:'pointer', padding:0}}>Изменить</button>
-                  <button onClick={() => handleDelete(c)} style={{fontSize:11, color:'#e74c3c', background:'none', border:'none', cursor:'pointer', padding:0}}>Удалить</button>
-                </div>
-              </div>
-              {c.comment_history && c.comment_history.length > 0 && (
-                <div style={{marginTop:8, paddingTop:8, borderTop:'1px solid #f0f0f0'}}>
-                  {c.comment_history.map((h, i) => (
-                    <div key={i} style={{fontSize:11, color:'#BDBDBD', marginBottom:3}}>
-                      {h.action === 'edited' ? '✏️ Изменён' : '🗑 Удалён'} · {formatDT(h.created_at)}
-                      {h.text_before && <div style={{color:'#ccc', marginTop:2}}>Было: {h.text_before}</div>}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
+
+      {/* Список */}
+      {comments.length === 0 ? (
+        <div style={{textAlign:'center', color:'#BDBDBD', padding:'40px 0', fontSize:13}}>
+          <div style={{fontSize:28, marginBottom:8}}>💬</div>
+          Комментариев нет
         </div>
-      ))}
-      <div style={{display:'flex', gap:8, marginTop:8}}>
-        {hasMore && (
-          <>
-            <button onClick={() => setVisibleCount(v => v + 3)} style={{flex:1, padding:'8px', background:'#f5f5f5', border:'none', borderRadius:8, fontSize:12, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>Показать ещё 3</button>
-            <button onClick={() => setVisibleCount(comments.length)} style={{flex:1, padding:'8px', background:'#f5f5f5', border:'none', borderRadius:8, fontSize:12, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>Показать все ({comments.length})</button>
-          </>
-        )}
-        {isExpanded && <button onClick={() => setVisibleCount(2)} style={{flex:1, padding:'8px', background:'#f5f5f5', border:'none', borderRadius:8, fontSize:12, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>Свернуть</button>}
-      </div>
+      ) : (
+        <>
+          {visible.map(c => (
+            <div key={c.id} style={cardStyle}
+              onMouseEnter={e => e.currentTarget.style.borderColor = '#d0d0d0'}
+              onMouseLeave={e => e.currentTarget.style.borderColor = '#ebebeb'}>
+
+              {editingId === c.id ? (
+                <div>
+                  <textarea
+                    value={editText}
+                    onChange={e => setEditText(e.target.value)}
+                    style={{width:'100%', padding:'8px 12px', border:'1px solid #BFD900', borderRadius:8, fontSize:13, fontFamily:'Inter,sans-serif', resize:'vertical', minHeight:70, boxSizing:'border-box', outline:'none', color:'#2a2a2a', background:'#fafde8'}}
+                    autoFocus
+                  />
+                  <div style={{display:'flex', gap:6, marginTop:8}}>
+                    <button onClick={() => handleEdit(c)} style={{padding:'5px 14px', background:'#BFD900', border:'none', borderRadius:7, fontSize:12, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>Сохранить</button>
+                    <button onClick={() => setEditingId(null)} style={{padding:'5px 14px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:7, fontSize:12, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>Отмена</button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div style={{fontSize:13, color:'#2a2a2a', lineHeight:1.6, marginBottom:10}}>{c.text}</div>
+                  <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', gap:8}}>
+                    <div style={{fontSize:11, color:'#BDBDBD', display:'flex', alignItems:'center', gap:6}}>
+                      {formatDT(c.created_at)}
+                      {c.edited_at && <span style={{background:'#f5f5f5', color:'#BDBDBD', fontSize:10, padding:'1px 6px', borderRadius:4}}>изменён</span>}
+                    </div>
+                    <div style={{display:'flex', gap:4}}>
+                      <button
+                        onClick={() => { setEditingId(c.id); setEditText(c.text) }}
+                        style={{padding:'4px 10px', border:'0.5px solid #e8e8e8', borderRadius:6, background:'transparent', fontSize:11, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif', transition:'all 0.15s'}}
+                        onMouseEnter={e => { e.currentTarget.style.background='#f5f5f5'; e.currentTarget.style.borderColor='#d0d0d0' }}
+                        onMouseLeave={e => { e.currentTarget.style.background='transparent'; e.currentTarget.style.borderColor='#e8e8e8' }}>
+                        ✎ Изменить
+                      </button>
+                      <button
+                        onClick={() => handleDelete(c)}
+                        style={{padding:'4px 10px', border:'0.5px solid #e8e8e8', borderRadius:6, background:'transparent', fontSize:11, color:'#e74c3c', cursor:'pointer', fontFamily:'Inter,sans-serif', transition:'all 0.15s'}}
+                        onMouseEnter={e => { e.currentTarget.style.background='#fdecea'; e.currentTarget.style.borderColor='#f5c6c6' }}
+                        onMouseLeave={e => { e.currentTarget.style.background='transparent'; e.currentTarget.style.borderColor='#e8e8e8' }}>
+                        Удалить
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* История изменений */}
+                  {c.comment_history && c.comment_history.length > 0 && (
+                    <div style={{marginTop:10, paddingTop:10, borderTop:'0.5px solid #f0f0f0'}}>
+                      {c.comment_history.map((h, i) => (
+                        <div key={i} style={{display:'flex', alignItems:'flex-start', gap:8, padding:'4px 0', fontSize:11, color:'#BDBDBD'}}>
+                          <div style={{width:20, height:20, borderRadius:'50%', background:'#f0f0f0', display:'flex', alignItems:'center', justifyContent:'center', fontSize:9, fontWeight:600, color:'#888', flexShrink:0}}>
+                            {(h.author?.full_name || h.author?.email || '?')[0].toUpperCase()}
+                          </div>
+                          <div>
+                            <div style={{marginBottom:2}}>
+                              <span style={{color:'#888', fontWeight:500}}>{h.action === 'edited' ? '✏️ Изменён' : '🗑 Удалён'}</span>
+                              {' · '}
+                              <span style={{color:'#888'}}>{h.author?.full_name || h.author?.email || '—'}</span>
+                              {' · '}
+                              {formatDT(h.created_at)}
+                            </div>
+                            {h.text_before && (
+                              <div style={{color:'#BDBDBD', fontStyle:'italic'}}>Было: {h.text_before}</div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          ))}
+
+          {/* Пагинация */}
+          <div style={{display:'flex', gap:8, marginTop:4}}>
+            {hasMore && (
+              <>
+                <button onClick={() => setVisibleCount(v => v + 3)} style={{flex:1, padding:'8px', background:'transparent', border:'0.5px solid #e8e8e8', borderRadius:8, fontSize:12, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>Показать ещё 3</button>
+                <button onClick={() => setVisibleCount(comments.length)} style={{flex:1, padding:'8px', background:'transparent', border:'0.5px solid #e8e8e8', borderRadius:8, fontSize:12, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>Все ({comments.length})</button>
+              </>
+            )}
+            {isExpanded && (
+              <button onClick={() => setVisibleCount(3)} style={{flex:1, padding:'8px', background:'transparent', border:'0.5px solid #e8e8e8', borderRadius:8, fontSize:12, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>Свернуть</button>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* Удалённые */}
       {deleted.length > 0 && (
         <div style={{marginTop:16}}>
           <button onClick={() => setShowDeleted(!showDeleted)} style={{width:'100%', padding:'8px', background:'#fdecea', border:'none', borderRadius:8, fontSize:12, color:'#c0392b', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
             {showDeleted ? 'Скрыть удалённые' : `Показать удалённые (${deleted.length})`}
           </button>
           {showDeleted && deleted.map(c => (
-            <div key={c.id} style={{background:'#fdecea', borderRadius:12, padding:12, marginTop:8, opacity:0.8}}>
-              <div style={{fontSize:13, color:'#888', marginBottom:6, textDecoration:'line-through'}}>{c.text}</div>
+            <div key={c.id} style={{background:'#fdecea', border:'0.5px solid #f5c6c6', borderRadius:12, padding:'12px 16px', marginTop:8, opacity:0.75}}>
+              <div style={{fontSize:13, color:'#888', textDecoration:'line-through', marginBottom:4}}>{c.text}</div>
               {c.comment_history?.filter(h => h.action === 'deleted').map((h, i) => (
-                <div key={i} style={{fontSize:11, color:'#c0392b'}}>🗑 Удалён · {formatDT(h.created_at)}</div>
+                <div key={i} style={{fontSize:11, color:'#c0392b'}}>
+                  🗑 Удалён · {h.author?.full_name || h.author?.email || '—'} · {formatDT(h.created_at)}
+                </div>
               ))}
             </div>
           ))}
@@ -1106,21 +1183,6 @@ function CommentsTab({ clientId }) {
     </div>
   )
 }
-
-const TASK_STATUS = {
-  new: { label: 'Новая', color: '#2980b9', bg: '#e8f4fd' },
-  in_progress: { label: 'В работе', color: '#f39c12', bg: '#fef9e7' },
-  done: { label: 'Выполнена', color: '#27ae60', bg: '#eafaf1' },
-  cancelled: { label: 'Отменена', color: '#BDBDBD', bg: '#f5f5f5' },
-  postponed: { label: 'Перенесена', color: '#8e44ad', bg: '#f5eef8' },
-  problem: { label: 'Есть трудности', color: '#e74c3c', bg: '#fdecea' },
-}
-const TASK_PRIORITY = {
-  low: { label: 'Низкий', color: '#BDBDBD' },
-  normal: { label: 'Средний', color: '#f39c12' },
-  high: { label: 'Высокий', color: '#e74c3c' },
-}
-const ACTIVE = ['new','in_progress','postponed','problem']
 
 function ClientTasksTab({ clientId, session }) {
   const [tasks, setTasks] = useState([])
