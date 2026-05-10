@@ -34,7 +34,7 @@ export default function AdminStaff() {
     setLoading(true)
     const { data: profiles } = await supabase
       .from('profiles')
-      .select('*, staff_roles(*), staff_info(*), staff_salary_settings(*)')
+      .select('*, staff_roles(*), staff_info(*), salary_tiers(*)')
       .in('role', ['teacher','admin','manager','owner','content_creator','other'])
       .order('full_name')
     setStaff(profiles || [])
@@ -75,13 +75,14 @@ export default function AdminStaff() {
   }
 
   const getCurrentSalary = (s) => {
-    const settings = (s.staff_salary_settings || []).filter(x => x.is_active)
-    if (settings.length === 0) return '—'
-    return settings.map(st => {
-      if (st.type === 'salary') return `${st.amount.toLocaleString('ru-RU')} ₽/мес`
-      if (st.type === 'per_lesson') return `${st.amount.toLocaleString('ru-RU')} ₽/зан`
-      if (st.type === 'percentage') return `${st.amount}%`
-    }).join(' + ')
+    const tiers = (s.salary_tiers || []).filter(x => x.is_active)
+    if (tiers.length === 0) return '—'
+    const parts = []
+    if (tiers.find(t => t.tier_type === 'salary')) parts.push(`${Number(tiers.find(t=>t.tier_type==='salary').amount).toLocaleString('ru-RU')} ₽/мес`)
+    if (tiers.find(t => t.tier_type === 'per_lesson_tiered')) parts.push('прогрессивная')
+    if (tiers.find(t => t.tier_type === 'per_lesson')) parts.push(`${Number(tiers.find(t=>t.tier_type==='per_lesson').amount).toLocaleString('ru-RU')} ₽/зан`)
+    if (tiers.find(t => t.tier_type === 'percentage')) parts.push(`${tiers.find(t=>t.tier_type==='percentage').amount}%`)
+    return parts.length > 0 ? parts.join(' + ') : '—'
   }
 
   const getExperience = (s) => {

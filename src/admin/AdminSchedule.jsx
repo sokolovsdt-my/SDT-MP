@@ -4,19 +4,23 @@ import { supabase } from '../supabase'
 import AttendancePanel from './AttendancePanel'
 
 const GROUP_COLORS = [
-  { bg: '#EDF4F0', border: '#7C9885', text: '#3d5c45' },
-  { bg: '#F0ECF7', border: '#8B7BA8', text: '#4a3a6e' },
-  { bg: '#F7EDEA', border: '#C17B5A', text: '#7a3e25' },
-  { bg: '#EAF1F7', border: '#5A8FA8', text: '#2a5570' },
-  { bg: '#F7F0EA', border: '#A8855A', text: '#6b4e25' },
-  { bg: '#EFEFEF', border: '#7A7A7A', text: '#4a4a4a' },
+  { bg:'#FFEBEE', border:'#D32F2F', text:'#B71C1C' },
+  { bg:'#FFF3E0', border:'#E64A19', text:'#BF360C' },
+  { bg:'#FFFDE7', border:'#F9A825', text:'#F57F17' },
+  { bg:'#E8F5E9', border:'#388E3C', text:'#1B5E20' },
+  { bg:'#F1F8E9', border:'#689F38', text:'#33691E' },
+  { bg:'#E0F7FA', border:'#0097A7', text:'#006064' },
+  { bg:'#E3F2FD', border:'#1976D2', text:'#0D47A1' },
+  { bg:'#E8EAF6', border:'#303F9F', text:'#1A237E' },
+  { bg:'#EDE7F6', border:'#5E35B1', text:'#311B92' },
+  { bg:'#FCE4EC', border:'#C2185B', text:'#880E4F' },
 ]
 const INDIV_COLOR = { bg: '#EAF4F2', border: '#5A8A7C', text: '#2a5a4e' }
 
 const DAYS_RU = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб']
 const MONTHS_RU = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь']
 
-const HOUR_HEIGHT = 64
+const HOUR_HEIGHT = 80
 const START_HOUR = 8
 const END_HOUR = 23
 const HOURS = Array.from({length: END_HOUR - START_HOUR + 1}, (_, i) => i + START_HOUR)
@@ -73,8 +77,76 @@ function getEventStyle(ev) {
   const startMins = (start.getHours() - START_HOUR) * 60 + start.getMinutes()
   const durationMins = (end - start) / 60000
   const top = (startMins / 60) * HOUR_HEIGHT
-  const height = Math.max((durationMins / 60) * HOUR_HEIGHT - 2, 20)
+  const height = Math.max((durationMins / 60) * HOUR_HEIGHT - 4, 20)
   return { top, height }
+}
+
+// ─── Модалка замены ────────────────────────────────────────────────────────────
+function SubstitutionModal({ ev, teachers, session, onSave, onCancel }) {
+  const [substituteId, setSubstituteId] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const handleSave = async () => {
+    if (!substituteId) return
+    setSaving(true)
+    const originalTeacherId = ev.teacher_id
+
+    // 1. Записываем замену в teacher_substitutions
+    await supabase.from('teacher_substitutions').insert({
+      schedule_id: ev.id,
+      original_teacher_id: originalTeacherId,
+      substitute_teacher_id: substituteId,
+    })
+
+    // 2. Меняем препода только на ЭТОМ занятии
+    await supabase.from('schedule').update({ teacher_id: substituteId }).eq('id', ev.id)
+
+    // 3. Пишем в историю
+    const substituteName = teachers.find(t => t.id === substituteId)?.full_name || '—'
+    const originalName = teachers.find(t => t.id === originalTeacherId)?.full_name || '—'
+    await supabase.from('schedule_history').insert({
+      schedule_id: ev.id,
+      action: 'substitution',
+      author_id: session.user.id,
+      changes: { original_teacher_id: originalTeacherId, substitute_teacher_id: substituteId },
+      comment: `Замена: ${originalName} → ${substituteName}`
+    })
+
+    setSaving(false)
+    onSave()
+  }
+
+  const availableTeachers = teachers.filter(t => t.id !== ev.teacher_id)
+
+  return (
+    <div style={{position:'fixed', top:0, left:0, right:0, bottom:0, background:'rgba(0,0,0,0.4)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center'}}>
+      <div style={{background:'#fff', borderRadius:16, padding:24, width:360, boxSizing:'border-box'}}>
+        <div style={{fontSize:15, fontWeight:600, color:'#2a2a2a', marginBottom:4}}>Замена преподавателя</div>
+        <div style={{fontSize:12, color:'#888', marginBottom:16}}>
+          Только для этого занятия: {formatDate(ev.starts_at)}, {formatTime(ev.starts_at)}
+        </div>
+        <div style={{background:'#f9f9f9', borderRadius:10, padding:'10px 14px', marginBottom:16}}>
+          <div style={{fontSize:11, color:'#888', marginBottom:2}}>Текущий преподаватель</div>
+          <div style={{fontSize:13, fontWeight:600, color:'#2a2a2a'}}>{ev.teacher?.full_name || '—'}</div>
+        </div>
+        <label style={labelStyle}>Кто заменяет</label>
+        <select value={substituteId} onChange={e => setSubstituteId(e.target.value)} style={inputStyle}>
+          <option value=''>— Выберите преподавателя —</option>
+          {availableTeachers.map(t => <option key={t.id} value={t.id}>{t.full_name}</option>)}
+        </select>
+        <div style={{display:'flex', gap:8, marginTop:8}}>
+          <button onClick={handleSave} disabled={saving || !substituteId}
+            style={{flex:1, padding:'10px', background:'#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif', opacity:(!substituteId||saving)?0.5:1}}>
+            {saving ? 'Сохраняем...' : 'Подтвердить замену'}
+          </button>
+          <button onClick={onCancel}
+            style={{padding:'10px 16px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:10, fontSize:13, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+            Отмена
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function ScheduleForm({ session, teachers, students, groups, onSave, onCancel, initial = null, initialDate = null }) {
@@ -139,7 +211,10 @@ function ScheduleForm({ session, teachers, students, groups, onSave, onCancel, i
   }
 
   const handleSave = async () => {
-    if (!form.hall || !form.date || !form.time_from || !form.time_to) return
+    if (!form.hall || !form.date || !form.time_from || !form.time_to) {
+      alert('Заполните все обязательные поля: группа, зал, дата, время')
+      return
+    }
     if (type === 'group' && !form.title && !form.group_id) return
     if (type === 'indiv' && (!form.teacher_id || !form.student_id)) return
     const hasConflict = await checkConflict()
@@ -149,7 +224,6 @@ function ScheduleForm({ session, teachers, students, groups, onSave, onCancel, i
     const repeatId = crypto.randomUUID()
     const dates = buildDates()
     const duration = new Date(`${form.date}T${form.time_to}`) - new Date(`${form.date}T${form.time_from}`)
-
     const selectedGroup = groups.find(g => g.id === form.group_id)
     const titleToSave = type === 'group' ? (selectedGroup?.name || form.title || '') : null
 
@@ -172,7 +246,21 @@ function ScheduleForm({ session, teachers, students, groups, onSave, onCancel, i
       lesson_type: type,
     }))
 
-    await supabase.from('schedule').insert(rows)
+    const { data: inserted } = await supabase.from('schedule').insert(rows).select('id')
+
+    // История — записываем создание
+    if (inserted?.length > 0) {
+      await supabase.from('schedule_history').insert(
+        inserted.map(r => ({
+          schedule_id: r.id,
+          action: 'created',
+          author_id: session.user.id,
+          changes: { group_id: form.group_id, teacher_id: form.teacher_id, hall: form.hall },
+          comment: `Создано занятие`
+        }))
+      )
+    }
+
     setSaving(false)
     onSave()
   }
@@ -276,6 +364,7 @@ export default function AdminSchedule({ session }) {
     next.set('view', v)
     setSearchParams(next, { replace: true })
   }
+
   const [events, setEvents] = useState([])
   const [teachers, setTeachers] = useState([])
   const [students, setStudents] = useState([])
@@ -287,6 +376,7 @@ export default function AdminSchedule({ session }) {
   const [editingEvent, setEditingEvent] = useState(null)
   const [showEditForm, setShowEditForm] = useState(false)
   const [showSeriesModal, setShowSeriesModal] = useState(false)
+  const [showSubModal, setShowSubModal] = useState(false)
   const [pendingDelete, setPendingDelete] = useState(null)
   const [filterTeacher, setFilterTeacher] = useState('all')
   const [filterHall, setFilterHall] = useState('all')
@@ -314,17 +404,23 @@ export default function AdminSchedule({ session }) {
       .lte('starts_at', to.toISOString())
       .order('starts_at')
     setEvents(ev || [])
-    const { data: t } = await supabase.from('profiles').select('id, full_name, email').eq('role', 'teacher')
-    setTeachers(t || [])
+
+    const { data: allStaff } = await supabase.from('profiles').select('id, full_name, email').in('role', ['teacher','owner','manager','admin'])
+    const { data: teacherRoles } = await supabase.from('staff_roles').select('staff_id').eq('role', 'teacher')
+    const teacherIds = new Set((teacherRoles || []).map(r => r.staff_id))
+    setTeachers((allStaff || []).filter(p => teacherIds.has(p.id)))
+
     const { data: s } = await supabase.from('profiles').select('id, full_name, email').eq('role', 'client')
     setStudents(s || [])
-    const { data: g } = await supabase.from('groups').select('id, name')
+    const { data: g } = await supabase.from('groups').select('id, name, color')
     setGroups(g || [])
+
     const colorMap = {}
     const nameMap = {}
-    ;(g || []).forEach((group, i) => {
-      colorMap[group.id] = GROUP_COLORS[i % GROUP_COLORS.length]
-      nameMap[group.name] = GROUP_COLORS[i % GROUP_COLORS.length]
+    ;(g || []).forEach(group => {
+      const colorObj = GROUP_COLORS.find(c => c.border === group.color) || GROUP_COLORS[0]
+      colorMap[group.id] = colorObj
+      nameMap[group.name] = colorObj
     })
     setGroupColorMap(colorMap)
     setGroupNameMap(nameMap)
@@ -347,12 +443,16 @@ export default function AdminSchedule({ session }) {
     setCurrentDate(d)
   }
 
-  const handleEventClick = (ev) => { setEditingEvent(ev); setShowEditForm(false) }
+  const handleEventClick = (ev) => { setEditingEvent(ev); setShowEditForm(false); setShowSubModal(false) }
 
   const handleDeleteEvent = async (ev) => {
     if (ev.repeat_id) { setPendingDelete(ev); setShowSeriesModal(true) }
     else {
       if (!confirm('Удалить занятие?')) return
+      await supabase.from('schedule_history').insert({
+        schedule_id: ev.id, action: 'deleted',
+        author_id: session.user.id, comment: 'Занятие удалено'
+      })
       await supabase.from('schedule').delete().eq('id', ev.id)
       setEditingEvent(null); loadAll()
     }
@@ -361,9 +461,17 @@ export default function AdminSchedule({ session }) {
   const handleSeriesChoice = async (choice) => {
     const ev = pendingDelete || editingEvent
     if (!ev) return
-    if (choice === 'one') await supabase.from('schedule').delete().eq('id', ev.id)
-    else if (choice === 'future') await supabase.from('schedule').delete().eq('repeat_id', ev.repeat_id).gte('starts_at', ev.starts_at)
-    else await supabase.from('schedule').delete().eq('repeat_id', ev.repeat_id)
+    if (choice === 'one') {
+      await supabase.from('schedule_history').insert({
+        schedule_id: ev.id, action: 'deleted',
+        author_id: session.user.id, comment: 'Удалено одно занятие из серии'
+      })
+      await supabase.from('schedule').delete().eq('id', ev.id)
+    } else if (choice === 'future') {
+      await supabase.from('schedule').delete().eq('repeat_id', ev.repeat_id).gte('starts_at', ev.starts_at)
+    } else {
+      await supabase.from('schedule').delete().eq('repeat_id', ev.repeat_id)
+    }
     setShowSeriesModal(false); setPendingDelete(null); setEditingEvent(null); setShowEditForm(false); loadAll()
   }
 
@@ -386,7 +494,7 @@ export default function AdminSchedule({ session }) {
     </div>
   )
 
- const EventBlock = ({ ev, width='95%', left='2%' }) => {
+  const EventBlock = ({ ev, width='95%', left='2%' }) => {
     const color = getEventColor(ev, groupColorMap, groupNameMap)
     const { top, height } = getEventStyle(ev)
     const title = ev.groups?.name || ev.title || (ev.student ? `Индив: ${ev.student.full_name}` : 'Занятие')
@@ -402,21 +510,15 @@ export default function AdminSchedule({ session }) {
         boxShadow:'0 1px 3px rgba(0,0,0,0.06)'
       }}>
         {isCancelled && (
-          <div style={{
-            position:'absolute', top:0, left:0, right:0,
-            background:'#e74c3c', color:'#fff',
-            fontSize:9, fontWeight:700, letterSpacing:'0.05em',
-            padding:'2px 6px', textAlign:'center'
-          }}>
+          <div style={{position:'absolute', top:0, left:0, right:0, background:'#e74c3c', color:'#fff', fontSize:9, fontWeight:700, letterSpacing:'0.05em', padding:'2px 6px', textAlign:'center'}}>
             ОТМЕНЕНО
           </div>
         )}
-        <div style={{fontSize:11, fontWeight:700, color: color.text, marginTop: isCancelled ? 14 : 0}}>
+        <div style={{fontSize:10, fontWeight:700, color: color.text, marginTop: isCancelled ? 14 : 0}}>
           <div style={{whiteSpace:'nowrap'}}>{formatTime(ev.starts_at)}–{formatTime(ev.ends_at)}</div>
-          <div style={{wordBreak:'break-word', lineHeight:1.3}}>{title}</div>
+          <div style={{wordBreak:'break-word', lineHeight:1.2}}>{title}</div>
+          {ev.teacher && <div style={{fontWeight:400, opacity:0.8, marginTop:1}}>{ev.teacher.full_name}</div>}
         </div>
-        {!isShort && ev.teacher && <div style={{fontSize:10, color:color.text, opacity:0.75, marginTop:1}}>{ev.teacher.full_name}</div>}
-        {!isShort && ev.hall && <div style={{fontSize:10, color:color.text, opacity:0.6}}>{ev.hall}</div>}
       </div>
     )
   }
@@ -424,6 +526,15 @@ export default function AdminSchedule({ session }) {
   return (
     <div>
       {showSeriesModal && <EditSeriesModal onChoice={handleSeriesChoice} onCancel={() => {setShowSeriesModal(false); setPendingDelete(null)}} />}
+      {showSubModal && editingEvent && (
+        <SubstitutionModal
+          ev={editingEvent}
+          teachers={teachers}
+          session={session}
+          onSave={() => { setShowSubModal(false); setEditingEvent(null); loadAll() }}
+          onCancel={() => setShowSubModal(false)}
+        />
+      )}
 
       <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16, flexWrap:'wrap', gap:10}}>
         <h1 style={{fontSize:24, fontWeight:600, color:'#1f2024', margin:0}}>Расписание</h1>
@@ -440,7 +551,7 @@ export default function AdminSchedule({ session }) {
           onCancel={() => setShowForm(false)} />
       )}
 
-      {editingEvent && !showSeriesModal && (
+      {editingEvent && !showSeriesModal && !showSubModal && (
         <div style={{background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', padding:16, marginBottom:16}}>
           {showEditForm ? (
             <ScheduleForm session={session} teachers={teachers} students={students} groups={groups}
@@ -460,10 +571,25 @@ export default function AdminSchedule({ session }) {
                 </div>
                 <button onClick={() => setEditingEvent(null)} style={{fontSize:20, color:'#BDBDBD', background:'none', border:'none', cursor:'pointer', lineHeight:1}}>×</button>
               </div>
-              <div style={{display:'flex', gap:8}}>
-                <button onClick={() => { setAttendanceLesson(editingEvent); setEditingEvent(null) }} style={{padding:'7px 16px', background:'#e8f4fd', border:'none', borderRadius:8, fontSize:12, color:'#2980b9', cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight:600}}>👥 Отметить</button>
-                <button onClick={() => setShowEditForm(true)} style={{padding:'7px 16px', background:'#fafde8', border:'1px solid #BFD900', borderRadius:8, fontSize:12, color:'#6a7700', cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight:600}}>Редактировать</button>
-                <button onClick={() => handleDeleteEvent(editingEvent)} style={{padding:'7px 16px', background:'#fdecea', border:'none', borderRadius:8, fontSize:12, color:'#e74c3c', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>Удалить</button>
+              <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
+                <button onClick={() => { setAttendanceLesson(editingEvent); setEditingEvent(null) }}
+                  style={{padding:'7px 16px', background:'#e8f4fd', border:'none', borderRadius:8, fontSize:12, color:'#2980b9', cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight:600}}>
+                  👥 Отметить
+                </button>
+                {editingEvent.teacher_id && (
+                  <button onClick={() => setShowSubModal(true)}
+                    style={{padding:'7px 16px', background:'#fef9e7', border:'1px solid #f39c12', borderRadius:8, fontSize:12, color:'#d68910', cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight:600}}>
+                    🔄 Замена
+                  </button>
+                )}
+                <button onClick={() => setShowEditForm(true)}
+                  style={{padding:'7px 16px', background:'#fafde8', border:'1px solid #BFD900', borderRadius:8, fontSize:12, color:'#6a7700', cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight:600}}>
+                  Редактировать
+                </button>
+                <button onClick={() => handleDeleteEvent(editingEvent)}
+                  style={{padding:'7px 16px', background:'#fdecea', border:'none', borderRadius:8, fontSize:12, color:'#e74c3c', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+                  Удалить
+                </button>
               </div>
             </>
           )}
@@ -499,7 +625,6 @@ export default function AdminSchedule({ session }) {
         <div style={{textAlign:'center', color:'#BDBDBD', padding:40}}>Загрузка...</div>
       ) : (
         <div style={{background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', overflow:'hidden'}}>
-
           {view === 'day' && (
             <div style={{display:'flex', overflow:'auto', maxHeight:'75vh'}}>
               <div style={{width:52, flexShrink:0, borderRight:'1px solid #f0f0f0', position:'relative'}}>
@@ -590,15 +715,16 @@ export default function AdminSchedule({ session }) {
           )}
         </div>
       )}
-    {attendanceLesson && (
- <AttendancePanel
-  lesson={attendanceLesson}
-  session={session}
-  teachers={teachers}
-  onClose={() => setAttendanceLesson(null)}
-  onLessonUpdate={() => { loadAll(); setAttendanceLesson(null) }}
-/>
-)}
+
+      {attendanceLesson && (
+        <AttendancePanel
+          lesson={attendanceLesson}
+          session={session}
+          teachers={teachers}
+          onClose={() => setAttendanceLesson(null)}
+          onLessonUpdate={() => { loadAll(); setAttendanceLesson(null) }}
+        />
+      )}
     </div>
   )
 }
