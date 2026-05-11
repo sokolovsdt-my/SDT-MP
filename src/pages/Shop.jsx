@@ -31,6 +31,10 @@ export default function Shop({ session }) {
   const [selectedSizes, setSelectedSizes] = useState({})
   const [preordering, setPreordering] = useState(false)
 
+  // Мероприятия
+  const [events, setEvents] = useState([])
+  const [eventsLoading, setEventsLoading] = useState(false)
+
   // Индивы
   const [teachers, setTeachers] = useState([])
   const [selectedTeacher, setSelectedTeacher] = useState(() => localStorage.getItem('shop_indiv_teacher') || null)
@@ -65,6 +69,7 @@ export default function Shop({ session }) {
   useEffect(() => {
     if (activeCat === 'indiv') loadTeachers()
     if (activeCat === 'merch') loadMerch()
+    if (activeCat === 'events') loadEvents()
   }, [activeCat])
 
   useEffect(() => {
@@ -84,6 +89,18 @@ export default function Shop({ session }) {
     setMerchProducts(list)
     if (list.length > 0 && !activeProductId) setActiveProductId(list[0].id)
     setMerchLoading(false)
+  }
+
+  const loadEvents = async () => {
+    setEventsLoading(true)
+    const { data } = await supabase
+      .from('events')
+      .select('*, event_dates(*), event_price_tiers(*)')
+      .eq('is_active', true)
+      .eq('is_available_online', true)
+      .order('sort_order')
+    setEvents(data || [])
+    setEventsLoading(false)
   }
 
   const loadTeachers = async () => {
@@ -493,6 +510,56 @@ export default function Shop({ session }) {
       <div style={{padding:'0 20px 20px'}}>
         {activeCat === 'merch' ? (
           <MerchSection />
+        ) : activeCat === 'events' ? (
+          eventsLoading ? (
+            <div style={{textAlign:'center', color:'#BDBDBD', padding:40}}>Загрузка...</div>
+          ) : events.length === 0 ? (
+            <div style={{textAlign:'center', color:'#BDBDBD', padding:40, fontSize:13}}>Мероприятий пока нет</div>
+          ) : events.map(ev => {
+            const dates = (ev.event_dates || []).sort((a,b) => a.sort_order - b.sort_order)
+            const tiers = (ev.event_price_tiers || []).sort((a,b) => a.position_from - b.position_from)
+            const formatDate = (d) => d ? new Date(d).toLocaleDateString('ru-RU', { day:'numeric', month:'short' }) : null
+            const dateStr = dates.length > 0
+              ? dates.map(d => `${formatDate(d.date_start)}${d.date_end && d.date_end !== d.date_start ? `–${formatDate(d.date_end)}` : ''}${d.label ? ` (${d.label})` : ''}`).join(', ')
+              : null
+            const priceStr = tiers.length > 0
+              ? `от ${Math.min(...tiers.map(t => t.price)).toLocaleString('ru-RU')} ₽`
+              : ev.price ? `${Number(ev.price).toLocaleString('ru-RU')} ₽` : null
+            return (
+              <div key={ev.id} style={{background:'#fff', borderRadius:20, border:'1px solid #f0f0f0', overflow:'hidden', marginBottom:12}}>
+                {ev.image_url && (
+                  <img src={ev.image_url} alt="" style={{width:'100%', aspectRatio:'16/9', objectFit:'cover', display:'block'}} />
+                )}
+                <div style={{padding:16}}>
+                  <div style={{fontSize:16, fontWeight:600, color:'#2a2a2a', marginBottom:6}}>{ev.name}</div>
+                  {dateStr && <div style={{fontSize:12, color:'#2980b9', marginBottom:6}}>📅 {dateStr}</div>}
+                  {ev.description && <div style={{fontSize:13, color:'#888', lineHeight:1.6, marginBottom:10}}>{ev.description}</div>}
+                  <div style={{display:'flex', gap:8, flexWrap:'wrap', marginBottom:12}}>
+                    {ev.hall && <span style={{fontSize:11, background:'#f5f5f5', color:'#888', padding:'3px 10px', borderRadius:20}}>{ev.hall}</span>}
+                    {ev.age_info && <span style={{fontSize:11, background:'#f5f5f5', color:'#888', padding:'3px 10px', borderRadius:20}}>{ev.age_info}</span>}
+                    {ev.max_participants && <span style={{fontSize:11, background:'#f5f5f5', color:'#888', padding:'3px 10px', borderRadius:20}}>до {ev.max_participants} чел.</span>}
+                  </div>
+                  {tiers.length > 0 && (
+                    <div style={{marginBottom:12}}>
+                      {tiers.map((t,i) => (
+                        <div key={i} style={{display:'flex', justifyContent:'space-between', padding:'6px 0', borderBottom:'1px solid #f8f8f8', fontSize:13}}>
+                          <span style={{color:'#888'}}>{t.label || `Места ${t.position_from}–${t.position_to || '∞'}`}</span>
+                          <span style={{fontWeight:600, color:'#2a2a2a'}}>{Number(t.price).toLocaleString('ru-RU')} ₽</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                    {priceStr && <div style={{fontSize:20, fontWeight:300, color:'#2a2a2a'}}>{priceStr}</div>}
+                    <button onClick={() => alert('Оплата скоро будет доступна!')}
+                      style={{background:'#BFD900', border:'none', borderRadius:12, padding:'10px 24px', fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+                      Записаться
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )
+          })
         ) : activeCat === 'indiv' ? (
           indivLoading ? (
             <div style={{textAlign:'center', color:'#BDBDBD', padding:40}}>Загрузка...</div>

@@ -17,7 +17,7 @@ function getDays(count = 30) {
 
 const DAYS = getDays(30)
 
-export default function Schedule({ session }) {
+export default function Schedule({ session, onShop }) {
   const [activeDay, setActiveDay] = useState(() => {
     const saved = parseInt(localStorage.getItem('schedule_day') || '0')
     return saved < DAYS.length ? saved : 0
@@ -26,6 +26,7 @@ export default function Schedule({ session }) {
   const [booked, setBooked] = useState([])
   const [showPushBanner, setShowPushBanner] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [dayEvents, setDayEvents] = useState([])
 
   const goDay = (i) => { setActiveDay(i); localStorage.setItem('schedule_day', i) }
 
@@ -66,6 +67,18 @@ export default function Schedule({ session }) {
       setLoading(false)
     }
     getClasses()
+
+    const getEvents = async () => {
+      const dateStr = DAYS[activeDay].date
+      const { data } = await supabase
+        .from('event_dates')
+        .select('*, event:events!event_dates_event_id_fkey(id, name, description, hall, price, image_url, is_available_online, allow_client_booking)')
+        .lte('date_start', dateStr)
+        .gte('date_end', dateStr)
+        .eq('event.is_active', true)
+      setDayEvents((data || []).filter(d => d.event))
+    }
+    getEvents()
   }, [activeDay])
 
   const formatTime = (dt) => new Date(dt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' })
@@ -158,11 +171,6 @@ export default function Schedule({ session }) {
                   ) : teacherName ? (
                     <div style={{fontSize:11, color:'#888', marginTop:2}}>{teacherName}</div>
                   ) : null}
-
-                  {/* Тип мероприятия */}
-                  {isEvent && (
-                    <div style={{fontSize:10, color:'#7B1FA2', marginTop:3, fontWeight:600}}>🎭 Мероприятие</div>
-                  )}
                 </div>
 
                 {/* Кнопка записи */}
@@ -182,6 +190,36 @@ export default function Schedule({ session }) {
           )
         })}
       </div>
+
+      {dayEvents.length > 0 && (
+        <div style={{padding:'12px 20px 0'}}>
+          <div style={{fontSize:11, color:'#BDBDBD', textTransform:'uppercase', letterSpacing:'0.08em', fontWeight:600, marginBottom:10}}>
+            Мероприятия
+          </div>
+          {dayEvents.map(d => {
+            const ev = d.event
+            return (
+              <div key={d.id} style={{background:'#fff', borderRadius:16, padding:'14px 16px', marginBottom:10, border:'1px solid #f0f0f0', borderLeft:'3px solid #8e44ad'}}>
+                <div style={{fontSize:11, color:'#8e44ad', fontWeight:600, marginBottom:4}}>
+                  🎭 Мероприятие{d.time_start ? ` · ${d.time_start.slice(0,5)}${d.time_end ? '–'+d.time_end.slice(0,5) : ''}` : ''}
+                </div>
+                <div style={{fontSize:14, color:'#2a2a2a', fontWeight:500, marginBottom:4}}>{ev.name}</div>
+                {ev.hall && <div style={{fontSize:11, color:'#BDBDBD', marginBottom:4}}>{ev.hall}</div>}
+                {ev.description && <div style={{fontSize:12, color:'#888', marginBottom:8, lineHeight:1.5}}>{ev.description}</div>}
+                <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                  {ev.price && <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a'}}>{Number(ev.price).toLocaleString('ru-RU')} ₽</div>}
+                  {ev.allow_client_booking && (
+                    <button onClick={() => onShop?.()}
+                      style={{background:'#BFD900', border:'none', borderRadius:10, padding:'7px 16px', fontSize:12, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+                      Записаться →
+                    </button>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
 
       {showPushBanner && (
         <div style={{margin:'16px 20px', background:'#fff', border:'1px solid #f0f0f0', borderRadius:16, padding:16}}>

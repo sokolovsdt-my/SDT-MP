@@ -42,7 +42,7 @@ function ClientApp({ session }) {
   return (
     <div style={{maxWidth:480,margin:'0 auto',background:'#F8F8F8',minHeight:'100vh',paddingBottom:80,width:'100%',boxSizing:'border-box'}}>
       {page==='home'     && <Home     session={session} onNewsAll={() => goTo('news')} onTeam={() => goTo('team')} onBonus={() => goTo('bonus')} />}
-      {page==='schedule' && <Schedule session={session} />}
+      {page==='schedule' && <Schedule session={session} onShop={() => { localStorage.setItem('shop_cat', 'events'); goTo('shop') }} />}
       {page==='shop'     && <Shop     session={session} onTeam={() => goTo('team')} />}
       {page==='news'     && <News     session={session} onBack={() => goTo('home')} />}
       {page==='bonus'    && <Bonus    session={session} />}

@@ -402,6 +402,7 @@ export default function AdminSchedule({ session }) {
   const [filterHall, setFilterHall] = useState('all')
   const [attendanceLesson, setAttendanceLesson] = useState(null)
   const [eventsList, setEventsList] = useState([])
+  const [eventDates, setEventDates] = useState([])
 
   useEffect(() => { loadAll() }, [currentDate, view])
 
@@ -434,6 +435,12 @@ export default function AdminSchedule({ session }) {
     const { data: s } = await supabase.from('profiles').select('id, full_name, email').eq('role', 'client')
     const { data: eventsData } = await supabase.from('events').select('*').eq('is_active', true).order('name')
     setEventsList(eventsData || [])
+    const { data: edData } = await supabase
+      .from('event_dates')
+      .select('*, event:events!event_dates_event_id_fkey(id, name, hall, teacher_id, teacher:profiles!events_teacher_id_fkey(full_name))')
+      .lte('date_start', to.toISOString().split('T')[0])
+      .gte('date_end', from.toISOString().split('T')[0])
+    setEventDates((edData || []).filter(d => d.event))
     setStudents(s || [])
     const { data: g } = await supabase.from('groups').select('id, name, color')
     setGroups(g || [])
@@ -457,6 +464,11 @@ export default function AdminSchedule({ session }) {
   })
 
   const eventsForDay = (date) => filteredEvents.filter(ev => isSameDay(new Date(ev.starts_at), date))
+
+  const eventDatesForDay = (date) => {
+    const dateStr = date.toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' })
+    return eventDates.filter(d => d.date_start <= dateStr && d.date_end >= dateStr)
+  }
 
   const navigate = (dir) => {
     const d = new Date(currentDate)
@@ -667,6 +679,22 @@ export default function AdminSchedule({ session }) {
                 <div style={{position:'relative', height:totalHeight}}>
                   <HourLines />
                   {eventsForDay(currentDate).map(ev => <EventBlock key={ev.id} ev={ev} width="97%" left="1.5%" />)}
+                  {eventDatesForDay(currentDate).map(d => (
+                    <div key={d.id} onClick={() => {}} style={{
+                      position:'absolute',
+                      top: d.time_start ? ((parseInt(d.time_start)-START_HOUR)*HOUR_HEIGHT) : 0,
+                      left:'1.5%', width:'97%',
+                      height: d.time_start && d.time_end ? Math.max(((parseInt(d.time_end)-parseInt(d.time_start))*HOUR_HEIGHT)-4, 20) : 40,
+                      background:'#F3E5F5', border:'1.5px solid #7B1FA2', borderRadius:6,
+                      padding:'4px 7px', cursor:'pointer', overflow:'hidden', zIndex:2, boxSizing:'border-box'
+                    }}>
+                      <div style={{fontSize:10, fontWeight:700, color:'#4A148C'}}>
+                        {d.time_start && d.time_end && <div>{d.time_start.slice(0,5)}–{d.time_end.slice(0,5)}</div>}
+                        <div>🎭 {d.event.name}</div>
+                        {d.event.hall && <div style={{fontWeight:400, opacity:0.8}}>{d.event.hall}</div>}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
@@ -698,6 +726,21 @@ export default function AdminSchedule({ session }) {
                   <div key={i} style={{flex:1, borderRight:'1px solid #f0f0f0', position:'relative', height:totalHeight}}>
                     <HourLines />
                     {eventsForDay(d).map(ev => <EventBlock key={ev.id} ev={ev} />)}
+                    {eventDatesForDay(d).map(ed => (
+                      <div key={ed.id} style={{
+                        position:'absolute',
+                        top: ed.time_start ? ((parseInt(ed.time_start)-START_HOUR)*HOUR_HEIGHT) : 0,
+                        left:'2%', width:'95%',
+                        height: ed.time_start && ed.time_end ? Math.max(((parseInt(ed.time_end)-parseInt(ed.time_start))*HOUR_HEIGHT)-4, 20) : 40,
+                        background:'#F3E5F5', border:'1.5px solid #7B1FA2', borderRadius:6,
+                        padding:'4px 7px', overflow:'hidden', zIndex:2, boxSizing:'border-box', cursor:'pointer'
+                      }}>
+                        <div style={{fontSize:10, fontWeight:700, color:'#4A148C'}}>
+                          {ed.time_start && <div>{ed.time_start.slice(0,5)}–{ed.time_end?.slice(0,5)}</div>}
+                          <div>🎭 {ed.event.name}</div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 ))}
               </div>
@@ -719,6 +762,11 @@ export default function AdminSchedule({ session }) {
                     <div key={i} onClick={() => {setCurrentDate(cell.date); setView('day')}}
                       style={{minHeight:80, padding:'5px', borderRight:'1px solid #f8f8f8', borderBottom:'1px solid #f8f8f8', background:isToday?'#fafde8':cell.current?'#fff':'#fafafa', cursor:'pointer'}}>
                       <div style={{fontSize:11, fontWeight:isToday?700:400, color:isToday?'#6a7700':cell.current?'#2a2a2a':'#BDBDBD', marginBottom:3}}>{cell.date.getDate()}</div>
+                      {eventDatesForDay(cell.date).map(ed => (
+                        <div key={ed.id} style={{background:'#F3E5F5', border:'1px solid #7B1FA2', borderRadius:4, padding:'1px 5px', marginBottom:2, fontSize:10, color:'#4A148C', fontWeight:600, overflow:'hidden', whiteSpace:'nowrap', textOverflow:'ellipsis'}}>
+                          🎭 {ed.event.name}
+                        </div>
+                      ))}
                       {dayEvs.slice(0,3).map(ev => {
                         const color = getEventColor(ev, groupColorMap, groupNameMap)
                         const title = ev.groups?.name || ev.title || 'Индив'

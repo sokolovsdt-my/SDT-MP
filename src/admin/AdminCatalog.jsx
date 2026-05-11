@@ -144,7 +144,7 @@ function EventTab({ teachers, session }) {
       }
       if (dates.length > 0) {
         await supabase.from('event_dates').insert(
-          dates.map((d, i) => ({ event_id: ev.id, date_start: d.date_start, date_end: d.date_end || null, label: d.label || null, sort_order: i + 1 }))
+          dates.map((d, i) => ({ event_id: ev.id, date_start: d.date_start, date_end: d.date_end || null, time_start: d.time_start || null, time_end: d.time_end || null, label: d.label || null, sort_order: i + 1 }))
         )
       }
     }
@@ -185,7 +185,7 @@ function EventTab({ teachers, session }) {
     await supabase.from('event_dates').delete().eq('event_id', id)
     if (editDates.length > 0) {
       await supabase.from('event_dates').insert(
-        editDates.map((d, i) => ({ event_id: id, date_start: d.date_start, date_end: d.date_end || null, label: d.label || null, sort_order: i + 1 }))
+        editDates.map((d, i) => ({ event_id: id, date_start: d.date_start, date_end: d.date_end || null, time_start: d.time_start || null, time_end: d.time_end || null, label: d.label || null, sort_order: i + 1 }))
       )
     }
     setSaving(false)
@@ -221,7 +221,7 @@ function EventTab({ teachers, session }) {
     const currentTiers = (eventTiers[ev.id] || []).map(t => ({ from: t.position_from, to: t.position_to || '', price: t.price, label: t.label || '' }))
     setEditTiers(currentTiers)
     const { data: datesData } = await supabase.from('event_dates').select('*').eq('event_id', ev.id).order('sort_order')
-    setEditDates((datesData || []).map(d => ({ date_start: d.date_start, date_end: d.date_end || '', label: d.label || '' })))
+    setEditDates((datesData || []).map(d => ({ date_start: d.date_start, date_end: d.date_end || '', time_start: d.time_start || '', time_end: d.time_end || '', label: d.label || '' })))
     setOpenEvent(ev.id)
   }
 
@@ -275,10 +275,12 @@ function EventTab({ teachers, session }) {
           </button>
         </div>
         {dates.map((d, i) => (
-          <div key={i} style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr auto', gap:6, marginBottom:6, alignItems:'end'}}>
+          <div key={i} style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr 1fr auto', gap:6, marginBottom:6, alignItems:'end'}}>
             <div><label style={{...lblS, marginBottom:2}}>С</label><input type="date" value={d.date_start} onChange={e => { const n=[...dates]; n[i]={...n[i],date_start:e.target.value}; setDates(n) }} style={inpS} /></div>
             <div><label style={{...lblS, marginBottom:2}}>По</label><input type="date" value={d.date_end} onChange={e => { const n=[...dates]; n[i]={...n[i],date_end:e.target.value}; setDates(n) }} style={inpS} /></div>
-            <div><label style={{...lblS, marginBottom:2}}>Подпись</label><input value={d.label} placeholder="День 1, Блок 1..." onChange={e => { const n=[...dates]; n[i]={...n[i],label:e.target.value}; setDates(n) }} style={inpS} /></div>
+            <div><label style={{...lblS, marginBottom:2}}>Начало</label><input type="time" value={d.time_start||''} onChange={e => { const n=[...dates]; n[i]={...n[i],time_start:e.target.value}; setDates(n) }} style={inpS} /></div>
+            <div><label style={{...lblS, marginBottom:2}}>Конец</label><input type="time" value={d.time_end||''} onChange={e => { const n=[...dates]; n[i]={...n[i],time_end:e.target.value}; setDates(n) }} style={inpS} /></div>
+            <div><label style={{...lblS, marginBottom:2}}>Подпись</label><input value={d.label} placeholder="День 1..." onChange={e => { const n=[...dates]; n[i]={...n[i],label:e.target.value}; setDates(n) }} style={inpS} /></div>
             <button type="button" onClick={() => setDates(dates.filter((_,j)=>j!==i))}
               style={{padding:'8px', background:'#fdecea', border:'none', borderRadius:6, fontSize:12, color:'#e74c3c', cursor:'pointer', marginBottom:1}}>✕</button>
           </div>
