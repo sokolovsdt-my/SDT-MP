@@ -166,6 +166,7 @@ function MainTab({ staff, onUpdate, isOwner }) {
     phone: staff.phone || '',
     birth_date: staff.birth_date || '',
     hire_date: staff.staff_info?.hire_date || staff.staff_info?.[0]?.hire_date || '',
+    sort_order: staff.sort_order ?? 100,
   })
   const [selectedRoles, setSelectedRoles] = useState((staff.staff_roles || []).map(r => r.role))
   const [customRoleName, setCustomRoleName] = useState(staff.staff_roles?.find(r => r.role === 'other')?.custom_role_name || '')
@@ -179,6 +180,7 @@ function MainTab({ staff, onUpdate, isOwner }) {
       full_name: form.full_name,
       phone: form.phone || null,
       birth_date: form.birth_date || null,
+      sort_order: parseInt(form.sort_order) || 100,
     }).eq('id', staff.id)
     await supabase.from('staff_info').upsert({ staff_id: staff.id, hire_date: form.hire_date || null }, { onConflict: 'staff_id' })
     if (isOwner) {
@@ -210,6 +212,8 @@ function MainTab({ staff, onUpdate, isOwner }) {
       <input value={form.birth_date} onChange={e => setForm({...form, birth_date:e.target.value})} type="date" style={inputStyle} disabled={!isOwner} />
       <label style={labelStyle}>Дата найма</label>
       <input value={form.hire_date} onChange={e => setForm({...form, hire_date:e.target.value})} type="date" style={inputStyle} disabled={!isOwner} />
+      <label style={labelStyle}>Приоритет показа (меньше = выше в списке)</label>
+      <input value={form.sort_order} onChange={e => setForm({...form, sort_order:e.target.value})} type="number" min="1" max="999" style={inputStyle} disabled={!isOwner} />
       {isOwner && (
         <>
           <label style={labelStyle}>Роли</label>

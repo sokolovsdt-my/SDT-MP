@@ -4,7 +4,6 @@ import { supabase } from '../supabase'
 const DAYS_FULL = ['Воскресенье','Понедельник','Вторник','Среда','Четверг','Пятница','Суббота']
 const MONTHS = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек']
 
-// Ближайшая дата для дня недели (0=вс, 1=пн...)
 const nextDateForDay = (dayOfWeek) => {
   const today = new Date()
   const diff = (dayOfWeek - today.getDay() + 7) % 7
@@ -40,11 +39,18 @@ export default function Team({ session }) {
 
   const loadTeachers = async () => {
     setLoading(true)
+    // Берём всех у кого есть роль teacher в staff_roles
+    const { data: teacherRoles } = await supabase
+      .from('staff_roles')
+      .select('staff_id')
+      .eq('role', 'teacher')
+    const teacherIds = (teacherRoles || []).map(r => r.staff_id)
+    if (teacherIds.length === 0) { setTeachers([]); setLoading(false); return }
     const { data } = await supabase
       .from('profiles')
-      .select('id, full_name, first_name, last_name, avatar_url, bio, role')
-      .eq('role', 'teacher')
-      .order('full_name')
+      .select('id, full_name, first_name, last_name, avatar_url, bio')
+      .in('id', teacherIds)
+      .order('sort_order', { ascending: true })
     setTeachers(data || [])
     setLoading(false)
   }
@@ -57,6 +63,7 @@ export default function Team({ session }) {
       .eq('id', id).single()
     setTeacherData(profile)
 
+    // Группы препода
     const { data: grps } = await supabase
       .from('schedule')
       .select('groups(name)')
@@ -65,20 +72,16 @@ export default function Team({ session }) {
     const uniqueGroups = [...new Set((grps || []).map(g => g.groups?.name).filter(Boolean))]
     setGroups(uniqueGroups)
 
-    const { data: teacherProds } = await supabase
-      .from('product_subscription_teachers')
-      .select('product_id')
+    // Индив-пакеты из новой таблицы
+    const { data: pkgs } = await supabase
+      .from('indiv_packages')
+      .select('*')
       .eq('teacher_id', id)
-    const productIds = (teacherProds || []).map(r => r.product_id)
-    if (productIds.length > 0) {
-      const { data: prods } = await supabase
-        .from('products').select('*, product_indivs(*)')
-        .eq('type', 'indiv').eq('is_active', true).in('id', productIds)
-      setIndivProducts(prods || [])
-    } else {
-      setIndivProducts([])
-    }
+      .eq('is_active', true)
+      .order('sort_order')
+    setIndivProducts(pkgs || [])
 
+    // Слоты
     const { data: sl } = await supabase
       .from('teacher_indiv_slots')
       .select('*')
@@ -98,7 +101,6 @@ export default function Team({ session }) {
 
   const getName = (t) => t.full_name || `${t.first_name || ''} ${t.last_name || ''}`.trim() || '—'
 
-  // Группируем слоты по дню недели, сортируем по ближайшей дате
   const groupedSlots = [1,2,3,4,5,6,0].map(day => ({
     day,
     date: nextDateForDay(day),
@@ -107,19 +109,21 @@ export default function Team({ session }) {
 
   if (selected && teacherData) return (
     <div style={{fontFamily:'Inter,sans-serif', maxWidth:480, margin:'0 auto'}}>
-      {/* Фото — без обрезки */}
+      {/* Фото */}
       <div style={{position:'relative', background:'#f0f0f0'}}>
         {teacherData.avatar_url ? (
-          <img src={teacherData.avatar_url} alt="" style={{width:'100%', display:'block', objectFit:'contain', maxHeight:380}} />
+          <div style={{display:'flex', justifyContent:'center', padding:'24px 20px 0', background:'#f8f8f8'}}>
+            <img src={teacherData.avatar_url} alt="" style={{width:200, height:200, objectFit:'cover', borderRadius:16, display:'block'}} />
+          </div>
         ) : (
-          <div style={{width:'100%', height:260, background:'linear-gradient(135deg, #2a2a2a, #444)', display:'flex', alignItems:'center', justifyContent:'center'}}>
+          <div style={{width:'100%', height:200, background:'linear-gradient(135deg, #2a2a2a, #444)', display:'flex', alignItems:'center', justifyContent:'center'}}>
             <div style={{width:80, height:80, background:'#BFD900', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:28, fontWeight:700, color:'#2a2a2a'}}>
               {initials(teacherData)}
             </div>
           </div>
         )}
         <div onClick={() => goSelect(null)}
-          style={{position:'absolute', top:16, left:16, width:36, height:36, background:'rgba(0,0,0,0.5)', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'#fff', fontSize:18}}>
+          style={{position:'absolute', top:16, left:16, width:36, height:36, background:'rgba(0,0,0,0.45)', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'#fff', fontSize:18}}>
           ←
         </div>
       </div>
@@ -154,7 +158,9 @@ export default function Team({ session }) {
 
         {tab === 'info' && (
           <div style={{paddingBottom:20}}>
-            {groups.length === 0 && !teacherData.bio && <div style={{fontSize:13, color:'#BDBDBD'}}>Нет информации</div>}
+            {groups.length === 0 && !teacherData.bio && (
+              <div style={{fontSize:13, color:'#BDBDBD', textAlign:'center', padding:20}}>Нет информации</div>
+            )}
           </div>
         )}
 
@@ -165,10 +171,12 @@ export default function Team({ session }) {
             ) : indivProducts.map(p => (
               <div key={p.id} style={{background:'#fff', borderRadius:16, border:'1px solid #f0f0f0', padding:16, marginBottom:12}}>
                 <div style={{fontSize:15, fontWeight:600, color:'#2a2a2a', marginBottom:4}}>{p.name}</div>
-                {p.description && <div style={{fontSize:12, color:'#888', marginBottom:12, lineHeight:1.5}}>{p.description}</div>}
+                <div style={{fontSize:11, color:'#BDBDBD', marginBottom:12}}>
+                  {p.visits_count} {p.visits_count === 1 ? 'занятие' : p.visits_count < 5 ? 'занятия' : 'занятий'} · действует {p.duration_days} дней
+                </div>
                 <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
                   <div style={{fontSize:20, color:'#2a2a2a', fontWeight:300}}>
-                    {Number(p.price).toLocaleString()} <span style={{fontSize:12, color:'#BDBDBD'}}>₽</span>
+                    {Number(p.price).toLocaleString('ru-RU')} <span style={{fontSize:12, color:'#BDBDBD'}}>₽</span>
                   </div>
                   <button onClick={() => alert('Оплата скоро будет доступна!')}
                     style={{background:'#BFD900', border:'none', borderRadius:12, padding:'9px 20px', fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>

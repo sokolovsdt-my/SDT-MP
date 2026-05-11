@@ -69,12 +69,18 @@ export default function Shop({ session }) {
   }, [selectedTeacher])
 
   const loadTeachers = async () => {
+    // Берём только тех преподов у кого есть активные пакеты
     const { data } = await supabase
-      .from('profiles')
-      .select('id, full_name, first_name, last_name, avatar_url, bio')
-      .eq('role', 'teacher')
-      .order('full_name')
-    setTeachers(data || [])
+      .from('indiv_packages')
+      .select('teacher:profiles!indiv_packages_teacher_id_fkey(id, full_name, first_name, last_name, avatar_url, bio, sort_order)')
+      .eq('is_active', true)
+    // Дедупликация по teacher_id
+    const seen = new Set()
+    const unique = (data || [])
+      .map(d => d.teacher)
+      .filter(t => t && !seen.has(t.id) && seen.add(t.id))
+      .sort((a, b) => (a.sort_order || 100) - (b.sort_order || 100))
+    setTeachers(unique)
   }
 
   const loadTeacherDetail = async (id) => {
@@ -93,23 +99,13 @@ export default function Shop({ session }) {
     const uniqueGroups = [...new Set((grps || []).map(g => g.groups?.name).filter(Boolean))]
     setGroups(uniqueGroups)
 
-    const { data: teacherProds } = await supabase
-      .from('product_subscription_teachers')
-      .select('product_id')
+    const { data: pkgs } = await supabase
+      .from('indiv_packages')
+      .select('*')
       .eq('teacher_id', id)
-    const productIds = (teacherProds || []).map(r => r.product_id)
-
-    if (productIds.length > 0) {
-      const { data: prods } = await supabase
-        .from('products')
-        .select('*, product_indivs(*)')
-        .eq('type', 'indiv')
-        .eq('is_active', true)
-        .in('id', productIds)
-      setIndivProducts(prods || [])
-    } else {
-      setIndivProducts([])
-    }
+      .eq('is_active', true)
+      .order('sort_order')
+    setIndivProducts(pkgs || [])
 
     const { data: sl } = await supabase
       .from('teacher_indiv_slots')
@@ -140,7 +136,9 @@ export default function Shop({ session }) {
       </div>
 
       {teacherData.avatar_url && (
-        <img src={teacherData.avatar_url} alt="" style={{width:'100%', display:'block', objectFit:'contain', borderRadius:16, marginBottom:12, background:'#f0f0f0'}} />
+        <div style={{display:'flex', justifyContent:'center', marginBottom:16}}>
+          <img src={teacherData.avatar_url} alt="" style={{width:200, height:200, objectFit:'cover', borderRadius:16, display:'block'}} />
+        </div>
       )}
 
       {teacherData.bio && (
@@ -173,7 +171,9 @@ export default function Shop({ session }) {
         ) : indivProducts.map(p => (
           <div key={p.id} style={{background:'#fff', borderRadius:16, border:'1px solid #f0f0f0', padding:16, marginBottom:12}}>
             <div style={{fontSize:15, fontWeight:600, color:'#2a2a2a', marginBottom:4}}>{p.name}</div>
-            {p.description && <div style={{fontSize:12, color:'#888', marginBottom:12, lineHeight:1.5}}>{p.description}</div>}
+            <div style={{fontSize:11, color:'#BDBDBD', marginBottom:8}}>
+              {p.visits_count} {p.visits_count === 1 ? 'занятие' : p.visits_count < 5 ? 'занятия' : 'занятий'} · действует {p.duration_days} дней
+            </div>
             <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
               <div style={{fontSize:20, color:'#2a2a2a', fontWeight:300}}>
                 {Number(p.price).toLocaleString()} <span style={{fontSize:12, color:'#BDBDBD'}}>₽</span>
