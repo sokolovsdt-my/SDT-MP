@@ -85,6 +85,30 @@ export default function Schedule({ session, onShop }) {
 
   const handleBook = async (cls) => {
     if (booked.includes(cls.id)) return
+
+    const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' })
+    const { data: subs } = await supabase
+      .from('subscriptions')
+      .select('id, visits_total, visits_used, expires_at, subscription_allowed_groups(group_id)')
+      .eq('student_id', session.user.id)
+      .eq('is_frozen', false)
+      .or(`expires_at.is.null,expires_at.gte.${today}`)
+
+    const matching = (subs || []).find(s => {
+      if (s.visits_total !== null && s.visits_used >= s.visits_total) return false
+      const groups = s.subscription_allowed_groups || []
+      if (groups.length === 0) return true
+      return groups.some(g => g.group_id === cls.group_id)
+    })
+
+    if (!matching) {
+      const hasAny = (subs || []).length > 0
+      alert(!hasAny
+        ? 'У вас нет активного абонемента. Приобретите его в магазине.'
+        : 'Ваш абонемент не подходит для этой группы или закончились занятия.')
+      return
+    }
+
     const { error } = await supabase.from('bookings').insert({
       student_id: session.user.id,
       schedule_id: cls.id,
