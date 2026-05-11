@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabase'
 
@@ -8,10 +8,732 @@ const SUB_TYPES = { unlimited: 'Безлимит', count: 'На количест
 
 const inputStyle = { width:'100%', padding:'8px 12px', border:'1px solid #e8e8e8', borderRadius:8, fontSize:13, boxSizing:'border-box', fontFamily:'Inter,sans-serif', marginBottom:8 }
 const labelStyle = { fontSize:12, color:'#888', marginBottom:4, fontWeight:600, display:'block' }
+const inpS = { width:'100%', padding:'8px 10px', border:'1px solid #e8e8e8', borderRadius:8, fontSize:13, boxSizing:'border-box', fontFamily:'Inter,sans-serif' }
+const lblS = { fontSize:11, color:'#888', marginBottom:4, fontWeight:600, display:'block' }
 
 const BADGE_COLORS = ['#BFD900','#27ae60','#e74c3c','#2980b9','#f39c12','#8e44ad','#2a2a2a','#e0e0e0']
 const BADGE_EMOJIS = ['🔥','⭐','💥','🎉','✅','👑','🏆','💪','🚀','❤️','💚','💛','🎯','🌟','⚡','🎁','👍','😎','🆕','💎']
 const textColor = (bg) => ['#BFD900','#f39c12','#e0e0e0'].includes(bg) ? '#2a2a2a' : '#fff'
+
+const MERCH_BADGES = [
+  { id:'popular', text:'🔥 Популярное', color:'#e74c3c' },
+  { id:'new', text:'🆕 Новинка', color:'#2980b9' },
+  { id:'limited', text:'💎 Лимитированное', color:'#8e44ad' },
+  { id:'season', text:'🌸 Сезонное', color:'#f39c12' },
+  { id:'hit', text:'⭐ Хит продаж', color:'#27ae60' },
+  { id:'sale', text:'🏷️ Скидка', color:'#e74c3c' },
+  { id:'gift', text:'🎁 Подарочное', color:'#2980b9' },
+]
+
+const MERCH_CATEGORIES = [
+  { id:'clothing', label:'Одежда' },
+  { id:'accessories', label:'Аксессуары' },
+  { id:'stationery', label:'Канцелярия' },
+  { id:'other', label:'Другое' },
+]
+
+// ─── Загрузка фото в storage ───────────────────────────────────────────────────
+async function uploadMerchImage(file, productId) {
+  const ext = file.name.split('.').pop()
+  const path = `${productId}/${Date.now()}.${ext}`
+  const { error } = await supabase.storage.from('merch').upload(path, file)
+  if (error) return null
+  const { data } = supabase.storage.from('merch').getPublicUrl(path)
+  return data.publicUrl
+}
+
+// ─── Форма редактирования варианта ────────────────────────────────────────────
+function VariantEditForm({ variant, colorName, onSave, onClose }) {
+  const [form, setForm] = useState({
+    price: variant.price || '',
+    coins_price: variant.coins_price || '',
+    stock_count: variant.stock_count ?? 0,
+    is_active: variant.is_active ?? true,
+    size: variant.size || '',
+  })
+  const [saving, setSaving] = useState(false)
+  const label = `${colorName}${variant.size ? ' / ' + variant.size : ''}`
+
+  const handleSave = async () => {
+    setSaving(true)
+    await supabase.from('merch_variants').update({
+      price: parseFloat(form.price) || 0,
+      coins_price: form.coins_price ? parseInt(form.coins_price) : null,
+      stock_count: parseInt(form.stock_count) || 0,
+      is_active: form.is_active,
+      size: form.size || null,
+    }).eq('id', variant.id)
+    setSaving(false)
+    onSave()
+  }
+
+  return (
+    <div style={{padding:14, border:'1.5px solid #BFD900', borderRadius:10, background:'#fafde8', marginTop:8}}>
+      <div style={{fontSize:13, fontWeight:600, color:'#2a2a2a', marginBottom:12}}>
+        Редактировать: {label}
+      </div>
+      <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, marginBottom:10}}>
+        <div>
+          <label style={lblS}>Размер</label>
+          <input value={form.size} onChange={e => setForm({...form, size:e.target.value})} placeholder="M, L, XL..." style={inpS} />
+        </div>
+        <div>
+          <label style={lblS}>Цена (₽)</label>
+          <input type="number" min="0" value={form.price} onChange={e => setForm({...form, price:e.target.value})} style={inpS} />
+        </div>
+        <div>
+          <label style={lblS}>Цена (SDTшки)</label>
+          <input type="number" min="0" value={form.coins_price} onChange={e => setForm({...form, coins_price:e.target.value})} placeholder="необязательно" style={inpS} />
+        </div>
+      </div>
+      <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:12}}>
+        <div>
+          <label style={lblS}>Остаток (шт)</label>
+          <input type="number" min="0" value={form.stock_count} onChange={e => setForm({...form, stock_count:e.target.value})} style={inpS} />
+        </div>
+        <div style={{display:'flex', alignItems:'flex-end', paddingBottom:4}}>
+          <label style={{display:'flex', alignItems:'center', gap:8, fontSize:13, color:'#2a2a2a', cursor:'pointer'}}>
+            <input type="checkbox" checked={form.is_active} onChange={e => setForm({...form, is_active:e.target.checked})} />
+            Активен (продаётся)
+          </label>
+        </div>
+      </div>
+      <div style={{display:'flex', gap:8}}>
+        <button onClick={handleSave} disabled={saving}
+          style={{padding:'8px 16px', background:'#BFD900', border:'none', borderRadius:8, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+          {saving ? 'Сохраняем...' : 'Сохранить'}
+        </button>
+        <button onClick={onClose}
+          style={{padding:'8px 14px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:8, fontSize:12, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+          Отмена
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Вкладка Мерч ─────────────────────────────────────────────────────────────
+function MerchTab({ session }) {
+  const [products, setProducts] = useState([])
+  const [archived, setArchived] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [showArchive, setShowArchive] = useState(false)
+  const [openProduct, setOpenProduct] = useState(null)
+  const [openColor, setOpenColor] = useState({})
+  const [editingVariant, setEditingVariant] = useState(null)
+  const [showForm, setShowForm] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const fileRef = useRef()
+
+  const [form, setForm] = useState({
+    name:'', description:'', category:'clothing',
+    is_available_online:true, sort_order:100,
+    allow_preorder:false, low_stock_threshold:3,
+    badge_text:'', badge_color:'#BFD900',
+    image_url:'',
+  })
+  const [imageFile, setImageFile] = useState(null)
+  const [imagePreview, setImagePreview] = useState(null)
+
+  // Форма нового цвета
+  const [newColorFor, setNewColorFor] = useState(null)
+  const [newColor, setNewColor] = useState({ color:'', color_hex:'#000000', size:'', price:'', coins_price:'', stock_count:0 })
+
+  // Редактирование товара
+  const [editingProduct, setEditingProduct] = useState(null)
+  const [editForm, setEditForm] = useState(null)
+  const [editImageFile, setEditImageFile] = useState(null)
+  const [editImagePreview, setEditImagePreview] = useState(null)
+  const editFileRef = useRef()
+
+  const openEdit = (product) => {
+    setEditingProduct(product.id)
+    setEditForm({
+      name: product.name || '',
+      description: product.description || '',
+      category: product.category || 'clothing',
+      is_available_online: product.is_available_online ?? true,
+      sort_order: product.sort_order ?? 100,
+      allow_preorder: product.allow_preorder ?? false,
+      low_stock_threshold: product.low_stock_threshold ?? 3,
+      badge_text: product.badge_text || '',
+      badge_color: product.badge_color || '#BFD900',
+      image_url: product.image_url || '',
+    })
+    setEditImageFile(null)
+    setEditImagePreview(product.image_url || null)
+    setOpenProduct(product.id)
+  }
+
+  const handleUpdate = async (productId) => {
+    if (!editForm?.name?.trim()) return
+    setSaving(true)
+    let imageUrl = editForm.image_url
+    if (editImageFile) {
+      const url = await uploadMerchImage(editImageFile, productId)
+      if (url) imageUrl = url
+    }
+    await supabase.from('merch_products').update({
+      name: editForm.name.trim(),
+      description: editForm.description || null,
+      category: editForm.category,
+      is_available_online: editForm.is_available_online,
+      sort_order: parseInt(editForm.sort_order) || 100,
+      allow_preorder: editForm.allow_preorder,
+      low_stock_threshold: parseInt(editForm.low_stock_threshold) || 3,
+      badge_text: editForm.badge_text || null,
+      badge_color: editForm.badge_color || null,
+      image_url: imageUrl || null,
+    }).eq('id', productId)
+    setSaving(false)
+    setEditingProduct(null)
+    setEditForm(null)
+    setEditImageFile(null)
+    setEditImagePreview(null)
+    load()
+  }
+
+  useEffect(() => { load() }, [])
+
+  const load = async () => {
+    setLoading(true)
+    const { data } = await supabase
+      .from('merch_products')
+      .select('*, merch_variants(*), merch_images(*), merch_preorders(id)')
+      .order('sort_order')
+    setProducts((data || []).filter(p => p.is_active))
+    setArchived((data || []).filter(p => !p.is_active))
+    setLoading(false)
+  }
+
+  const handleImageChange = (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    setImageFile(file)
+    setImagePreview(URL.createObjectURL(file))
+  }
+
+  const handleCreate = async () => {
+    if (!form.name.trim()) return
+    setSaving(true)
+    const { data: product } = await supabase.from('merch_products').insert({
+      name: form.name.trim(),
+      description: form.description || null,
+      category: form.category,
+      is_available_online: form.is_available_online,
+      sort_order: parseInt(form.sort_order) || 100,
+      allow_preorder: form.allow_preorder,
+      low_stock_threshold: parseInt(form.low_stock_threshold) || 3,
+      badge_text: form.badge_text || null,
+      badge_color: form.badge_color || null,
+      is_active: true,
+      created_by: session.user.id,
+    }).select().single()
+
+    if (product && imageFile) {
+      const url = await uploadMerchImage(imageFile, product.id)
+      if (url) {
+        await supabase.from('merch_products').update({ image_url: url }).eq('id', product.id)
+        await supabase.from('merch_images').insert({ product_id: product.id, url, sort_order: 1 })
+      }
+    }
+    setSaving(false)
+    setShowForm(false)
+    setForm({ name:'', description:'', category:'clothing', is_available_online:true, sort_order:100, allow_preorder:false, low_stock_threshold:3, badge_text:'', badge_color:'#BFD900', image_url:'' })
+    setImageFile(null); setImagePreview(null)
+    load()
+  }
+
+  const handleArchive = async (id) => {
+    if (!confirm('Архивировать товар?')) return
+    await supabase.from('merch_products').update({ is_active: false }).eq('id', id)
+    load()
+  }
+
+  const handleRestore = async (id) => {
+    await supabase.from('merch_products').update({ is_active: true }).eq('id', id)
+    load()
+  }
+
+  const handleAddVariant = async (productId) => {
+    if (!newColor.color || !newColor.price) return
+    setSaving(true)
+    await supabase.from('merch_variants').insert({
+      product_id: productId,
+      color: newColor.color,
+      color_hex: newColor.color_hex || null,
+      size: newColor.size || null,
+      price: parseFloat(newColor.price),
+      coins_price: newColor.coins_price ? parseInt(newColor.coins_price) : null,
+      stock_count: parseInt(newColor.stock_count) || 0,
+      is_active: true,
+      sort_order: 100,
+    })
+    setSaving(false)
+    setNewColorFor(null)
+    setNewColor({ color:'', color_hex:'#000000', size:'', price:'', coins_price:'', stock_count:0 })
+    load()
+  }
+
+  const toggleColor = (productId, color) => {
+    const key = `${productId}-${color}`
+    setOpenColor(prev => ({ ...prev, [key]: !prev[key] }))
+  }
+
+  const getStockStatus = (stock, threshold) => {
+    if (stock === 0) return 'out'
+    if (stock <= threshold) return 'low'
+    return 'ok'
+  }
+
+  const getVariantsByColor = (variants) => {
+    const map = {}
+    ;(variants || []).forEach(v => {
+      const c = v.color || 'Без цвета'
+      if (!map[c]) map[c] = { hex: v.color_hex, variants: [] }
+      map[c].variants.push(v)
+    })
+    return map
+  }
+
+  if (loading) return <div style={{textAlign:'center', color:'#BDBDBD', padding:40}}>Загрузка...</div>
+
+  return (
+    <div>
+      <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16}}>
+        <div style={{fontSize:13, color:'#888'}}>
+          {products.length} товаров · {(products.reduce((s,p) => s + (p.merch_variants||[]).length, 0))} вариантов
+        </div>
+        <button onClick={() => setShowForm(!showForm)}
+          style={{padding:'9px 20px', background:'#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+          {showForm ? 'Закрыть' : '+ Добавить товар'}
+        </button>
+      </div>
+
+      {/* Форма добавления товара */}
+      {showForm && (
+        <div style={{background:'#fff', borderRadius:14, border:'1.5px solid #BFD900', padding:20, marginBottom:16}}>
+          <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a', marginBottom:14}}>Новый товар</div>
+
+          <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10}}>
+            <div>
+              <label style={lblS}>Название *</label>
+              <input value={form.name} onChange={e => setForm({...form, name:e.target.value})} placeholder="Футболка SDT" style={inpS} />
+            </div>
+            <div>
+              <label style={lblS}>Категория</label>
+              <select value={form.category} onChange={e => setForm({...form, category:e.target.value})} style={inpS}>
+                {MERCH_CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <label style={lblS}>Описание</label>
+          <textarea value={form.description} onChange={e => setForm({...form, description:e.target.value})}
+            placeholder="Описание товара..." rows={2}
+            style={{...inpS, marginBottom:10, resize:'vertical'}} />
+
+          <label style={lblS}>Фото товара</label>
+          <div onClick={() => fileRef.current?.click()}
+            style={{border:'1.5px dashed #e0e0e0', borderRadius:10, padding:'16px', textAlign:'center', cursor:'pointer', marginBottom:10, background:'#fafafa', position:'relative', overflow:'hidden'}}>
+            {imagePreview ? (
+              <img src={imagePreview} alt="" style={{maxHeight:120, maxWidth:'100%', borderRadius:8, objectFit:'contain'}} />
+            ) : (
+              <>
+                <div style={{fontSize:24, marginBottom:4}}>📸</div>
+                <div style={{fontSize:12, color:'#888'}}>Нажмите для загрузки фото</div>
+              </>
+            )}
+          </div>
+          <input ref={fileRef} type="file" accept="image/*" onChange={handleImageChange} style={{display:'none'}} />
+
+          <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, marginBottom:10}}>
+            <div>
+              <label style={lblS}>Приоритет</label>
+              <input type="number" value={form.sort_order} onChange={e => setForm({...form, sort_order:e.target.value})} style={inpS} />
+            </div>
+            <div>
+              <label style={lblS}>Порог «мало» (шт)</label>
+              <input type="number" value={form.low_stock_threshold} onChange={e => setForm({...form, low_stock_threshold:e.target.value})} style={inpS} />
+            </div>
+            <div style={{display:'flex', flexDirection:'column', justifyContent:'flex-end', paddingBottom:2, gap:6}}>
+              <label style={{display:'flex', alignItems:'center', gap:6, fontSize:12, color:'#2a2a2a', cursor:'pointer'}}>
+                <input type="checkbox" checked={form.is_available_online} onChange={e => setForm({...form, is_available_online:e.target.checked})} />
+                В магазине
+              </label>
+              <label style={{display:'flex', alignItems:'center', gap:6, fontSize:12, color:'#2a2a2a', cursor:'pointer'}}>
+                <input type="checkbox" checked={form.allow_preorder} onChange={e => setForm({...form, allow_preorder:e.target.checked})} />
+                Разрешить предзаказ
+              </label>
+            </div>
+          </div>
+
+          <label style={lblS}>Виджет (значок)</label>
+          <div style={{display:'flex', flexWrap:'wrap', gap:6, marginBottom:12}}>
+            <button onClick={() => setForm({...form, badge_text:''})}
+              style={{padding:'5px 12px', borderRadius:20, border:'1px solid #e0e0e0', background: !form.badge_text ? '#f5f5f5' : '#fff', fontSize:12, cursor:'pointer', color:'#888', fontFamily:'Inter,sans-serif'}}>
+              Без виджета
+            </button>
+            {MERCH_BADGES.map(b => (
+              <button key={b.id} onClick={() => setForm({...form, badge_text:b.text, badge_color:b.color})}
+                style={{padding:'5px 12px', borderRadius:20, border:`1px solid ${form.badge_text===b.text ? b.color : '#e0e0e0'}`,
+                  background: form.badge_text===b.text ? b.color+'22' : '#fff',
+                  color: form.badge_text===b.text ? b.color : '#888', fontSize:12, cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight: form.badge_text===b.text ? 600 : 400}}>
+                {b.text}
+              </button>
+            ))}
+          </div>
+
+          <div style={{display:'flex', gap:8}}>
+            <button onClick={handleCreate} disabled={saving || !form.name.trim()}
+              style={{padding:'9px 20px', background:'#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif', opacity:(!form.name.trim()||saving)?0.5:1}}>
+              {saving ? 'Создаём...' : 'Создать товар'}
+            </button>
+            <button onClick={() => setShowForm(false)}
+              style={{padding:'9px 16px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:10, fontSize:13, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+              Отмена
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Список товаров */}
+      <div style={{display:'flex', flexDirection:'column', gap:12}}>
+        {products.length === 0 && !showForm && (
+          <div style={{textAlign:'center', color:'#BDBDBD', padding:40}}>Мерча нет — добавьте первый товар</div>
+        )}
+
+        {products.map(product => {
+          const isOpen = openProduct === product.id
+          const colorMap = getVariantsByColor(product.merch_variants)
+          const totalStock = (product.merch_variants || []).reduce((s, v) => s + (v.stock_count || 0), 0)
+          const lowCount = (product.merch_variants || []).filter(v => v.stock_count > 0 && v.stock_count <= product.low_stock_threshold).length
+          const outCount = (product.merch_variants || []).filter(v => v.stock_count === 0 && v.is_active).length
+          const preorderCount = product.merch_preorders?.length || 0
+          const catLabel = MERCH_CATEGORIES.find(c => c.id === product.category)?.label || ''
+
+          return (
+            <div key={product.id} style={{background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', overflow:'hidden'}}>
+              {/* Шапка товара */}
+              <div style={{display:'flex', gap:14, alignItems:'flex-start', padding:'14px 16px'}}>
+                {product.image_url ? (
+                  <img src={product.image_url} alt="" style={{width:72, height:72, borderRadius:10, objectFit:'cover', flexShrink:0}} />
+                ) : (
+                  <div style={{width:72, height:72, borderRadius:10, background:'#f5f5f5', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:28}}>
+                    📦
+                  </div>
+                )}
+                <div style={{flex:1, minWidth:0}}>
+                  <div style={{display:'flex', alignItems:'center', gap:8, flexWrap:'wrap', marginBottom:4}}>
+                    <span style={{fontSize:14, fontWeight:600, color:'#2a2a2a'}}>{product.name}</span>
+                    {product.badge_text && (
+                      <span style={{fontSize:11, fontWeight:600, padding:'2px 8px', borderRadius:20, background:(product.badge_color||'#BFD900')+'22', color:product.badge_color||'#6a7700'}}>
+                        {product.badge_text}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{fontSize:12, color:'#BDBDBD', marginBottom:4}}>
+                    {catLabel} · {(product.merch_variants||[]).length} вариантов · {totalStock} шт итого
+                  </div>
+                  <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
+                    {lowCount > 0 && <span style={{fontSize:11, color:'#f39c12'}}>⚠ {lowCount} мало</span>}
+                    {outCount > 0 && <span style={{fontSize:11, color:'#e74c3c'}}>✕ {outCount} нет</span>}
+                    {preorderCount > 0 && (
+                      <span style={{fontSize:11, fontWeight:600, padding:'1px 8px', borderRadius:20, background:'#fef9e7', color:'#f39c12'}}>
+                        🔔 {preorderCount} предзаказов
+                      </span>
+                    )}
+                    {!product.is_available_online && (
+                      <span style={{fontSize:11, color:'#BDBDBD'}}>Офлайн</span>
+                    )}
+                  </div>
+                </div>
+                <div style={{display:'flex', gap:6, flexShrink:0, alignItems:'center'}}>
+                  <button onClick={() => editingProduct === product.id ? setEditingProduct(null) : openEdit(product)}
+                    style={{padding:'5px 10px', background: editingProduct === product.id ? '#fafde8' : '#f5f5f5', border: editingProduct === product.id ? '1px solid #BFD900' : 'none', borderRadius:8, fontSize:12, color: editingProduct === product.id ? '#6a7700' : '#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+                    ✎
+                  </button>
+                  <button onClick={() => setOpenProduct(isOpen ? null : product.id)}
+                    style={{padding:'5px 10px', background:'#f5f5f5', border:'none', borderRadius:8, fontSize:13, cursor:'pointer',
+                      transform: isOpen ? 'rotate(180deg)' : 'none', transition:'transform 0.2s'}}>
+                    ⌄
+                  </button>
+                  <button onClick={() => handleArchive(product.id)}
+                    style={{padding:'5px 10px', background:'transparent', border:'1px solid #f0f0f0', borderRadius:8, fontSize:12, color:'#e74c3c', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+                    В архив
+                  </button>
+                </div>
+              </div>
+
+              {/* Форма редактирования */}
+              {editingProduct === product.id && editForm && (
+                <div style={{borderTop:'1px solid #f0f0f0', padding:'16px', background:'#fafde8'}}>
+                  <div style={{fontSize:13, fontWeight:600, color:'#2a2a2a', marginBottom:12}}>✏️ Редактировать товар</div>
+                  <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10}}>
+                    <div>
+                      <label style={lblS}>Название *</label>
+                      <input value={editForm.name} onChange={e => setEditForm({...editForm, name:e.target.value})} style={inpS} />
+                    </div>
+                    <div>
+                      <label style={lblS}>Категория</label>
+                      <select value={editForm.category} onChange={e => setEditForm({...editForm, category:e.target.value})} style={inpS}>
+                        {MERCH_CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <label style={lblS}>Описание</label>
+                  <textarea value={editForm.description} onChange={e => setEditForm({...editForm, description:e.target.value})} rows={2} style={{...inpS, marginBottom:10, resize:'vertical'}} />
+                  <label style={lblS}>Фото товара</label>
+                  <div onClick={() => editFileRef.current?.click()}
+                    style={{border:'1.5px dashed #BFD900', borderRadius:10, padding:'12px', textAlign:'center', cursor:'pointer', marginBottom:10, background:'#fff'}}>
+                    {editImagePreview ? (
+                      <img src={editImagePreview} alt="" style={{maxHeight:100, maxWidth:'100%', borderRadius:8, objectFit:'contain'}} />
+                    ) : (
+                      <div style={{fontSize:12, color:'#888'}}>📸 Нажмите для загрузки фото</div>
+                    )}
+                  </div>
+                  <input ref={editFileRef} type="file" accept="image/*" onChange={e => {
+                    const file = e.target.files[0]
+                    if (!file) return
+                    setEditImageFile(file)
+                    setEditImagePreview(URL.createObjectURL(file))
+                  }} style={{display:'none'}} />
+                  <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, marginBottom:10}}>
+                    <div>
+                      <label style={lblS}>Приоритет</label>
+                      <input type="number" value={editForm.sort_order} onChange={e => setEditForm({...editForm, sort_order:e.target.value})} style={inpS} />
+                    </div>
+                    <div>
+                      <label style={lblS}>Порог «мало» (шт)</label>
+                      <input type="number" value={editForm.low_stock_threshold} onChange={e => setEditForm({...editForm, low_stock_threshold:e.target.value})} style={inpS} />
+                    </div>
+                    <div style={{display:'flex', flexDirection:'column', justifyContent:'flex-end', paddingBottom:2, gap:6}}>
+                      <label style={{display:'flex', alignItems:'center', gap:6, fontSize:12, color:'#2a2a2a', cursor:'pointer'}}>
+                        <input type="checkbox" checked={editForm.is_available_online} onChange={e => setEditForm({...editForm, is_available_online:e.target.checked})} />
+                        В магазине
+                      </label>
+                      <label style={{display:'flex', alignItems:'center', gap:6, fontSize:12, color:'#2a2a2a', cursor:'pointer'}}>
+                        <input type="checkbox" checked={editForm.allow_preorder} onChange={e => setEditForm({...editForm, allow_preorder:e.target.checked})} />
+                        Предзаказ
+                      </label>
+                    </div>
+                  </div>
+                  <label style={lblS}>Виджет</label>
+                  <div style={{display:'flex', flexWrap:'wrap', gap:6, marginBottom:12}}>
+                    <button onClick={() => setEditForm({...editForm, badge_text:''})}
+                      style={{padding:'4px 10px', borderRadius:20, border:'1px solid #e0e0e0', background: !editForm.badge_text ? '#f5f5f5':'#fff', fontSize:12, cursor:'pointer', color:'#888', fontFamily:'Inter,sans-serif'}}>
+                      Без виджета
+                    </button>
+                    {MERCH_BADGES.map(b => (
+                      <button key={b.id} onClick={() => setEditForm({...editForm, badge_text:b.text, badge_color:b.color})}
+                        style={{padding:'4px 10px', borderRadius:20, border:`1px solid ${editForm.badge_text===b.text ? b.color:'#e0e0e0'}`,
+                          background: editForm.badge_text===b.text ? b.color+'22':'#fff',
+                          color: editForm.badge_text===b.text ? b.color:'#888', fontSize:12, cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+                        {b.text}
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{display:'flex', gap:8}}>
+                    <button onClick={() => handleUpdate(product.id)} disabled={saving || !editForm.name.trim()}
+                      style={{padding:'8px 16px', background:'#BFD900', border:'none', borderRadius:8, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif', opacity:(!editForm.name.trim()||saving)?0.5:1}}>
+                      {saving ? 'Сохраняем...' : 'Сохранить'}
+                    </button>
+                    <button onClick={() => { setEditingProduct(null); setEditForm(null) }}
+                      style={{padding:'8px 14px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:8, fontSize:12, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+                      Отмена
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Варианты по цветам — аккордеон */}
+              {isOpen && (
+                <div style={{borderTop:'1px solid #f0f0f0', padding:'12px 16px'}}>
+
+                  {Object.entries(colorMap).map(([color, { hex, variants }]) => {
+                    const colorKey = `${product.id}-${color}`
+                    const isColorOpen = openColor[colorKey]
+                    const colorTotal = variants.reduce((s, v) => s + (v.stock_count || 0), 0)
+                    const colorLow = variants.filter(v => v.stock_count > 0 && v.stock_count <= product.low_stock_threshold).length
+                    const colorOut = variants.filter(v => v.stock_count === 0).length
+
+                    return (
+                      <div key={color} style={{border:'1px solid #f0f0f0', borderRadius:10, marginBottom:8, overflow:'hidden'}}>
+                        {/* Шапка цвета */}
+                        <div onClick={() => toggleColor(product.id, color)}
+                          style={{display:'flex', alignItems:'center', gap:10, padding:'10px 14px', background:'#fafafa', cursor:'pointer', userSelect:'none'}}>
+                          <div style={{width:18, height:18, borderRadius:'50%', background: hex || '#e0e0e0', border:'1px solid rgba(0,0,0,0.12)', flexShrink:0}} />
+                          <span style={{fontSize:13, fontWeight:600, color:'#2a2a2a', flex:1}}>{color}</span>
+                          <span style={{fontSize:11, color:'#BDBDBD'}}>{variants.length} размеров · {colorTotal} шт</span>
+                          {colorLow > 0 && <span style={{fontSize:11, color:'#f39c12'}}>⚠ мало</span>}
+                          {colorOut > 0 && <span style={{fontSize:11, color:'#e74c3c'}}>✕ нет</span>}
+                          <span style={{fontSize:16, color:'#BDBDBD', transform: isColorOpen ? 'rotate(180deg)' : 'none', transition:'transform 0.2s', lineHeight:1}}>⌄</span>
+                        </div>
+
+                        {/* Размеры этого цвета */}
+                        {isColorOpen && (
+                          <div style={{padding:'10px 14px'}}>
+                            <div style={{display:'flex', gap:8, flexWrap:'wrap', marginBottom:8}}>
+                              {variants.map(v => {
+                                const status = getStockStatus(v.stock_count, product.low_stock_threshold)
+                                const isEditing = editingVariant?.id === v.id
+                                const borderColor = status === 'ok' ? '#e0e0e0' : status === 'low' ? '#f39c12' : '#e74c3c'
+                                const bgColor = status === 'ok' ? '#fff' : status === 'low' ? '#fef9e7' : '#fdecea'
+                                const textC = status === 'ok' ? '#2a2a2a' : status === 'low' ? '#f39c12' : '#e74c3c'
+                                return (
+                                  <div key={v.id}>
+                                    <div onClick={() => setEditingVariant(isEditing ? null : v)}
+                                      style={{textAlign:'center', padding:'8px 12px', border:`1px solid ${isEditing ? '#BFD900' : borderColor}`,
+                                        borderRadius:10, cursor:'pointer', minWidth:64,
+                                        background: isEditing ? '#fafde8' : (v.is_active ? bgColor : '#f5f5f5'),
+                                        opacity: v.is_active ? 1 : 0.5}}>
+                                      {v.size && <div style={{fontSize:11, color:'#888', marginBottom:2}}>{v.size}</div>}
+                                      <div style={{fontSize:15, fontWeight:700, color: v.is_active ? textC : '#BDBDBD'}}>
+                                        {v.stock_count === 0 ? '0' : v.stock_count}
+                                      </div>
+                                      <div style={{fontSize:10, color:'#888'}}>{Number(v.price).toLocaleString('ru-RU')} ₽</div>
+                                      {v.coins_price && <div style={{fontSize:10, color:'#f39c12'}}>{v.coins_price} 🪙</div>}
+                                    </div>
+                                    {isEditing && (
+                                      <VariantEditForm
+                                        variant={v}
+                                        colorName={color}
+                                        onSave={() => { setEditingVariant(null); load() }}
+                                        onClose={() => setEditingVariant(null)}
+                                      />
+                                    )}
+                                  </div>
+                                )
+                              })}
+                              {/* Кнопка добавить размер */}
+                              <div onClick={() => setNewColorFor(`${product.id}-${color}-size`)}
+                                style={{textAlign:'center', padding:'8px 12px', border:'1.5px dashed #e0e0e0', borderRadius:10, cursor:'pointer', minWidth:64, display:'flex', alignItems:'center', justifyContent:'center', color:'#BDBDBD', fontSize:20}}>
+                                +
+                              </div>
+                            </div>
+
+                            {/* Форма добавления размера */}
+                            {newColorFor === `${product.id}-${color}-size` && (
+                              <div style={{padding:12, background:'#f9f9f9', borderRadius:10, border:'1px solid #e0e0e0', marginTop:8}}>
+                                <div style={{fontSize:12, fontWeight:600, color:'#2a2a2a', marginBottom:8}}>Новый вариант — цвет: {color}</div>
+                                <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:8}}>
+                                  <div><label style={lblS}>Размер</label><input value={newColor.size} onChange={e => setNewColor({...newColor, size:e.target.value})} placeholder="M" style={inpS} /></div>
+                                  <div><label style={lblS}>Цена ₽</label><input type="number" value={newColor.price} onChange={e => setNewColor({...newColor, price:e.target.value})} style={inpS} /></div>
+                                  <div><label style={lblS}>SDTшки</label><input type="number" value={newColor.coins_price} onChange={e => setNewColor({...newColor, coins_price:e.target.value})} placeholder="опционально" style={inpS} /></div>
+                                  <div><label style={lblS}>Остаток</label><input type="number" value={newColor.stock_count} onChange={e => setNewColor({...newColor, stock_count:e.target.value})} style={inpS} /></div>
+                                </div>
+                                <div style={{display:'flex', gap:8, marginTop:8}}>
+                                  <button onClick={async () => {
+                                    await supabase.from('merch_variants').insert({
+                                      product_id: product.id, color, color_hex: hex || null,
+                                      size: newColor.size || null, price: parseFloat(newColor.price) || 0,
+                                      coins_price: newColor.coins_price ? parseInt(newColor.coins_price) : null,
+                                      stock_count: parseInt(newColor.stock_count) || 0, is_active: true, sort_order: 100
+                                    })
+                                    setNewColorFor(null); setNewColor({ color:'', color_hex:'#000000', size:'', price:'', coins_price:'', stock_count:0 }); load()
+                                  }} style={{padding:'7px 14px', background:'#BFD900', border:'none', borderRadius:8, fontSize:12, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+                                    Добавить
+                                  </button>
+                                  <button onClick={() => setNewColorFor(null)} style={{padding:'7px 12px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:8, fontSize:12, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>Отмена</button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+
+                  {/* Кнопка добавить новый цвет */}
+                  {newColorFor !== `${product.id}-new` ? (
+                    <button onClick={() => { setNewColorFor(`${product.id}-new`); setNewColor({ color:'', color_hex:'#BFD900', size:'', price:'', coins_price:'', stock_count:0 }) }}
+                      style={{display:'flex', alignItems:'center', justifyContent:'center', gap:6, width:'100%', padding:'9px', background:'transparent', border:'1px dashed #e0e0e0', borderRadius:10, fontSize:12, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif', marginTop:4}}>
+                      + Добавить цвет
+                    </button>
+                  ) : (
+                    <div style={{padding:14, border:'1px solid #e0e0e0', borderRadius:10, background:'#f9f9f9', marginTop:8}}>
+                      <div style={{fontSize:13, fontWeight:600, color:'#2a2a2a', marginBottom:12}}>Новый цвет</div>
+                      <div style={{display:'grid', gridTemplateColumns:'1fr 60px 1fr 1fr 1fr', gap:8, marginBottom:8}}>
+                        <div>
+                          <label style={lblS}>Название цвета *</label>
+                          <input value={newColor.color} onChange={e => setNewColor({...newColor, color:e.target.value})} placeholder="Белый" style={inpS} />
+                        </div>
+                        <div>
+                          <label style={lblS}>Hex</label>
+                          <input type="color" value={newColor.color_hex} onChange={e => setNewColor({...newColor, color_hex:e.target.value})}
+                            style={{width:'100%', height:36, border:'1px solid #e8e8e8', borderRadius:8, cursor:'pointer', padding:2}} />
+                        </div>
+                        <div>
+                          <label style={lblS}>Размер</label>
+                          <input value={newColor.size} onChange={e => setNewColor({...newColor, size:e.target.value})} placeholder="M (или пусто)" style={inpS} />
+                        </div>
+                        <div>
+                          <label style={lblS}>Цена ₽ *</label>
+                          <input type="number" value={newColor.price} onChange={e => setNewColor({...newColor, price:e.target.value})} style={inpS} />
+                        </div>
+                        <div>
+                          <label style={lblS}>Остаток</label>
+                          <input type="number" value={newColor.stock_count} onChange={e => setNewColor({...newColor, stock_count:e.target.value})} style={inpS} />
+                        </div>
+                      </div>
+                      <div style={{fontSize:11, color:'#888', marginBottom:10, display:'flex', alignItems:'center', gap:8}}>
+                        Предпросмотр кружка:
+                        <div style={{width:18, height:18, borderRadius:'50%', background:newColor.color_hex, border:'1px solid rgba(0,0,0,0.15)'}} />
+                        <span>{newColor.color || '—'}</span>
+                      </div>
+                      <div style={{display:'flex', gap:8}}>
+                        <button onClick={() => handleAddVariant(product.id)} disabled={saving || !newColor.color || !newColor.price}
+                          style={{padding:'8px 16px', background:'#BFD900', border:'none', borderRadius:8, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif', opacity:(!newColor.color||!newColor.price)?0.5:1}}>
+                          {saving ? 'Добавляем...' : 'Добавить цвет'}
+                        </button>
+                        <button onClick={() => setNewColorFor(null)}
+                          style={{padding:'8px 14px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:8, fontSize:12, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+                          Отмена
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Блок предзаказов */}
+                  {product.allow_preorder && product.merch_preorders?.length > 0 && (
+                    <div style={{marginTop:12, padding:'10px 14px', background:'#fef9e7', borderRadius:10, border:'1px solid #f39c12'}}>
+                      <span style={{fontSize:13, fontWeight:600, color:'#f39c12'}}>
+                        🔔 {product.merch_preorders.length} {product.merch_preorders.length === 1 ? 'клиент хочет' : 'клиента хотят'} этот товар — стоит завезти больше
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Архив */}
+      {archived.length > 0 && (
+        <div style={{marginTop:16}}>
+          <button onClick={() => setShowArchive(!showArchive)}
+            style={{display:'flex', alignItems:'center', gap:8, padding:'10px 14px', background:'#f9f9f9', border:'1px solid #f0f0f0', borderRadius:10, fontSize:13, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif', width:'100%'}}>
+            🗄 Архив — {archived.length} товара {showArchive ? '▲' : '▼'}
+          </button>
+          {showArchive && (
+            <div style={{marginTop:8, display:'flex', flexDirection:'column', gap:8}}>
+              {archived.map(p => (
+                <div key={p.id} style={{background:'#f9f9f9', borderRadius:12, border:'1px solid #f0f0f0', padding:'12px 16px', display:'flex', alignItems:'center', gap:12, opacity:0.7}}>
+                  <span style={{flex:1, fontSize:13, fontWeight:600, color:'#888'}}>{p.name}</span>
+                  <button onClick={() => handleRestore(p.id)}
+                    style={{padding:'5px 12px', background:'#eafaf1', border:'1px solid #a9dfbf', borderRadius:8, fontSize:12, color:'#27ae60', cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight:600}}>
+                    ↩ Восстановить
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
 
 // ─── Вкладка Индивы ────────────────────────────────────────────────────────────
 function IndivTab({ teachers }) {
@@ -31,7 +753,6 @@ function IndivTab({ teachers }) {
       .from('indiv_packages')
       .select('*, teacher:profiles!indiv_packages_teacher_id_fkey(id, full_name, avatar_url, sort_order)')
       .order('sort_order')
-    // Сортируем карточки преподов по их sort_order
     const map = {}
     ;(data || []).forEach(pkg => {
       const tid = pkg.teacher_id
@@ -46,52 +767,38 @@ function IndivTab({ teachers }) {
     if (!newPkg.name || !newPkg.price || !newPkg.visits_count || !newPkg.duration_days) return
     setSaving(true)
     await supabase.from('indiv_packages').insert({
-      teacher_id: teacherId,
-      name: newPkg.name,
-      visits_count: parseInt(newPkg.visits_count),
-      price: parseFloat(newPkg.price),
+      teacher_id: teacherId, name: newPkg.name,
+      visits_count: parseInt(newPkg.visits_count), price: parseFloat(newPkg.price),
       teacher_rate: parseInt(newPkg.teacher_rate) || teacherRate,
       duration_days: parseInt(newPkg.duration_days),
-      sort_order: parseInt(newPkg.sort_order) || 100,
-      is_active: true,
+      sort_order: parseInt(newPkg.sort_order) || 100, is_active: true,
     })
     setShowAddFor(null)
     setNewPkg({ name:'', visits_count:'', price:'', teacher_rate:50, duration_days:'', sort_order:100 })
-    setSaving(false)
-    load()
+    setSaving(false); load()
   }
 
   const handleUpdate = async () => {
     if (!editingPkg) return
     setSaving(true)
     await supabase.from('indiv_packages').update({
-      name: editingPkg.name,
-      visits_count: parseInt(editingPkg.visits_count),
-      price: parseFloat(editingPkg.price),
-      teacher_rate: parseInt(editingPkg.teacher_rate),
-      duration_days: parseInt(editingPkg.duration_days),
-      sort_order: parseInt(editingPkg.sort_order) || 100,
+      name: editingPkg.name, visits_count: parseInt(editingPkg.visits_count),
+      price: parseFloat(editingPkg.price), teacher_rate: parseInt(editingPkg.teacher_rate),
+      duration_days: parseInt(editingPkg.duration_days), sort_order: parseInt(editingPkg.sort_order) || 100,
     }).eq('id', editingPkg.id)
-    setEditingPkg(null)
-    setSaving(false)
-    load()
+    setEditingPkg(null); setSaving(false); load()
   }
 
   const handleToggle = async (pkg) => {
-    await supabase.from('indiv_packages').update({ is_active: !pkg.is_active }).eq('id', pkg.id)
-    load()
+    await supabase.from('indiv_packages').update({ is_active: !pkg.is_active }).eq('id', pkg.id); load()
   }
 
   const handleDelete = async (id) => {
     if (!confirm('Удалить пакет?')) return
-    await supabase.from('indiv_packages').delete().eq('id', id)
-    load()
+    await supabase.from('indiv_packages').delete().eq('id', id); load()
   }
 
   const getInitials = (name) => (name || '').split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase()
-
-  const inpS = { width:'100%', padding:'8px 10px', border:'1px solid #e8e8e8', borderRadius:8, fontSize:13, boxSizing:'border-box', fontFamily:'Inter,sans-serif' }
-  const lblS = { fontSize:11, color:'#888', marginBottom:4, fontWeight:600, display:'block' }
 
   if (loading) return <div style={{textAlign:'center', color:'#BDBDBD', padding:40}}>Загрузка...</div>
 
@@ -101,11 +808,8 @@ function IndivTab({ teachers }) {
         const isOpen = openTeacher === teacher?.id
         const minPrice = Math.min(...pkgs.map(p => Number(p.price)))
         const activePkgs = pkgs.filter(p => p.is_active).length
-
         return (
           <div key={teacher?.id} style={{background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', overflow:'hidden'}}>
-
-            {/* Шапка препода — кликабельна */}
             <div onClick={() => { setOpenTeacher(isOpen ? null : teacher?.id); setEditingPkg(null); setShowAddFor(null) }}
               style={{display:'flex', alignItems:'center', gap:12, padding:'14px 16px', cursor:'pointer', userSelect:'none'}}>
               {teacher?.avatar_url ? (
@@ -123,14 +827,10 @@ function IndivTab({ teachers }) {
               </div>
               <span style={{fontSize:20, color:'#BDBDBD', transform: isOpen ? 'rotate(180deg)' : 'none', transition:'transform 0.2s', lineHeight:1}}>⌄</span>
             </div>
-
-            {/* Тело — пакеты */}
             {isOpen && (
               <div style={{borderTop:'1px solid #f0f0f0', padding:'12px 16px', display:'flex', flexDirection:'column', gap:8}}>
-
                 {pkgs.map(pkg => (
                   <div key={pkg.id}>
-                    {/* Строка пакета */}
                     {editingPkg?.id !== pkg.id && (
                       <div style={{display:'flex', alignItems:'center', gap:10, padding:'10px 12px', background:'#fafafa', borderRadius:10, border:'1px solid #f0f0f0', opacity: pkg.is_active ? 1 : 0.5}}>
                         <div style={{flex:1}}>
@@ -139,14 +839,8 @@ function IndivTab({ teachers }) {
                             {pkg.visits_count} {pkg.visits_count === 1 ? 'занятие' : pkg.visits_count < 5 ? 'занятия' : 'занятий'} · {pkg.duration_days} дней
                           </div>
                         </div>
-                        <div style={{fontSize:14, fontWeight:700, color:'#2a2a2a', flexShrink:0}}>
-                          {Number(pkg.price).toLocaleString('ru-RU')} ₽
-                        </div>
-                        <span style={{
-                          fontSize:11, fontWeight:600, padding:'2px 8px', borderRadius:20, flexShrink:0,
-                          background: pkg.is_active ? '#eafaf1' : '#f5f5f5',
-                          color: pkg.is_active ? '#27ae60' : '#BDBDBD'
-                        }}>
+                        <div style={{fontSize:14, fontWeight:700, color:'#2a2a2a', flexShrink:0}}>{Number(pkg.price).toLocaleString('ru-RU')} ₽</div>
+                        <span style={{fontSize:11, fontWeight:600, padding:'2px 8px', borderRadius:20, flexShrink:0, background: pkg.is_active ? '#eafaf1' : '#f5f5f5', color: pkg.is_active ? '#27ae60' : '#BDBDBD'}}>
                           {pkg.is_active ? 'Вкл' : 'Выкл'}
                         </span>
                         <button onClick={() => { setEditingPkg({...pkg}); setShowAddFor(null) }}
@@ -155,59 +849,28 @@ function IndivTab({ teachers }) {
                         </button>
                       </div>
                     )}
-
-                    {/* Форма редактирования */}
                     {editingPkg?.id === pkg.id && (
                       <div style={{padding:14, border:'1.5px solid #BFD900', borderRadius:10, background:'#fafde8'}}>
                         <div style={{fontSize:13, fontWeight:600, color:'#2a2a2a', marginBottom:12}}>Редактировать пакет</div>
                         <div style={{display:'grid', gridTemplateColumns:'2fr 1fr 1fr', gap:10, marginBottom:10}}>
-                          <div>
-                            <label style={lblS}>Название пакета</label>
-                            <input value={editingPkg.name} onChange={e => setEditingPkg({...editingPkg, name:e.target.value})} style={inpS} />
-                          </div>
-                          <div>
-                            <label style={lblS}>Кол-во занятий</label>
-                            <input type="number" min="1" value={editingPkg.visits_count} onChange={e => setEditingPkg({...editingPkg, visits_count:e.target.value})} style={inpS} />
-                          </div>
-                          <div>
-                            <label style={lblS}>Срок действия (дней)</label>
-                            <input type="number" min="1" value={editingPkg.duration_days} onChange={e => setEditingPkg({...editingPkg, duration_days:e.target.value})} style={inpS} />
-                          </div>
+                          <div><label style={lblS}>Название пакета</label><input value={editingPkg.name} onChange={e => setEditingPkg({...editingPkg, name:e.target.value})} style={inpS} /></div>
+                          <div><label style={lblS}>Кол-во занятий</label><input type="number" min="1" value={editingPkg.visits_count} onChange={e => setEditingPkg({...editingPkg, visits_count:e.target.value})} style={inpS} /></div>
+                          <div><label style={lblS}>Срок действия (дней)</label><input type="number" min="1" value={editingPkg.duration_days} onChange={e => setEditingPkg({...editingPkg, duration_days:e.target.value})} style={inpS} /></div>
                         </div>
                         <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:12}}>
-                          <div>
-                            <label style={lblS}>Цена (₽)</label>
-                            <input type="number" min="0" value={editingPkg.price} onChange={e => setEditingPkg({...editingPkg, price:e.target.value})} style={inpS} />
-                          </div>
-                          <div>
-                            <label style={lblS}>Приоритет (меньше = выше в списке)</label>
-                            <input type="number" min="1" value={editingPkg.sort_order} onChange={e => setEditingPkg({...editingPkg, sort_order:e.target.value})} style={inpS} />
-                          </div>
+                          <div><label style={lblS}>Цена (₽)</label><input type="number" min="0" value={editingPkg.price} onChange={e => setEditingPkg({...editingPkg, price:e.target.value})} style={inpS} /></div>
+                          <div><label style={lblS}>Приоритет (меньше = выше)</label><input type="number" min="1" value={editingPkg.sort_order} onChange={e => setEditingPkg({...editingPkg, sort_order:e.target.value})} style={inpS} /></div>
                         </div>
                         <div style={{display:'flex', gap:8, alignItems:'center', flexWrap:'wrap'}}>
-                          <button onClick={handleUpdate} disabled={saving}
-                            style={{padding:'8px 16px', background:'#BFD900', border:'none', borderRadius:8, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-                            {saving ? 'Сохраняем...' : 'Сохранить'}
-                          </button>
-                          <button onClick={() => handleToggle(pkg)}
-                            style={{padding:'8px 14px', background: pkg.is_active ? '#fdecea' : '#eafaf1', border:'none', borderRadius:8, fontSize:12, color: pkg.is_active ? '#e74c3c' : '#27ae60', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-                            {pkg.is_active ? 'Отключить' : 'Включить'}
-                          </button>
-                          <button onClick={() => handleDelete(pkg.id)}
-                            style={{padding:'8px 14px', background:'transparent', border:'1px solid #f0f0f0', borderRadius:8, fontSize:12, color:'#e74c3c', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-                            Удалить
-                          </button>
-                          <button onClick={() => setEditingPkg(null)}
-                            style={{padding:'8px 14px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:8, fontSize:12, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif', marginLeft:'auto'}}>
-                            Отмена
-                          </button>
+                          <button onClick={handleUpdate} disabled={saving} style={{padding:'8px 16px', background:'#BFD900', border:'none', borderRadius:8, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>{saving ? 'Сохраняем...' : 'Сохранить'}</button>
+                          <button onClick={() => handleToggle(pkg)} style={{padding:'8px 14px', background: pkg.is_active ? '#fdecea' : '#eafaf1', border:'none', borderRadius:8, fontSize:12, color: pkg.is_active ? '#e74c3c' : '#27ae60', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>{pkg.is_active ? 'Отключить' : 'Включить'}</button>
+                          <button onClick={() => handleDelete(pkg.id)} style={{padding:'8px 14px', background:'transparent', border:'1px solid #f0f0f0', borderRadius:8, fontSize:12, color:'#e74c3c', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>Удалить</button>
+                          <button onClick={() => setEditingPkg(null)} style={{padding:'8px 14px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:8, fontSize:12, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif', marginLeft:'auto'}}>Отмена</button>
                         </div>
                       </div>
                     )}
                   </div>
                 ))}
-
-                {/* Кнопка добавить / форма добавления */}
                 {showAddFor !== teacher?.id ? (
                   <button onClick={() => { setShowAddFor(teacher?.id); setEditingPkg(null); setNewPkg({ name:'', visits_count:'', price:'', teacher_rate: pkgs[0]?.teacher_rate || 50, duration_days:'', sort_order: pkgs.length * 10 + 10 }) }}
                     style={{display:'flex', alignItems:'center', justifyContent:'center', gap:6, padding:'9px', background:'transparent', border:'1px dashed #e0e0e0', borderRadius:10, fontSize:12, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif', marginTop:4}}>
@@ -217,38 +880,17 @@ function IndivTab({ teachers }) {
                   <div style={{padding:14, border:'1px solid #e0e0e0', borderRadius:10, background:'#f9f9f9', marginTop:4}}>
                     <div style={{fontSize:13, fontWeight:600, color:'#2a2a2a', marginBottom:12}}>Новый пакет</div>
                     <div style={{display:'grid', gridTemplateColumns:'2fr 1fr 1fr', gap:10, marginBottom:10}}>
-                      <div>
-                        <label style={lblS}>Название пакета</label>
-                        <input value={newPkg.name} onChange={e => setNewPkg({...newPkg, name:e.target.value})} placeholder="например: 5 занятий" style={inpS} />
-                      </div>
-                      <div>
-                        <label style={lblS}>Кол-во занятий</label>
-                        <input type="number" min="1" value={newPkg.visits_count} onChange={e => setNewPkg({...newPkg, visits_count:e.target.value})} placeholder="5" style={inpS} />
-                      </div>
-                      <div>
-                        <label style={lblS}>Срок действия (дней)</label>
-                        <input type="number" min="1" value={newPkg.duration_days} onChange={e => setNewPkg({...newPkg, duration_days:e.target.value})} placeholder="60" style={inpS} />
-                      </div>
+                      <div><label style={lblS}>Название пакета</label><input value={newPkg.name} onChange={e => setNewPkg({...newPkg, name:e.target.value})} placeholder="например: 5 занятий" style={inpS} /></div>
+                      <div><label style={lblS}>Кол-во занятий</label><input type="number" min="1" value={newPkg.visits_count} onChange={e => setNewPkg({...newPkg, visits_count:e.target.value})} placeholder="5" style={inpS} /></div>
+                      <div><label style={lblS}>Срок действия (дней)</label><input type="number" min="1" value={newPkg.duration_days} onChange={e => setNewPkg({...newPkg, duration_days:e.target.value})} placeholder="60" style={inpS} /></div>
                     </div>
                     <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:12}}>
-                      <div>
-                        <label style={lblS}>Цена (₽)</label>
-                        <input type="number" min="0" value={newPkg.price} onChange={e => setNewPkg({...newPkg, price:e.target.value})} placeholder="10 000" style={inpS} />
-                      </div>
-                      <div>
-                        <label style={lblS}>Приоритет (меньше = выше в списке)</label>
-                        <input type="number" min="1" value={newPkg.sort_order} onChange={e => setNewPkg({...newPkg, sort_order:e.target.value})} style={inpS} />
-                      </div>
+                      <div><label style={lblS}>Цена (₽)</label><input type="number" min="0" value={newPkg.price} onChange={e => setNewPkg({...newPkg, price:e.target.value})} placeholder="10 000" style={inpS} /></div>
+                      <div><label style={lblS}>Приоритет</label><input type="number" min="1" value={newPkg.sort_order} onChange={e => setNewPkg({...newPkg, sort_order:e.target.value})} style={inpS} /></div>
                     </div>
                     <div style={{display:'flex', gap:8}}>
-                      <button onClick={() => handleSaveNew(teacher?.id, pkgs[0]?.teacher_rate || 50)} disabled={saving}
-                        style={{padding:'8px 16px', background:'#BFD900', border:'none', borderRadius:8, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-                        {saving ? 'Добавляем...' : 'Добавить'}
-                      </button>
-                      <button onClick={() => setShowAddFor(null)}
-                        style={{padding:'8px 14px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:8, fontSize:12, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-                        Отмена
-                      </button>
+                      <button onClick={() => handleSaveNew(teacher?.id, pkgs[0]?.teacher_rate || 50)} disabled={saving} style={{padding:'8px 16px', background:'#BFD900', border:'none', borderRadius:8, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>{saving ? 'Добавляем...' : 'Добавить'}</button>
+                      <button onClick={() => setShowAddFor(null)} style={{padding:'8px 14px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:8, fontSize:12, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>Отмена</button>
                     </div>
                   </div>
                 )}
@@ -257,48 +899,24 @@ function IndivTab({ teachers }) {
           </div>
         )
       })}
-      {packages.length === 0 && (
-        <div style={{textAlign:'center', color:'#BDBDBD', padding:40}}>Нет преподавателей с пакетами</div>
-      )}
+      {packages.length === 0 && <div style={{textAlign:'center', color:'#BDBDBD', padding:40}}>Нет преподавателей с пакетами</div>}
     </div>
   )
 }
 
 function ProductForm({ type, teachers, groups, onSave, onCancel, initial = null }) {
   const isEdit = !!initial
-
   const [form, setForm] = useState({
-    name: initial?.name || '',
-    description: initial?.description || '',
-    price: initial?.price || '',
-    is_available_online: initial?.is_available_online ?? true,
-    is_active: initial?.is_active ?? true,
-    sort_order: initial?.sort_order ?? 100,
-    is_featured: initial?.is_featured ?? false,
-    badge_text: initial?.badge_text || 'Популярный',
+    name: initial?.name || '', description: initial?.description || '',
+    price: initial?.price || '', is_available_online: initial?.is_available_online ?? true,
+    is_active: initial?.is_active ?? true, sort_order: initial?.sort_order ?? 100,
+    is_featured: initial?.is_featured ?? false, badge_text: initial?.badge_text || 'Популярный',
     badge_color: initial?.badge_color || '#BFD900',
   })
-
   const ps = initial?.product_subscriptions?.[0]
-  const pm = initial?.product_merch?.[0]
   const pe = initial?.product_events?.[0]
-
-  const [subForm, setSubForm] = useState({
-    sub_type: ps?.sub_type || 'unlimited',
-    visits_count: ps?.visits_count || '',
-    duration_days: ps?.duration_days || '',
-    available_from_day: ps?.available_from_day || '',
-    available_to_day: ps?.available_to_day || '',
-  })
-  const [merchForm, setMerchForm] = useState({ stock_count: pm?.stock_count || 0 })
-  const [eventForm, setEventForm] = useState({
-    teacher_id: pe?.teacher_id || '',
-    hall: pe?.hall || '',
-    starts_at: pe?.starts_at ? pe.starts_at.slice(0,16) : '',
-    ends_at: pe?.ends_at ? pe.ends_at.slice(0,16) : '',
-    max_participants: pe?.max_participants || '',
-  })
-
+  const [subForm, setSubForm] = useState({ sub_type: ps?.sub_type || 'unlimited', visits_count: ps?.visits_count || '', duration_days: ps?.duration_days || '', available_from_day: ps?.available_from_day || '', available_to_day: ps?.available_to_day || '' })
+  const [eventForm, setEventForm] = useState({ teacher_id: pe?.teacher_id || '', hall: pe?.hall || '', starts_at: pe?.starts_at ? pe.starts_at.slice(0,16) : '', ends_at: pe?.ends_at ? pe.ends_at.slice(0,16) : '', max_participants: pe?.max_participants || '' })
   const [selectedGroups, setSelectedGroups] = useState([])
   const [selectedTeachers, setSelectedTeachers] = useState([])
   const [showEmoji, setShowEmoji] = useState(false)
@@ -321,7 +939,6 @@ function ProductForm({ type, teachers, groups, onSave, onCancel, initial = null 
   const handleSave = async () => {
     if (!form.name || !form.price) return
     const base = { ...form, price: parseInt(form.price), sort_order: parseInt(form.sort_order) || 100 }
-
     if (isEdit) {
       await supabase.from('products').update(base).eq('id', initial.id)
       if (type === 'subscription') {
@@ -331,7 +948,6 @@ function ProductForm({ type, teachers, groups, onSave, onCancel, initial = null 
         await supabase.from('product_subscription_teachers').delete().eq('product_id', initial.id)
         if (selectedTeachers.length > 0) await supabase.from('product_subscription_teachers').insert(selectedTeachers.map(tid => ({ product_id: initial.id, teacher_id: tid })))
       }
-      if (type === 'merch') await supabase.from('product_merch').upsert({ product_id: initial.id, ...merchForm }, { onConflict: 'product_id' })
       if (type === 'event') await supabase.from('product_events').upsert({ product_id: initial.id, ...eventForm, max_participants: eventForm.max_participants ? parseInt(eventForm.max_participants) : null }, { onConflict: 'product_id' })
     } else {
       const { data: product } = await supabase.from('products').insert({ ...base, type }).select().single()
@@ -340,7 +956,6 @@ function ProductForm({ type, teachers, groups, onSave, onCancel, initial = null 
         if (selectedGroups.length > 0) await supabase.from('product_subscription_groups').insert(selectedGroups.map(gid => ({ product_id: product.id, group_id: gid })))
         if (selectedTeachers.length > 0) await supabase.from('product_subscription_teachers').insert(selectedTeachers.map(tid => ({ product_id: product.id, teacher_id: tid })))
       }
-      if (type === 'merch') await supabase.from('product_merch').insert({ product_id: product.id, ...merchForm })
       if (type === 'event') await supabase.from('product_events').insert({ product_id: product.id, ...eventForm, max_participants: eventForm.max_participants ? parseInt(eventForm.max_participants) : null })
     }
     onSave()
@@ -348,29 +963,21 @@ function ProductForm({ type, teachers, groups, onSave, onCancel, initial = null 
 
   return (
     <div style={{background:'#fff', borderRadius:16, border:'2px solid #BFD900', padding:20, marginBottom:20}}>
-      <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a', marginBottom:14}}>
-        {isEdit ? '✏️ Редактировать' : 'Новый'} {TAB_LABELS[type]}
-      </div>
-
+      <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a', marginBottom:14}}>{isEdit ? '✏️ Редактировать' : 'Новый'} {TAB_LABELS[type]}</div>
       <label style={labelStyle}>Название *</label>
       <input value={form.name} onChange={e => setForm({...form, name:e.target.value})} placeholder="Например: Безлимит на месяц" style={inputStyle} />
-
       <label style={labelStyle}>Описание</label>
       <textarea value={form.description} onChange={e => setForm({...form, description:e.target.value})} placeholder="Краткое описание продукта" style={{...inputStyle, resize:'vertical', minHeight:60}} />
-
       <label style={labelStyle}>Стоимость ₽ *</label>
       <input value={form.price} onChange={e => setForm({...form, price:e.target.value})} placeholder="8700" type="number" style={inputStyle} />
-
       <label style={{display:'flex', alignItems:'center', gap:8, fontSize:13, color:'#2a2a2a', marginBottom:12, cursor:'pointer'}}>
         <input type="checkbox" checked={form.is_available_online} onChange={e => setForm({...form, is_available_online:e.target.checked})} />
         Доступен к покупке в приложении
       </label>
-
       <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:12}}>
         <div>
           <label style={labelStyle}>Приоритет (меньше = выше)</label>
-          <input value={form.sort_order} onChange={e => setForm({...form, sort_order:parseInt(e.target.value)||100})}
-            type="number" min="1" max="999" placeholder="100" style={inputStyle} />
+          <input value={form.sort_order} onChange={e => setForm({...form, sort_order:parseInt(e.target.value)||100})} type="number" min="1" max="999" placeholder="100" style={inputStyle} />
         </div>
         <div style={{display:'flex', alignItems:'flex-end', paddingBottom:8}}>
           <label style={{display:'flex', alignItems:'center', gap:8, fontSize:13, color:'#2a2a2a', cursor:'pointer'}}>
@@ -379,28 +986,20 @@ function ProductForm({ type, teachers, groups, onSave, onCancel, initial = null 
           </label>
         </div>
       </div>
-
       {form.is_featured && (
         <div style={{background:'#f9f9f9', borderRadius:10, padding:12, marginBottom:12}}>
           <label style={labelStyle}>Текст плашки</label>
           <div style={{display:'flex', gap:6, marginBottom:8}}>
-            <input value={form.badge_text} onChange={e => setForm({...form, badge_text:e.target.value})}
-              placeholder="Популярный" style={{...inputStyle, marginBottom:0, flex:1}} />
+            <input value={form.badge_text} onChange={e => setForm({...form, badge_text:e.target.value})} placeholder="Популярный" style={{...inputStyle, marginBottom:0, flex:1}} />
             <div style={{position:'relative'}}>
-              <button type="button" onClick={() => setShowEmoji(!showEmoji)}
-                style={{padding:'8px 10px', background:'#f5f5f5', border:'1px solid #e0e0e0', borderRadius:8, fontSize:16, cursor:'pointer'}}>
-                😊
-              </button>
+              <button type="button" onClick={() => setShowEmoji(!showEmoji)} style={{padding:'8px 10px', background:'#f5f5f5', border:'1px solid #e0e0e0', borderRadius:8, fontSize:16, cursor:'pointer'}}>😊</button>
               {showEmoji && (
                 <div style={{position:'absolute', top:'100%', right:0, zIndex:100, background:'#fff', border:'1px solid #e0e0e0', borderRadius:12, padding:10, width:260, display:'flex', flexWrap:'wrap', gap:4, boxShadow:'0 4px 16px rgba(0,0,0,0.12)', marginTop:4}}>
                   {BADGE_EMOJIS.map(e => (
-                    <button key={e} type="button"
-                      onClick={() => { setForm(f => ({...f, badge_text: f.badge_text + e})); setShowEmoji(false) }}
+                    <button key={e} type="button" onClick={() => { setForm(f => ({...f, badge_text: f.badge_text + e})); setShowEmoji(false) }}
                       style={{padding:'4px 6px', background:'none', border:'none', fontSize:18, cursor:'pointer', borderRadius:6}}
                       onMouseEnter={ev => ev.currentTarget.style.background='#f5f5f5'}
-                      onMouseLeave={ev => ev.currentTarget.style.background='none'}>
-                      {e}
-                    </button>
+                      onMouseLeave={ev => ev.currentTarget.style.background='none'}>{e}</button>
                   ))}
                 </div>
               )}
@@ -418,19 +1017,13 @@ function ProductForm({ type, teachers, groups, onSave, onCancel, initial = null 
           </div>
         </div>
       )}
-
       {type === 'subscription' && (
         <div>
           <label style={labelStyle}>Тип абонемента</label>
           <select value={subForm.sub_type} onChange={e => setSubForm({...subForm, sub_type:e.target.value})} style={inputStyle}>
             {Object.entries(SUB_TYPES).map(([k,v]) => <option key={k} value={k}>{v}</option>)}
           </select>
-          {subForm.sub_type === 'count' && (
-            <>
-              <label style={labelStyle}>Количество занятий</label>
-              <input value={subForm.visits_count} onChange={e => setSubForm({...subForm, visits_count:e.target.value})} placeholder="Например: 4" type="number" style={inputStyle} />
-            </>
-          )}
+          {subForm.sub_type === 'count' && (<><label style={labelStyle}>Количество занятий</label><input value={subForm.visits_count} onChange={e => setSubForm({...subForm, visits_count:e.target.value})} placeholder="Например: 4" type="number" style={inputStyle} /></>)}
           <label style={labelStyle}>Срок действия (дней)</label>
           <input value={subForm.duration_days} onChange={e => setSubForm({...subForm, duration_days:e.target.value})} placeholder="Например: 30" type="number" style={inputStyle} />
           <div style={{marginBottom:8}}>
@@ -446,35 +1039,17 @@ function ProductForm({ type, teachers, groups, onSave, onCancel, initial = null 
           <div style={{marginBottom:12}}>
             <div style={labelStyle}>Доступные группы</div>
             <div style={{display:'flex', flexWrap:'wrap', gap:6}}>
-              {groups.map(g => (
-                <label key={g.id} style={{display:'flex', alignItems:'center', gap:6, padding:'5px 10px', background: selectedGroups.includes(g.id) ? '#fafde8' : '#f5f5f5', border: selectedGroups.includes(g.id) ? '1px solid #BFD900' : '1px solid #e0e0e0', borderRadius:8, fontSize:12, cursor:'pointer'}}>
-                  <input type="checkbox" checked={selectedGroups.includes(g.id)} onChange={() => toggleGroup(g.id)} />
-                  {g.name}
-                </label>
-              ))}
+              {groups.map(g => (<label key={g.id} style={{display:'flex', alignItems:'center', gap:6, padding:'5px 10px', background: selectedGroups.includes(g.id) ? '#fafde8' : '#f5f5f5', border: selectedGroups.includes(g.id) ? '1px solid #BFD900' : '1px solid #e0e0e0', borderRadius:8, fontSize:12, cursor:'pointer'}}><input type="checkbox" checked={selectedGroups.includes(g.id)} onChange={() => toggleGroup(g.id)} />{g.name}</label>))}
             </div>
           </div>
           <div style={{marginBottom:12}}>
             <div style={labelStyle}>Доступные преподаватели</div>
             <div style={{display:'flex', flexWrap:'wrap', gap:6}}>
-              {teachers.map(t => (
-                <label key={t.id} style={{display:'flex', alignItems:'center', gap:6, padding:'5px 10px', background: selectedTeachers.includes(t.id) ? '#fafde8' : '#f5f5f5', border: selectedTeachers.includes(t.id) ? '1px solid #BFD900' : '1px solid #e0e0e0', borderRadius:8, fontSize:12, cursor:'pointer'}}>
-                  <input type="checkbox" checked={selectedTeachers.includes(t.id)} onChange={() => toggleTeacher(t.id)} />
-                  {t.full_name || t.email}
-                </label>
-              ))}
+              {teachers.map(t => (<label key={t.id} style={{display:'flex', alignItems:'center', gap:6, padding:'5px 10px', background: selectedTeachers.includes(t.id) ? '#fafde8' : '#f5f5f5', border: selectedTeachers.includes(t.id) ? '1px solid #BFD900' : '1px solid #e0e0e0', borderRadius:8, fontSize:12, cursor:'pointer'}}><input type="checkbox" checked={selectedTeachers.includes(t.id)} onChange={() => toggleTeacher(t.id)} />{t.full_name || t.email}</label>))}
             </div>
           </div>
         </div>
       )}
-
-      {type === 'merch' && (
-        <div>
-          <label style={labelStyle}>Количество в наличии</label>
-          <input value={merchForm.stock_count} onChange={e => setMerchForm({...merchForm, stock_count:parseInt(e.target.value) || 0})} placeholder="Например: 10" type="number" style={inputStyle} />
-        </div>
-      )}
-
       {type === 'event' && (
         <div>
           <label style={labelStyle}>Преподаватель</label>
@@ -489,29 +1064,16 @@ function ProductForm({ type, teachers, groups, onSave, onCancel, initial = null 
             <option value="Малый зал">Малый зал</option>
           </select>
           <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8}}>
-            <div>
-              <label style={labelStyle}>Начало</label>
-              <input value={eventForm.starts_at} onChange={e => setEventForm({...eventForm, starts_at:e.target.value})} type="datetime-local" style={inputStyle} />
-            </div>
-            <div>
-              <label style={labelStyle}>Конец</label>
-              <input value={eventForm.ends_at} onChange={e => setEventForm({...eventForm, ends_at:e.target.value})} type="datetime-local" style={inputStyle} />
-            </div>
+            <div><label style={labelStyle}>Начало</label><input value={eventForm.starts_at} onChange={e => setEventForm({...eventForm, starts_at:e.target.value})} type="datetime-local" style={inputStyle} /></div>
+            <div><label style={labelStyle}>Конец</label><input value={eventForm.ends_at} onChange={e => setEventForm({...eventForm, ends_at:e.target.value})} type="datetime-local" style={inputStyle} /></div>
           </div>
           <label style={labelStyle}>Максимум участников</label>
           <input value={eventForm.max_participants} onChange={e => setEventForm({...eventForm, max_participants:e.target.value})} placeholder="Например: 20" type="number" style={inputStyle} />
         </div>
       )}
-
       <div style={{display:'flex', gap:8, marginTop:8}}>
-        <button onClick={handleSave}
-          style={{flex:1, padding:'9px', background:'#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-          {isEdit ? 'Сохранить изменения' : 'Создать'}
-        </button>
-        <button onClick={onCancel}
-          style={{padding:'9px 16px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:10, fontSize:13, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-          Отмена
-        </button>
+        <button onClick={handleSave} style={{flex:1, padding:'9px', background:'#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>{isEdit ? 'Сохранить изменения' : 'Создать'}</button>
+        <button onClick={onCancel} style={{padding:'9px 16px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:10, fontSize:13, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>Отмена</button>
       </div>
     </div>
   )
@@ -531,14 +1093,19 @@ export default function AdminCatalog() {
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editingProduct, setEditingProduct] = useState(null)
+  const [session, setSession] = useState(null)
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setSession(data.session))
+  }, [])
 
   useEffect(() => { loadAll() }, [tab])
 
   const loadAll = async () => {
     setLoading(true)
-    if (tab !== 'indiv') {
+    if (tab !== 'indiv' && tab !== 'merch') {
       const { data: p } = await supabase.from('products')
-        .select(`*, product_subscriptions(*), product_merch(*), product_events(*, profiles(full_name))`)
+        .select(`*, product_subscriptions(*), product_events(*, profiles(full_name))`)
         .eq('type', tab).order('sort_order', { ascending: true })
       setProducts(p || [])
     }
@@ -553,21 +1120,12 @@ export default function AdminCatalog() {
 
   const handleArchive = async (id) => {
     if (!confirm('Архивировать продукт?')) return
-    await supabase.from('products').update({ is_active: false }).eq('id', id)
-    loadAll()
+    await supabase.from('products').update({ is_active: false }).eq('id', id); loadAll()
   }
-
   const handleRestore = async (id) => {
-    await supabase.from('products').update({ is_active: true }).eq('id', id)
-    loadAll()
+    await supabase.from('products').update({ is_active: true }).eq('id', id); loadAll()
   }
-
-  const handleEdit = (product) => {
-    setEditingProduct(product)
-    setShowForm(false)
-    window.scrollTo({ top: 0, behavior: 'smooth' })
-  }
-
+  const handleEdit = (product) => { setEditingProduct(product); setShowForm(false); window.scrollTo({ top: 0, behavior: 'smooth' }) }
   const handleCloseForm = () => { setShowForm(false); setEditingProduct(null) }
 
   const formatPrice = (p) => p.toLocaleString('ru-RU') + ' ₽'
@@ -578,12 +1136,13 @@ export default function AdminCatalog() {
     <div>
       <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:24}}>
         <h1 style={{fontSize:24, fontWeight:600, color:'#1f2024', margin:0}}>Каталог</h1>
-        {tab !== 'indiv' && (
+        {tab !== 'indiv' && tab !== 'merch' && (
           <button onClick={() => { setShowForm(!showForm); setEditingProduct(null) }}
             style={{padding:'9px 20px', background:'#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
             {showForm ? 'Закрыть' : '+ Добавить'}
           </button>
         )}
+        {tab === 'merch' && null}
       </div>
 
       <div style={{display:'flex', gap:4, marginBottom:20, borderBottom:'1px solid #f0f0f0'}}>
@@ -598,20 +1157,12 @@ export default function AdminCatalog() {
       </div>
 
       {tab === 'indiv' && <IndivTab teachers={teachers} />}
+      {tab === 'merch' && session && <MerchTab session={session} />}
 
-      {tab !== 'indiv' && (
+      {tab !== 'indiv' && tab !== 'merch' && (
         <>
-          {showForm && !editingProduct && (
-            <ProductForm type={tab} teachers={teachers} groups={groups}
-              onSave={() => { setShowForm(false); loadAll() }}
-              onCancel={handleCloseForm} />
-          )}
-          {editingProduct && (
-            <ProductForm type={tab} teachers={teachers} groups={groups}
-              initial={editingProduct}
-              onSave={() => { setEditingProduct(null); loadAll() }}
-              onCancel={handleCloseForm} />
-          )}
+          {showForm && !editingProduct && <ProductForm type={tab} teachers={teachers} groups={groups} onSave={() => { setShowForm(false); loadAll() }} onCancel={handleCloseForm} />}
+          {editingProduct && <ProductForm type={tab} teachers={teachers} groups={groups} initial={editingProduct} onSave={() => { setEditingProduct(null); loadAll() }} onCancel={handleCloseForm} />}
           {loading ? (
             <div style={{textAlign:'center', color:'#BDBDBD', padding:40}}>Загрузка...</div>
           ) : activeProducts.length === 0 ? (
@@ -623,11 +1174,7 @@ export default function AdminCatalog() {
                   <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:8}}>
                     <div style={{flex:1}}>
                       <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a', marginBottom:4}}>{p.name}</div>
-                      {p.is_featured && (
-                        <span style={{background:p.badge_color||'#BFD900', color:textColor(p.badge_color||'#BFD900'), padding:'2px 8px', borderRadius:6, fontSize:10, fontWeight:700}}>
-                          {p.badge_text || 'Популярный'}
-                        </span>
-                      )}
+                      {p.is_featured && <span style={{background:p.badge_color||'#BFD900', color:textColor(p.badge_color||'#BFD900'), padding:'2px 8px', borderRadius:6, fontSize:10, fontWeight:700}}>{p.badge_text || 'Популярный'}</span>}
                     </div>
                     <span style={{background: p.is_available_online ? '#fafde8' : '#f5f5f5', color: p.is_available_online ? '#6a7700' : '#BDBDBD', padding:'2px 8px', borderRadius:6, fontSize:11, fontWeight:600, flexShrink:0, marginLeft:8}}>
                       {p.is_available_online ? '🌐' : 'Офлайн'}
@@ -642,25 +1189,12 @@ export default function AdminCatalog() {
                       {p.product_subscriptions[0].visits_count && ` · ${p.product_subscriptions[0].visits_count} занятий`}
                     </div>
                   )}
-                  {tab === 'merch' && p.product_merch?.[0] && (
-                    <div style={{fontSize:12, color:'#BDBDBD', marginBottom:8}}>В наличии: {p.product_merch[0].stock_count} шт.</div>
-                  )}
-                  {tab === 'event' && p.product_events?.[0] && (
-                    <div style={{fontSize:12, color:'#BDBDBD', marginBottom:8}}>
-                      {p.product_events[0].profiles?.full_name} · {p.product_events[0].hall}
-                    </div>
-                  )}
+                  {tab === 'event' && p.product_events?.[0] && <div style={{fontSize:12, color:'#BDBDBD', marginBottom:8}}>{p.product_events[0].profiles?.full_name} · {p.product_events[0].hall}</div>}
                   <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:8}}>
                     <div style={{fontSize:18, fontWeight:600, color:'#2a2a2a'}}>{formatPrice(p.price)}</div>
                     <div style={{display:'flex', gap:8}}>
-                      <button onClick={() => handleEdit(p)}
-                        style={{fontSize:11, color:'#2980b9', background:'none', border:'none', cursor:'pointer', padding:0, fontFamily:'Inter,sans-serif'}}>
-                        Изменить
-                      </button>
-                      <button onClick={() => handleArchive(p.id)}
-                        style={{fontSize:11, color:'#e74c3c', background:'none', border:'none', cursor:'pointer', padding:0, fontFamily:'Inter,sans-serif'}}>
-                        В архив
-                      </button>
+                      <button onClick={() => handleEdit(p)} style={{fontSize:11, color:'#2980b9', background:'none', border:'none', cursor:'pointer', padding:0, fontFamily:'Inter,sans-serif'}}>Изменить</button>
+                      <button onClick={() => handleArchive(p.id)} style={{fontSize:11, color:'#e74c3c', background:'none', border:'none', cursor:'pointer', padding:0, fontFamily:'Inter,sans-serif'}}>В архив</button>
                     </div>
                   </div>
                 </div>
@@ -679,10 +1213,7 @@ export default function AdminCatalog() {
                     <div key={p.id} style={{background:'#f9f9f9', borderRadius:14, border:'1px solid #f0f0f0', padding:16, opacity:0.75}}>
                       <div style={{fontSize:14, fontWeight:600, color:'#888', marginBottom:4}}>{p.name}</div>
                       <div style={{fontSize:18, fontWeight:600, color:'#BDBDBD', marginBottom:10}}>{formatPrice(p.price)}</div>
-                      <button onClick={() => handleRestore(p.id)}
-                        style={{fontSize:12, color:'#27ae60', background:'#eafaf1', border:'1px solid #a9dfbf', borderRadius:8, padding:'5px 12px', cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight:600}}>
-                        ↩ Восстановить
-                      </button>
+                      <button onClick={() => handleRestore(p.id)} style={{fontSize:12, color:'#27ae60', background:'#eafaf1', border:'1px solid #a9dfbf', borderRadius:8, padding:'5px 12px', cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight:600}}>↩ Восстановить</button>
                     </div>
                   ))}
                 </div>

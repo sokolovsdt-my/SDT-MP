@@ -1,11 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../supabase'
 
 const TYPE_TO_CAT = {
   subscription: 'subscriptions',
   service: 'services',
   event: 'events',
-  merch: 'merch',
 }
 
 const CATS = [
@@ -16,15 +15,23 @@ const CATS = [
   { id: 'merch', label: 'Мерч' },
 ]
 
-const DAYS = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб']
-
 export default function Shop({ session }) {
   const [activeCat, setActiveCat] = useState(() => localStorage.getItem('shop_cat') || 'subscriptions')
   const [selected, setSelected] = useState(null)
   const [products, setProducts] = useState({})
   const [loading, setLoading] = useState(true)
 
-  // Для вкладки Индивы
+  // Мерч
+  const [merchProducts, setMerchProducts] = useState([])
+  const [merchLoading, setMerchLoading] = useState(false)
+  const [activeProductId, setActiveProductId] = useState(null)
+  const [transitioning, setTransitioning] = useState(false)
+  const [cardVisible, setCardVisible] = useState(true)
+  const [selectedColors, setSelectedColors] = useState({})
+  const [selectedSizes, setSelectedSizes] = useState({})
+  const [preordering, setPreordering] = useState(false)
+
+  // Индивы
   const [teachers, setTeachers] = useState([])
   const [selectedTeacher, setSelectedTeacher] = useState(() => localStorage.getItem('shop_indiv_teacher') || null)
   const [teacherData, setTeacherData] = useState(null)
@@ -35,17 +42,13 @@ export default function Shop({ session }) {
   const [indivLoading, setIndivLoading] = useState(false)
 
   const goCat = (c) => { setActiveCat(c); localStorage.setItem('shop_cat', c) }
-
-  const goTeacher = (id) => {
-    setSelectedTeacher(id)
-    localStorage.setItem('shop_indiv_teacher', id || '')
-  }
+  const goTeacher = (id) => { setSelectedTeacher(id); localStorage.setItem('shop_indiv_teacher', id || '') }
 
   useEffect(() => {
     const load = async () => {
       const today = new Date().getDate()
       const { data } = await supabase.from('products').select('*').eq('is_active', true).order('sort_order', { ascending: true })
-      const grouped = { subscriptions: [], services: [], events: [], merch: [] }
+      const grouped = { subscriptions: [], services: [], events: [] }
       ;(data || []).forEach(p => {
         if (p.available_from_day && p.available_to_day) {
           if (today < p.available_from_day || today > p.available_to_day) return
@@ -61,6 +64,7 @@ export default function Shop({ session }) {
 
   useEffect(() => {
     if (activeCat === 'indiv') loadTeachers()
+    if (activeCat === 'merch') loadMerch()
   }, [activeCat])
 
   useEffect(() => {
@@ -68,16 +72,27 @@ export default function Shop({ session }) {
     else setTeacherData(null)
   }, [selectedTeacher])
 
+  const loadMerch = async () => {
+    setMerchLoading(true)
+    const { data } = await supabase
+      .from('merch_products')
+      .select('*, merch_variants(*), merch_preorders(client_id)')
+      .eq('is_active', true)
+      .eq('is_available_online', true)
+      .order('sort_order')
+    const list = data || []
+    setMerchProducts(list)
+    if (list.length > 0 && !activeProductId) setActiveProductId(list[0].id)
+    setMerchLoading(false)
+  }
+
   const loadTeachers = async () => {
-    // Берём только тех преподов у кого есть активные пакеты
     const { data } = await supabase
       .from('indiv_packages')
       .select('teacher:profiles!indiv_packages_teacher_id_fkey(id, full_name, first_name, last_name, avatar_url, bio, sort_order)')
       .eq('is_active', true)
-    // Дедупликация по teacher_id
     const seen = new Set()
-    const unique = (data || [])
-      .map(d => d.teacher)
+    const unique = (data || []).map(d => d.teacher)
       .filter(t => t && !seen.has(t.id) && seen.add(t.id))
       .sort((a, b) => (a.sort_order || 100) - (b.sort_order || 100))
     setTeachers(unique)
@@ -85,77 +100,303 @@ export default function Shop({ session }) {
 
   const loadTeacherDetail = async (id) => {
     setIndivLoading(true)
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('id, full_name, first_name, last_name, avatar_url, bio')
-      .eq('id', id).single()
+    const { data: profile } = await supabase.from('profiles').select('id, full_name, first_name, last_name, avatar_url, bio').eq('id', id).single()
     setTeacherData(profile)
-
-    const { data: grps } = await supabase
-      .from('schedule')
-      .select('groups(name)')
-      .eq('teacher_id', id)
-      .not('group_id', 'is', null)
-    const uniqueGroups = [...new Set((grps || []).map(g => g.groups?.name).filter(Boolean))]
-    setGroups(uniqueGroups)
-
-    const { data: pkgs } = await supabase
-      .from('indiv_packages')
-      .select('*')
-      .eq('teacher_id', id)
-      .eq('is_active', true)
-      .order('sort_order')
+    const { data: grps } = await supabase.from('schedule').select('groups(name)').eq('teacher_id', id).not('group_id', 'is', null)
+    setGroups([...new Set((grps || []).map(g => g.groups?.name).filter(Boolean))])
+    const { data: pkgs } = await supabase.from('indiv_packages').select('*').eq('teacher_id', id).eq('is_active', true).order('sort_order')
     setIndivProducts(pkgs || [])
-
-    const { data: sl } = await supabase
-      .from('teacher_indiv_slots')
-      .select('*')
-      .eq('teacher_id', id)
-      .eq('is_active', true)
-      .order('day_of_week')
-      .order('start_time')
+    const { data: sl } = await supabase.from('teacher_indiv_slots').select('*').eq('teacher_id', id).eq('is_active', true).order('day_of_week').order('start_time')
     setSlots(sl || [])
     setIndivLoading(false)
+  }
+
+  const switchProduct = (newId) => {
+    if (transitioning || newId === activeProductId) return
+    setTransitioning(true)
+    setCardVisible(false)
+    setTimeout(() => {
+      setActiveProductId(newId)
+      setCardVisible(true)
+      setTimeout(() => setTransitioning(false), 350)
+    }, 220)
+  }
+
+  const handlePreorder = async (productId) => {
+    if (!session?.user?.id) return
+    setPreordering(true)
+    await supabase.from('merch_preorders').upsert({ product_id: productId, client_id: session.user.id }, { onConflict: 'product_id,client_id' })
+    setPreordering(false)
+    alert('Мы уведомим тебя когда товар появится!')
+    loadMerch()
+  }
+
+  const getVariantsByColor = (variants) => {
+    const map = {}
+    ;(variants || []).filter(v => v.is_active).forEach(v => {
+      const c = v.color || 'Без цвета'
+      if (!map[c]) map[c] = { hex: v.color_hex, variants: [] }
+      map[c].variants.push(v)
+    })
+    return map
   }
 
   const initials = (t) => {
     const name = t.full_name || `${t.first_name || ''} ${t.last_name || ''}`.trim()
     return name.split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase() || '?'
   }
-
   const getName = (t) => t.full_name || `${t.first_name || ''} ${t.last_name || ''}`.trim() || '—'
 
   const current = products[activeCat] || []
 
-  // ── Карточка препода внутри вкладки Индивы ───────────────────────────────
+  // ── Мерч ──────────────────────────────────────────────────────────────────
+  const MerchSection = () => {
+    if (merchLoading) return <div style={{textAlign:'center', color:'#BDBDBD', padding:40}}>Загрузка...</div>
+    if (merchProducts.length === 0) return <div style={{textAlign:'center', color:'#BDBDBD', padding:40, fontSize:13}}>Мерч скоро появится</div>
+
+    const activeProduct = merchProducts.find(p => p.id === activeProductId) || merchProducts[0]
+    const otherProducts = merchProducts.filter(p => p.id !== activeProduct.id)
+    const colorMap = getVariantsByColor(activeProduct.merch_variants)
+    const colors = Object.keys(colorMap)
+    const selectedColor = selectedColors[activeProduct.id] || colors[0]
+    const currentColorData = colorMap[selectedColor]
+    const variants = currentColorData?.variants || []
+    const hasSize = variants.some(v => v.size)
+    const selectedSize = selectedSizes[activeProduct.id]
+    const selectedVariant = hasSize
+      ? (selectedSize ? variants.find(v => v.size === selectedSize) : null)
+      : variants[0]
+    const totalStock = (activeProduct.merch_variants || []).filter(v => v.is_active).reduce((s, v) => s + (v.stock_count || 0), 0)
+    const alreadyPreordered = activeProduct.merch_preorders?.some(p => p.client_id === session?.user?.id)
+    const minPrice = Math.min(...(activeProduct.merch_variants || []).filter(v => v.is_active && v.stock_count > 0).map(v => v.price).filter(Boolean))
+
+    return (
+      <div>
+        {/* Главная карточка с анимацией */}
+        <div style={{
+          background: '#fff', borderRadius: 20, border: '1px solid #f0f0f0',
+          overflow: 'hidden', marginBottom: 12,
+          opacity: cardVisible ? 1 : 0,
+          transform: cardVisible ? 'translateY(0)' : 'translateY(-10px)',
+          transition: 'opacity 0.25s ease, transform 0.25s ease',
+        }}>
+          {/* Фото */}
+          <div style={{position:'relative', aspectRatio:'4/3', overflow:'hidden', background:'#f0f0f0'}}>
+            {activeProduct.image_url ? (
+              <img src={activeProduct.image_url} alt=""
+                style={{width:'100%', height:'100%', objectFit:'cover', display:'block'}} />
+            ) : (
+              <div style={{width:'100%', height:'100%', background:'#f5f5f5', display:'flex', alignItems:'center', justifyContent:'center', fontSize:48}}>
+                📦
+              </div>
+            )}
+            {activeProduct.badge_text && (
+              <div style={{position:'absolute', top:12, left:12}}>
+                <span style={{fontSize:11, fontWeight:700, padding:'4px 12px', borderRadius:20, background:(activeProduct.badge_color||'#BFD900')+'ee', color: activeProduct.badge_color === '#BFD900' || activeProduct.badge_color === '#f39c12' ? '#2a2a2a' : '#fff'}}>
+                  {activeProduct.badge_text}
+                </span>
+              </div>
+            )}
+            {totalStock > 0 && totalStock <= 5 && (
+              <div style={{position:'absolute', top:12, right:12, background:'rgba(0,0,0,0.5)', color:'#fff', fontSize:11, padding:'3px 10px', borderRadius:20}}>
+                Осталось {totalStock} шт
+              </div>
+            )}
+          </div>
+
+          <div style={{padding:16}}>
+            <div style={{fontSize:18, fontWeight:600, color:'#2a2a2a', marginBottom:6}}>{activeProduct.name}</div>
+            {activeProduct.description && (
+              <div style={{fontSize:13, color:'#888', lineHeight:1.6, marginBottom:16}}>{activeProduct.description}</div>
+            )}
+
+            {/* Выбор цвета */}
+            {colors.length > 1 && (
+              <div style={{marginBottom:16}}>
+                <div style={{fontSize:11, color:'#BDBDBD', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8}}>Цвет</div>
+                <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
+                  {colors.map(color => {
+                    const { hex, variants: cv } = colorMap[color]
+                    const colorStock = cv.reduce((s, v) => s + v.stock_count, 0)
+                    const isSel = selectedColor === color
+                    return (
+                      <button key={color}
+                        onClick={() => {
+                          setSelectedColors(p => ({...p, [activeProduct.id]: color}))
+                          setSelectedSizes(p => ({...p, [activeProduct.id]: null}))
+                        }}
+                        style={{display:'flex', alignItems:'center', gap:6, padding:'8px 14px', borderRadius:20,
+                          border: isSel ? '2px solid #BFD900' : '1.5px solid #e0e0e0',
+                          background: isSel ? '#fafde8' : '#fff', cursor:'pointer', fontFamily:'Inter,sans-serif',
+                          fontSize:13, color: isSel ? '#6a7700' : '#2a2a2a', fontWeight: isSel ? 600 : 400,
+                          opacity: colorStock === 0 ? 0.4 : 1}}>
+                        <div style={{width:14, height:14, borderRadius:'50%', background: hex || '#e0e0e0', border:'1px solid rgba(0,0,0,0.1)', flexShrink:0}} />
+                        {color}
+                        {colorStock === 0 && <span style={{fontSize:10, color:'#e74c3c'}}>нет</span>}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Выбор размера */}
+            {hasSize && variants.length > 0 && (
+              <div style={{marginBottom:16}}>
+                <div style={{fontSize:11, color:'#BDBDBD', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8}}>Размер</div>
+                <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
+                  {variants.map(v => {
+                    const isSel = selectedSize === v.size
+                    const isOut = v.stock_count === 0
+                    return (
+                      <button key={v.id} disabled={isOut}
+                        onClick={() => setSelectedSizes(p => ({...p, [activeProduct.id]: v.size}))}
+                        style={{padding:'8px 0', width:52, textAlign:'center', borderRadius:10,
+                          border: isSel ? '2px solid #BFD900' : '1.5px solid #e0e0e0',
+                          background: isSel ? '#fafde8' : isOut ? '#f5f5f5' : '#fff',
+                          fontSize:13, fontWeight: isSel ? 600 : 400,
+                          color: isSel ? '#6a7700' : isOut ? '#BDBDBD' : '#2a2a2a',
+                          textDecoration: isOut ? 'line-through' : 'none',
+                          cursor: isOut ? 'default' : 'pointer', fontFamily:'Inter,sans-serif'}}>
+                        {v.size}
+                        {!isOut && v.stock_count <= 2 && (
+                          <div style={{fontSize:9, color:'#f39c12', marginTop:1}}>мало</div>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+                {variants.filter(v => v.stock_count === 0).length > 0 && (
+                  <div style={{fontSize:11, color:'#BDBDBD', marginTop:6}}>
+                    {variants.filter(v => v.stock_count === 0).map(v => v.size).join(', ')} — нет в наличии
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Цена + кнопка */}
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-end', marginBottom:14}}>
+              <div>
+                {selectedVariant ? (
+                  <>
+                    <div style={{fontSize:28, fontWeight:300, color:'#2a2a2a', lineHeight:1}}>
+                      {Number(selectedVariant.price).toLocaleString('ru-RU')} <span style={{fontSize:14, color:'#BDBDBD'}}>₽</span>
+                    </div>
+                    {selectedVariant.coins_price && (
+                      <div style={{fontSize:12, color:'#f39c12', marginTop:4}}>или {selectedVariant.coins_price} 🪙 SDTшек</div>
+                    )}
+                  </>
+                ) : (
+                  <div style={{fontSize:16, color:'#888'}}>
+                    {isFinite(minPrice) ? `от ${minPrice.toLocaleString('ru-RU')} ₽` : '—'}
+                  </div>
+                )}
+              </div>
+              {selectedVariant && hasSize && (
+                <div style={{fontSize:12, color:'#888'}}>{selectedColor} / {selectedVariant.size}</div>
+              )}
+            </div>
+
+            {totalStock === 0 && activeProduct.allow_preorder ? (
+              <button onClick={() => handlePreorder(activeProduct.id)} disabled={preordering || alreadyPreordered}
+                style={{width:'100%', padding:14, borderRadius:14, border:`1.5px solid ${alreadyPreordered ? '#e0e0e0' : '#f39c12'}`,
+                  background: alreadyPreordered ? '#f5f5f5' : '#fef9e7', color: alreadyPreordered ? '#BDBDBD' : '#f39c12',
+                  fontSize:14, fontWeight:700, cursor: alreadyPreordered ? 'default' : 'pointer', fontFamily:'Inter,sans-serif'}}>
+                {alreadyPreordered ? '✓ Ты уже в списке ожидания' : '🔔 Хочу — привезите больше!'}
+              </button>
+            ) : (
+              <>
+              <button
+                disabled={totalStock === 0 || (hasSize && !selectedVariant)}
+                onClick={() => alert('Оплата скоро будет доступна!')}
+                style={{width:'100%', padding:14, borderRadius:14, border:'none',
+                  background: totalStock === 0 ? '#f0f0f0' : (!hasSize || selectedVariant) ? '#BFD900' : '#f0f0f0',
+                  color: totalStock === 0 ? '#BDBDBD' : (!hasSize || selectedVariant) ? '#2a2a2a' : '#888',
+                  fontSize:14, fontWeight:700, cursor: (totalStock === 0 || (hasSize && !selectedVariant)) ? 'default' : 'pointer',
+                  fontFamily:'Inter,sans-serif', transition:'background 0.15s'}}>
+                {totalStock === 0 ? 'Нет в наличии' : hasSize && !selectedVariant ? 'Выберите размер' : `Купить — ${selectedVariant ? Number(selectedVariant.price).toLocaleString('ru-RU') : ''} ₽`}
+              </button>
+              {selectedVariant?.coins_price && totalStock > 0 && (
+                <button
+                  onClick={() => alert('Для оплаты SDTшками обратись к администратору студии 🪙')}
+                  style={{width:'100%', marginTop:8, padding:12, borderRadius:14, border:'1.5px solid #f39c12',
+                    background:'#fef9e7', color:'#f39c12', fontSize:13, fontWeight:600,
+                    cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+                  🪙 Купить за {selectedVariant.coins_price} SDTшек
+                </button>
+              )}
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Остальные товары */}
+        {otherProducts.length > 0 && (
+          <div>
+            <div style={{fontSize:11, color:'#BDBDBD', textTransform:'uppercase', letterSpacing:'0.06em', fontWeight:600, marginBottom:10}}>
+              Ещё в магазине
+            </div>
+            {otherProducts.map((op, idx) => {
+              const opStock = (op.merch_variants || []).filter(v => v.is_active).reduce((s, v) => s + v.stock_count, 0)
+              const opMinPrice = Math.min(...(op.merch_variants || []).filter(v => v.is_active && v.stock_count > 0).map(v => v.price).filter(Boolean))
+              return (
+                <div key={op.id} onClick={() => switchProduct(op.id)}
+                  style={{background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', display:'flex', gap:12,
+                    padding:12, alignItems:'center', marginBottom:8, cursor:'pointer',
+                    opacity: cardVisible ? 1 : 0,
+                    transform: cardVisible ? 'translateY(0)' : 'translateY(-8px)',
+                    transition: `opacity ${0.3 + idx * 0.06}s ease, transform ${0.3 + idx * 0.06}s ease`,
+                  }}>
+                  {op.image_url ? (
+                    <img src={op.image_url} alt="" style={{width:60, height:60, borderRadius:10, objectFit:'cover', flexShrink:0}} />
+                  ) : (
+                    <div style={{width:60, height:60, borderRadius:10, background:'#f5f5f5', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:24}}>📦</div>
+                  )}
+                  <div style={{flex:1, minWidth:0}}>
+                    <div style={{display:'flex', alignItems:'center', gap:6, flexWrap:'wrap', marginBottom:3}}>
+                      <span style={{fontSize:14, fontWeight:600, color:'#2a2a2a'}}>{op.name}</span>
+                      {op.badge_text && (
+                        <span style={{fontSize:10, fontWeight:600, padding:'2px 8px', borderRadius:20,
+                          background:(op.badge_color||'#BFD900')+'22', color:op.badge_color||'#6a7700'}}>
+                          {op.badge_text}
+                        </span>
+                      )}
+                    </div>
+                    <span style={{fontSize:12, color: opStock === 0 ? '#e74c3c' : opStock <= 3 ? '#f39c12' : '#888'}}>
+                      {opStock === 0 ? 'Нет в наличии' : opStock <= 3 ? `Осталось ${opStock} шт` : isFinite(opMinPrice) ? `от ${opMinPrice.toLocaleString('ru-RU')} ₽` : '—'}
+                    </span>
+                  </div>
+                  <span style={{fontSize:18, color:'#BDBDBD', flexShrink:0}}>›</span>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // ── Карточка препода ──────────────────────────────────────────────────────
   const TeacherDetail = () => (
     <div>
       <div style={{display:'flex', alignItems:'center', gap:12, marginBottom:16}}>
         <div onClick={() => goTeacher(null)} style={{cursor:'pointer', color:'#BDBDBD', fontSize:20}}>←</div>
         <div style={{fontSize:16, fontWeight:600, color:'#2a2a2a'}}>{getName(teacherData)}</div>
       </div>
-
       {teacherData.avatar_url && (
         <div style={{display:'flex', justifyContent:'center', marginBottom:16}}>
           <img src={teacherData.avatar_url} alt="" style={{width:200, height:200, objectFit:'cover', borderRadius:16, display:'block'}} />
         </div>
       )}
-
-      {teacherData.bio && (
-        <div style={{fontSize:13, color:'#888', lineHeight:1.6, marginBottom:12}}>{teacherData.bio}</div>
-      )}
-
+      {teacherData.bio && <div style={{fontSize:13, color:'#888', lineHeight:1.6, marginBottom:12}}>{teacherData.bio}</div>}
       {groups.length > 0 && (
         <div style={{marginBottom:16}}>
           <div style={{fontSize:11, color:'#BDBDBD', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8}}>Ведёт группы</div>
           <div style={{display:'flex', flexWrap:'wrap', gap:6}}>
-            {groups.map(g => (
-              <span key={g} style={{fontSize:12, background:'#f5f5f5', color:'#2a2a2a', padding:'4px 12px', borderRadius:20}}>{g}</span>
-            ))}
+            {groups.map(g => <span key={g} style={{fontSize:12, background:'#f5f5f5', color:'#2a2a2a', padding:'4px 12px', borderRadius:20}}>{g}</span>)}
           </div>
         </div>
       )}
-
       <div style={{display:'flex', borderBottom:'1px solid #f0f0f0', marginBottom:16}}>
         {[['indiv','Индивы'],['slots','Расписание']].map(([v,l]) => (
           <div key={v} onClick={() => setIndivTab(v)}
@@ -164,7 +405,6 @@ export default function Shop({ session }) {
           </div>
         ))}
       </div>
-
       {indivTab === 'indiv' && (
         indivProducts.length === 0 ? (
           <div style={{textAlign:'center', color:'#BDBDBD', padding:40, fontSize:13}}>Индивы не настроены</div>
@@ -186,35 +426,20 @@ export default function Shop({ session }) {
           </div>
         ))
       )}
-
       {indivTab === 'slots' && (() => {
         const DAYS_FULL = ['Воскресенье','Понедельник','Вторник','Среда','Четверг','Пятница','Суббота']
         const MONTHS = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек']
-        const nextDateForDay = (d) => {
-          const today = new Date()
-          const diff = (d - today.getDay() + 7) % 7
-          const next = new Date(today)
-          next.setDate(today.getDate() + diff)
-          return next
-        }
-        const grouped = [1,2,3,4,5,6,0]
-          .map(day => ({ day, date: nextDateForDay(day), slots: slots.filter(s => s.day_of_week === day) }))
-          .filter(g => g.slots.length > 0)
-          .sort((a,b) => a.date - b.date)
+        const nextDateForDay = (d) => { const today = new Date(); const diff = (d - today.getDay() + 7) % 7; const next = new Date(today); next.setDate(today.getDate() + diff); return next }
+        const grouped = [1,2,3,4,5,6,0].map(day => ({ day, date: nextDateForDay(day), slots: slots.filter(s => s.day_of_week === day) })).filter(g => g.slots.length > 0).sort((a,b) => a.date - b.date)
         return slots.length === 0 ? (
           <div style={{textAlign:'center', color:'#BDBDBD', padding:40, fontSize:13}}>Расписание не указано</div>
         ) : grouped.map(({day, date, slots: daySlots}) => (
           <div key={day} style={{marginBottom:16}}>
-            <div style={{fontSize:13, fontWeight:600, color:'#2a2a2a', marginBottom:8}}>
-              {DAYS_FULL[day]}, {date.getDate()} {MONTHS[date.getMonth()]}
-            </div>
+            <div style={{fontSize:13, fontWeight:600, color:'#2a2a2a', marginBottom:8}}>{DAYS_FULL[day]}, {date.getDate()} {MONTHS[date.getMonth()]}</div>
             {daySlots.map(s => (
               <div key={s.id} style={{display:'flex', justifyContent:'space-between', alignItems:'center', background:'#fff', borderRadius:12, padding:'10px 14px', marginBottom:6, border:'1px solid #f0f0f0'}}>
                 <div style={{fontSize:13, color:'#2a2a2a'}}>{s.start_time.slice(0,5)} — {s.end_time.slice(0,5)}</div>
-                <button onClick={() => alert('Сначала оплатите индив!')}
-                  style={{background:'#f5facc', border:'none', borderRadius:8, padding:'5px 14px', fontSize:12, fontWeight:600, color:'#6a7700', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-                  Записаться
-                </button>
+                <button onClick={() => alert('Сначала оплатите индив!')} style={{background:'#f5facc', border:'none', borderRadius:8, padding:'5px 14px', fontSize:12, fontWeight:600, color:'#6a7700', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>Записаться</button>
               </div>
             ))}
           </div>
@@ -223,7 +448,6 @@ export default function Shop({ session }) {
     </div>
   )
 
-  // ── Список преподавателей ─────────────────────────────────────────────────
   const TeacherList = () => (
     teachers.length === 0 ? (
       <div style={{textAlign:'center', color:'#BDBDBD', padding:40, fontSize:13}}>Преподаватели не найдены</div>
@@ -231,14 +455,12 @@ export default function Shop({ session }) {
       <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:12}}>
         {teachers.map(t => (
           <div key={t.id} onClick={() => goTeacher(t.id)}
-            style={{background:'#fff', borderRadius:16, overflow:'hidden', border:'1px solid #f0f0f0', cursor:'pointer', boxShadow:'0 1px 4px rgba(0,0,0,0.04)'}}>
+            style={{background:'#fff', borderRadius:16, overflow:'hidden', border:'1px solid #f0f0f0', cursor:'pointer'}}>
             {t.avatar_url ? (
               <img src={t.avatar_url} alt="" style={{width:'100%', height:140, objectFit:'cover'}} />
             ) : (
               <div style={{width:'100%', height:140, background:'linear-gradient(135deg, #2a2a2a, #444)', display:'flex', alignItems:'center', justifyContent:'center'}}>
-                <div style={{width:48, height:48, background:'#BFD900', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, fontWeight:700, color:'#2a2a2a'}}>
-                  {initials(t)}
-                </div>
+                <div style={{width:48, height:48, background:'#BFD900', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, fontWeight:700, color:'#2a2a2a'}}>{initials(t)}</div>
               </div>
             )}
             <div style={{padding:'10px 12px'}}>
@@ -262,22 +484,19 @@ export default function Shop({ session }) {
               border: activeCat === cat.id ? 'none' : '1px solid #e0e0e0',
               background: activeCat === cat.id ? '#BFD900' : '#fff',
               color: activeCat === cat.id ? '#2a2a2a' : '#BDBDBD',
-              fontSize:12, cursor:'pointer',
-              fontWeight: activeCat === cat.id ? 600 : 400
+              fontSize:12, cursor:'pointer', fontWeight: activeCat === cat.id ? 600 : 400
             }}>{cat.label}</div>
           ))}
         </div>
       </div>
 
       <div style={{padding:'0 20px 20px'}}>
-        {activeCat === 'indiv' ? (
+        {activeCat === 'merch' ? (
+          <MerchSection />
+        ) : activeCat === 'indiv' ? (
           indivLoading ? (
             <div style={{textAlign:'center', color:'#BDBDBD', padding:40}}>Загрузка...</div>
-          ) : selectedTeacher && teacherData ? (
-            <TeacherDetail />
-          ) : (
-            <TeacherList />
-          )
+          ) : selectedTeacher && teacherData ? <TeacherDetail /> : <TeacherList />
         ) : loading ? (
           <div style={{textAlign:'center', color:'#BDBDBD', padding:40}}>Загрузка...</div>
         ) : current.length === 0 ? (
@@ -319,7 +538,7 @@ export default function Shop({ session }) {
             <div style={{fontSize:24, color:'#2a2a2a', fontWeight:300, marginBottom:20}}>
               {Number(selected.price).toLocaleString()} <span style={{fontSize:14, color:'#BDBDBD'}}>₽</span>
             </div>
-            <button onClick={() => alert('Оплата скоро будет доступна! Для оплаты свяжитесь с администратором.')}
+            <button onClick={() => alert('Оплата скоро будет доступна!')}
               style={{width:'100%', padding:14, background:'#BFD900', border:'none', borderRadius:14, fontSize:14, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif', marginBottom:10}}>
               Оплатить {Number(selected.price).toLocaleString()} ₽
             </button>
