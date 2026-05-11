@@ -113,7 +113,13 @@ export default function Schedule({ session, onShop }) {
   return (
     <div style={{fontFamily:'Inter,sans-serif'}}>
       <div style={{padding:'16px 20px 0'}}>
-        <div style={{fontSize:18, color:'#2a2a2a', fontWeight:300, marginBottom:16, fontFamily:'sans-serif'}}>Расписание</div>
+        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16}}>
+          <div style={{fontSize:18, color:'#2a2a2a', fontWeight:300, fontFamily:'sans-serif'}}>Расписание</div>
+          <button onClick={() => { setActiveDay(0); localStorage.setItem('schedule_day', '0') }}
+            style={{padding:'5px 14px', background:'#BFD900', border:'none', borderRadius:10, fontSize:12, fontWeight:600, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+            Сегодня
+          </button>
+        </div>
         <div style={{display:'flex', gap:6, overflowX:'auto', paddingBottom:4, scrollbarWidth:'none', WebkitOverflowScrolling:'touch'}}>
           {DAYS.map((day, i) => (
             <div key={i} onClick={() => goDay(i)} style={{
