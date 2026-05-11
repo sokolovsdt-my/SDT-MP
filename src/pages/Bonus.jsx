@@ -1,6 +1,110 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
 
+function PrizesTab({ userId, userCoins }) {
+  const [prizes, setPrizes] = useState([])
+  const [myRequests, setMyRequests] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [requesting, setRequesting] = useState(null)
+
+  useEffect(() => {
+    const load = async () => {
+      const { data: p } = await supabase.from('prizes').select('*').eq('is_active', true).order('sort_order')
+      setPrizes(p || [])
+      const { data: r } = await supabase.from('prize_requests').select('*, prize:prizes(name)').eq('client_id', userId).order('created_at', { ascending: false })
+      setMyRequests(r || [])
+      setLoading(false)
+    }
+    load()
+  }, [userId])
+
+  const handleRequest = async (prize) => {
+    if (requesting) return
+    setRequesting(prize.id)
+    await supabase.from('prize_requests').insert({ prize_id: prize.id, client_id: userId, status: 'pending' })
+    const { data: r } = await supabase.from('prize_requests').select('*, prize:prizes(name)').eq('client_id', userId).order('created_at', { ascending: false })
+    setMyRequests(r || [])
+    setRequesting(null)
+  }
+
+  const STATUS_LABEL = { pending:'Ждёт выдачи ⏳', completed:'Получен! 🎉', cancelled:'Отменена' }
+  const STATUS_COLOR = { pending:'#f39c12', completed:'#27ae60', cancelled:'#888' }
+
+  if (loading) return <div style={{textAlign:'center', color:'#BDBDBD', padding:30}}>Загрузка...</div>
+
+  return (
+    <div>
+      <div style={{fontSize:13, color:'#888', marginBottom:16, lineHeight:1.6}}>
+        Обменяй SDTшки на призы — обратись к администратору для получения 🎁
+      </div>
+
+      {prizes.length === 0 && (
+        <div style={{textAlign:'center', color:'#BDBDBD', padding:30, fontSize:13}}>Призов пока нет</div>
+      )}
+
+      {prizes.map(prize => {
+        const canAfford = userCoins >= prize.coins_price
+        const isOut = prize.stock_count === 0
+        const alreadyPending = myRequests.some(r => r.prize_id === prize.id && r.status === 'pending')
+
+        return (
+          <div key={prize.id} style={{background:'#fff', borderRadius:16, border:'1px solid #f0f0f0', marginBottom:12, overflow:'hidden'}}>
+            {prize.image_url && (
+              <img src={prize.image_url} alt="" style={{width:'100%', aspectRatio:'16/9', objectFit:'cover', display:'block'}} />
+            )}
+            <div style={{padding:14}}>
+              <div style={{display:'flex', alignItems:'center', gap:8, marginBottom:4}}>
+                <span style={{fontSize:15, fontWeight:600, color:'#2a2a2a'}}>{prize.name}</span>
+                {prize.badge_text && (
+                  <span style={{fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:20, background:(prize.badge_color||'#f39c12')+'22', color:prize.badge_color||'#f39c12'}}>
+                    {prize.badge_text}
+                  </span>
+                )}
+              </div>
+              {prize.description && <div style={{fontSize:12, color:'#888', marginBottom:10, lineHeight:1.5}}>{prize.description}</div>}
+              <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                <div>
+                  <div style={{fontSize:18, fontWeight:600, color:'#f39c12'}}>⭐ {prize.coins_price} SDTшек</div>
+                  {isOut && <div style={{fontSize:11, color:'#e74c3c', marginTop:2}}>Закончился</div>}
+                  {!isOut && !canAfford && <div style={{fontSize:11, color:'#e74c3c', marginTop:2}}>Не хватает {prize.coins_price - userCoins} ⭐</div>}
+                  {!isOut && canAfford && !alreadyPending && <div style={{fontSize:11, color:'#27ae60', marginTop:2}}>Хватает монет ✓</div>}
+                </div>
+                {alreadyPending ? (
+                  <span style={{fontSize:12, color:'#f39c12', fontWeight:600, background:'#fef9e7', padding:'6px 12px', borderRadius:10}}>
+                    Заявка подана ⏳
+                  </span>
+                ) : (
+                  <button
+                    disabled={!canAfford || isOut || requesting === prize.id}
+                    onClick={() => handleRequest(prize)}
+                    style={{padding:'9px 18px', borderRadius:12, border:'none', fontFamily:'Inter,sans-serif', fontSize:13, fontWeight:700,
+                      cursor: (!canAfford || isOut) ? 'default' : 'pointer',
+                      background: (!canAfford || isOut) ? '#f0f0f0' : '#BFD900',
+                      color: (!canAfford || isOut) ? '#888' : '#2a2a2a'}}>
+                    {requesting === prize.id ? '...' : isOut ? 'Нет' : !canAfford ? 'Мало монет' : 'Хочу! 🎁'}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )
+      })}
+
+      {myRequests.length > 0 && (
+        <div style={{marginTop:20}}>
+          <div style={{fontSize:13, fontWeight:600, color:'#2a2a2a', marginBottom:10}}>Мои заявки</div>
+          {myRequests.map(r => (
+            <div key={r.id} style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 0', borderBottom:'1px solid #f8f8f8'}}>
+              <span style={{fontSize:13, color:'#2a2a2a'}}>{r.prize?.name}</span>
+              <span style={{fontSize:12, fontWeight:600, color:STATUS_COLOR[r.status]}}>{STATUS_LABEL[r.status]}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Bonus({ session }) {
   const [profile, setProfile] = useState(null)
   const [history, setHistory] = useState([])
@@ -60,27 +164,7 @@ export default function Bonus({ session }) {
             ))}
           </div>
         )}
-        {tab === 'prizes' && (
-          <div>
-            <div style={{fontSize:13, color:'#BDBDBD', marginBottom:16}}>Обменяйте SDTшки на призы в студии</div>
-            {[
-              {name:'Брелок SDT', coins:10},
-              {name:'Наклейки SDT', coins:15},
-              {name:'Футболка SDT', coins:50},
-              {name:'Мастер-класс бесплатно', coins:100},
-            ].map((prize,i) => (
-              <div key={i} style={{display:'flex', justifyContent:'space-between', alignItems:'center', background:'#fff', borderRadius:14, padding:'14px 16px', marginBottom:10, border:'1px solid #f0f0f0'}}>
-                <div style={{fontSize:14, color:'#2a2a2a'}}>{prize.name}</div>
-                <div style={{display:'flex', alignItems:'center', gap:8}}>
-                  <span style={{fontSize:13, fontWeight:600, color:'#2a2a2a'}}>{prize.coins} ⭐</span>
-                  <button style={{background:'#f5f5f5', border:'none', borderRadius:8, padding:'5px 12px', fontSize:11, color:'#BDBDBD', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-                    Обменять
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        {tab === 'prizes' && <PrizesTab userId={session.user.id} userCoins={profile?.bonus_coins || 0} />}
       </div>
     </div>
   )

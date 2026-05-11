@@ -23,6 +23,7 @@ import AdminCashbox from './admin/AdminCashbox'
 import AdminGroups from './admin/AdminGroups'
 import AdminBroadcasts from './admin/AdminBroadcasts'
 import AdminNews from './admin/AdminNews'
+import AdminPrizes from './admin/AdminPrizes'
 import AdminIndivs from './admin/AdminIndivs'
 import TeacherPanel from './admin/TeacherPanel'
 import { RequireRole } from './components/RequireRole'
@@ -106,6 +107,7 @@ function App() {
           <Route path="indivs" element={<RequireRole session={session} allow={['admin','manager','owner']}><AdminIndivs session={session} /></RequireRole>} />
           <Route path="broadcasts" element={<RequireRole session={session} allow={['admin','manager','owner']}><AdminBroadcasts session={session} /></RequireRole>} />
           <Route path="news" element={<RequireRole session={session} allow={['admin','manager','owner']}><AdminNews session={session} /></RequireRole>} />
+          <Route path="prizes" element={<RequireRole session={session} allow={['admin','manager','owner']}><AdminPrizes session={session} /></RequireRole>} />
         </Route>
         <Route path="/teacher" element={
           <RequireRole session={session} allow={['teacher','admin','manager','owner']}>

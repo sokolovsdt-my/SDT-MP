@@ -16,6 +16,7 @@ export default function AdminLayout({ session }) {
   const { role } = useUserRole(session)
   const navigate = useNavigate()
   const [tasksCount, setTasksCount] = useState(0)
+  const [prizesCount, setPrizesCount] = useState(0)
   const [isAlsoTeacher, setIsAlsoTeacher] = useState(false)
 
   // Проверяем есть ли роль teacher в staff_roles (дополнительно к основной)
@@ -49,6 +50,18 @@ export default function AdminLayout({ session }) {
     return () => { clearInterval(interval); window.removeEventListener('focus', fetchCount) }
   }, [session])
 
+  useEffect(() => {
+    if (!session?.user?.id) return
+    const fetchPrizes = async () => {
+      const { count } = await supabase.from('prize_requests').select('*', { count:'exact', head:true }).eq('status','pending')
+      setPrizesCount(count || 0)
+    }
+    fetchPrizes()
+    const interval = setInterval(fetchPrizes, 30000)
+    window.addEventListener('focus', fetchPrizes)
+    return () => { clearInterval(interval); window.removeEventListener('focus', fetchPrizes) }
+  }, [session])
+
   const handleLogout = async () => {
     await supabase.auth.signOut()
     navigate('/')
@@ -67,6 +80,7 @@ export default function AdminLayout({ session }) {
     { to: '/admin/finance',    label: 'Финансы',    roles: ['owner'] },
     { to: '/admin/indivs',     label: 'Индивы',     roles: ['admin','manager','owner'] },
     { to: '/admin/staff',      label: 'Сотрудники', roles: ['admin','manager','owner'] },
+    { to: '/admin/prizes',     label: 'Призы',      roles: ['admin','manager','owner'], badge: prizesCount },
   ].filter(item => role && item.roles.includes(role))
 
   return (
