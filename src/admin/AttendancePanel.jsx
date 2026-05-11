@@ -1,100 +1,262 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../supabase'
 
 const STATUS_OPTIONS = [
-  { value: 'none', label: 'Не отмечен', color: '#BDBDBD', bg: '#f5f5f5' },
-  { value: 'present', label: 'Пришёл', color: '#27ae60', bg: '#eafaf1' },
-  { value: 'absent', label: 'Не пришёл', color: '#e74c3c', bg: '#fdecea' },
-  { value: 'cancelled', label: 'Отказался', color: '#f39c12', bg: '#fef9e7' },
-  { value: 'transferred', label: 'Перенос', color: '#8e44ad', bg: '#f5eef8' },
+  { value: 'none',        label: 'Не отмечен',  color: '#BDBDBD', bg: '#f5f5f5' },
+  { value: 'present',     label: 'Пришёл',       color: '#27ae60', bg: '#eafaf1' },
+  { value: 'absent',      label: 'Не пришёл',    color: '#e74c3c', bg: '#fdecea' },
+  { value: 'cancelled',   label: 'Отказался',    color: '#f39c12', bg: '#fef9e7' },
+  { value: 'transferred', label: 'Перенос',      color: '#8e44ad', bg: '#f5eef8' },
 ]
 
 const BASIS_LABELS = {
   subscription: 'Абонемент',
-  single: 'Разовое',
-  trial: 'Пробное',
-  indiv: 'Индив',
-  none: 'Без основания',
+  single:       'Разовое',
+  trial:        'Пробное',
+  indiv:        'Индив',
+  none:         'Без основания',
 }
 
-function StudentRow({ booking, onStatusChange }) {
+function StatusButton({ status, isTrial, onChange, disabled }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef()
+
+  useEffect(() => {
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const current = STATUS_OPTIONS.find(s => s.value === status) || STATUS_OPTIONS[0]
+  const options = STATUS_OPTIONS.filter(s =>
+    s.value !== 'none' && (s.value !== 'transferred' || isTrial)
+  )
+
+  return (
+    <div ref={ref} style={{ position: 'relative', flexShrink: 0 }}>
+      <button
+        onClick={() => !disabled && setOpen(o => !o)}
+        style={{
+          padding: '5px 10px', border: `1px solid ${current.color}`,
+          borderRadius: 8, fontSize: 12, background: current.bg,
+          color: current.color, fontWeight: 600, cursor: disabled ? 'default' : 'pointer',
+          fontFamily: 'Inter,sans-serif', display: 'flex', alignItems: 'center', gap: 4,
+          opacity: disabled ? 0.6 : 1, whiteSpace: 'nowrap',
+        }}
+      >
+        {current.label}
+        {!disabled && <span style={{ fontSize: 10, opacity: 0.7 }}>▾</span>}
+      </button>
+
+      {open && (
+        <div style={{
+          position: 'absolute', top: '110%', right: 0, background: '#fff',
+          border: '1px solid #e8e8e8', borderRadius: 10, zIndex: 200,
+          boxShadow: '0 4px 16px rgba(0,0,0,0.12)', minWidth: 140, overflow: 'hidden',
+        }}>
+          {options.map(opt => (
+            <div
+              key={opt.value}
+              onClick={() => { onChange(opt.value); setOpen(false) }}
+              style={{
+                padding: '9px 14px', fontSize: 13, cursor: 'pointer',
+                color: opt.color, fontWeight: 600, fontFamily: 'Inter,sans-serif',
+                background: opt.value === status ? opt.bg : '#fff',
+                borderBottom: '1px solid #f5f5f5',
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = opt.bg}
+              onMouseLeave={e => e.currentTarget.style.background = opt.value === status ? opt.bg : '#fff'}
+            >
+              {opt.label}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function StudentRow({ booking, onStatusChange, lessonStarted }) {
   const [status, setStatus] = useState(booking.attendance_status || 'none')
   const [saving, setSaving] = useState(false)
 
   const handleChange = async (newStatus) => {
     setSaving(true)
     setStatus(newStatus)
-    await onStatusChange(booking, newStatus)
+    await onStatusChange(booking, newStatus, status)
     setSaving(false)
   }
 
   const basis = booking.basis || 'none'
   const isNoBasis = basis === 'none'
   const isTrial = basis === 'trial'
-  const currentStatus = STATUS_OPTIONS.find(s => s.value === status) || STATUS_OPTIONS[0]
-  const formatDate = (dt) => dt ? new Date(dt).toLocaleDateString('ru-RU', { day:'numeric', month:'short', year:'numeric' }) : '—'
+  const formatDate = (dt) => dt
+    ? new Date(dt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })
+    : '—'
 
   return (
     <div style={{
-      padding:'12px 16px', borderBottom:'1px solid #f5f5f5',
+      padding: '12px 16px', borderBottom: '1px solid #f5f5f5',
       background: isNoBasis ? '#fff8f8' : '#fff',
-      display:'flex', alignItems:'center', gap:12
+      display: 'flex', alignItems: 'center', gap: 12,
     }}>
       <div style={{
-        width:36, height:36, borderRadius:'50%',
+        width: 36, height: 36, borderRadius: '50%',
         background: isNoBasis ? '#fdecea' : '#fafde8',
-        display:'flex', alignItems:'center', justifyContent:'center',
-        fontSize:13, fontWeight:700,
-        color: isNoBasis ? '#e74c3c' : '#6a7700', flexShrink:0
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: 13, fontWeight: 700,
+        color: isNoBasis ? '#e74c3c' : '#6a7700', flexShrink: 0,
       }}>
         {(booking.profiles?.full_name || '?')[0].toUpperCase()}
       </div>
-      <div style={{flex:1, minWidth:0}}>
-        <div style={{display:'flex', alignItems:'center', gap:6, marginBottom:2}}>
-          <span style={{fontSize:13, fontWeight:600, color:'#2a2a2a'}}>
+
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#2a2a2a' }}>
             {booking.profiles?.full_name || booking.profiles?.email || '—'}
           </span>
           {booking.profiles?.birth_date && (
-            <span style={{fontSize:11, color:'#BDBDBD'}}>
+            <span style={{ fontSize: 11, color: '#BDBDBD' }}>
               {new Date().getFullYear() - new Date(booking.profiles.birth_date).getFullYear()} лет
             </span>
           )}
         </div>
-        {booking.representative && (
-          <div style={{fontSize:11, color:'#888', marginBottom:2}}>
-            {booking.representative.role}: {booking.representative.full_name}
-            {booking.representative.phone && ` · ${booking.representative.phone}`}
-          </div>
-        )}
-        <div style={{display:'flex', alignItems:'center', gap:6}}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span style={{
-            fontSize:11, fontWeight:600,
+            fontSize: 11, fontWeight: 600,
             color: isNoBasis ? '#e74c3c' : '#6a7700',
             background: isNoBasis ? '#fdecea' : '#fafde8',
-            padding:'1px 6px', borderRadius:4
+            padding: '1px 6px', borderRadius: 4,
           }}>
             {isNoBasis ? '⚠️ Без основания' : BASIS_LABELS[basis]}
           </span>
           {booking.subscription_expires && !isNoBasis && (
-            <span style={{fontSize:10, color:'#BDBDBD'}}>до {formatDate(booking.subscription_expires)}</span>
+            <span style={{ fontSize: 10, color: '#BDBDBD' }}>
+              до {formatDate(booking.subscription_expires)}
+            </span>
           )}
         </div>
       </div>
-      <select
-        value={status}
-        onChange={e => handleChange(e.target.value)}
-        disabled={saving}
-        style={{
-          padding:'5px 8px', border:`1px solid ${currentStatus.color}`,
-          borderRadius:8, fontSize:12, background: currentStatus.bg,
-          color: currentStatus.color, fontWeight:600, cursor:'pointer',
-          fontFamily:'Inter,sans-serif', opacity: saving ? 0.6 : 1, flexShrink:0
-        }}
-      >
-        {STATUS_OPTIONS.filter(s => s.value !== 'transferred' || isTrial || s.value === status).map(s => (
-          <option key={s.value} value={s.value}>{s.label}</option>
-        ))}
-      </select>
+
+      <StatusButton
+        status={status}
+        isTrial={isTrial}
+        onChange={handleChange}
+        disabled={saving || !lessonStarted}
+      />
+    </div>
+  )
+}
+
+function TransferModal({ booking, lesson, onClose, onDone }) {
+  const [slots, setSlots] = useState([])
+  const [selected, setSelected] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    const loadSlots = async () => {
+      const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' })
+      const { data } = await supabase
+        .from('schedule')
+        .select('id, starts_at, ends_at, title, groups(name)')
+        .gte('starts_at', today)
+        .eq('is_cancelled', false)
+        .neq('id', lesson.id)
+        .order('starts_at', { ascending: true })
+        .limit(30)
+      setSlots(data || [])
+      setLoading(false)
+    }
+    loadSlots()
+  }, [])
+
+  const handleConfirm = async () => {
+    if (!selected) return
+    setSaving(true)
+    const { data: { user } } = await supabase.auth.getUser()
+
+    if (booking.attendance_id) {
+      await supabase.from('attendance')
+        .update({ status: 'transferred', marked_by: user?.id })
+        .eq('id', booking.attendance_id)
+    } else {
+      await supabase.from('attendance').insert({
+        schedule_id: lesson.id,
+        student_id: booking.student_id,
+        status: 'transferred',
+        basis: 'trial',
+        marked_by: user?.id,
+      })
+    }
+
+    await supabase.from('bookings').insert({
+      schedule_id: selected,
+      student_id: booking.student_id,
+      status: 'booked',
+      ...(user?.id ? { created_by: user.id } : {}),
+    })
+
+    setSaving(false)
+    onDone()
+  }
+
+  const fmt = (dt) => new Date(dt).toLocaleDateString('ru-RU', {
+    day: 'numeric', month: 'short', weekday: 'short',
+  }) + ' ' + new Date(dt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
+      zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }}>
+      <div style={{
+        background: '#fff', borderRadius: 16, padding: 24, width: 400,
+        maxHeight: '80vh', display: 'flex', flexDirection: 'column',
+        fontFamily: 'Inter,sans-serif',
+      }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: '#2a2a2a', marginBottom: 4 }}>
+          Перенос пробного занятия
+        </div>
+        <div style={{ fontSize: 12, color: '#888', marginBottom: 16 }}>
+          {booking.profiles?.full_name} → выберите новое занятие
+        </div>
+        <div style={{ flex: 1, overflowY: 'auto', marginBottom: 16 }}>
+          {loading ? (
+            <div style={{ color: '#BDBDBD', textAlign: 'center', padding: 24 }}>Загрузка...</div>
+          ) : slots.length === 0 ? (
+            <div style={{ color: '#BDBDBD', textAlign: 'center', padding: 24 }}>Нет доступных занятий</div>
+          ) : slots.map(slot => (
+            <div key={slot.id} onClick={() => setSelected(slot.id)} style={{
+              padding: '10px 14px', borderRadius: 10, marginBottom: 6, cursor: 'pointer',
+              border: `1px solid ${selected === slot.id ? '#BFD900' : '#e8e8e8'}`,
+              background: selected === slot.id ? '#fafde8' : '#fff',
+            }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#2a2a2a' }}>
+                {slot.groups?.name || slot.title || 'Занятие'}
+              </div>
+              <div style={{ fontSize: 11, color: '#888' }}>{fmt(slot.starts_at)}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={handleConfirm} disabled={!selected || saving} style={{
+            flex: 1, padding: '10px', background: selected ? '#BFD900' : '#f0f0f0',
+            border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700,
+            color: selected ? '#2a2a2a' : '#BDBDBD', cursor: selected ? 'pointer' : 'default',
+            fontFamily: 'Inter,sans-serif',
+          }}>
+            {saving ? 'Переносим...' : 'Перенести'}
+          </button>
+          <button onClick={onClose} style={{
+            padding: '10px 16px', background: 'transparent', border: '1px solid #e0e0e0',
+            borderRadius: 10, fontSize: 13, color: '#888', cursor: 'pointer',
+            fontFamily: 'Inter,sans-serif',
+          }}>
+            Отмена
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -104,39 +266,88 @@ export default function AttendancePanel({ lesson, session, onClose, teachers, on
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [searchResults, setSearchResults] = useState([])
-  const [salaryCalc, setSalaryCalc] = useState(null) // результат расчёта ЗП
+  const [salaryCalc, setSalaryCalc] = useState(null)
   const [calcLoading, setCalcLoading] = useState(false)
   const [calcSaved, setCalcSaved] = useState(false)
+  const [transferBooking, setTransferBooking] = useState(null)
 
   const [showChangeTeacher, setShowChangeTeacher] = useState(false)
   const [newTeacherId, setNewTeacherId] = useState(lesson.teacher_id || '')
   const [showReschedule, setShowReschedule] = useState(false)
-  const [newDate, setNewDate] = useState(lesson.starts_at ? new Date(lesson.starts_at).toISOString().split('T')[0] : '')
-  const [newTimeFrom, setNewTimeFrom] = useState(lesson.starts_at ? new Date(lesson.starts_at).toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'}) : '')
-  const [newTimeTo, setNewTimeTo] = useState(lesson.ends_at ? new Date(lesson.ends_at).toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'}) : '')
+  const [newDate, setNewDate] = useState(
+    lesson.starts_at ? new Date(lesson.starts_at).toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' }) : ''
+  )
+  const [newTimeFrom, setNewTimeFrom] = useState(
+    lesson.starts_at ? new Date(lesson.starts_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : ''
+  )
+  const [newTimeTo, setNewTimeTo] = useState(
+    lesson.ends_at ? new Date(lesson.ends_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : ''
+  )
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    if (lesson) {
-      loadBookings()
-      checkExistingCalc()
-    }
+    if (lesson) { loadBookings(); checkExistingCalc() }
   }, [lesson])
 
+  // ─── Два отдельных запроса — bookings и attendance ───────────────────────
   const loadBookings = async () => {
     setLoading(true)
-    const { data } = await supabase
+
+    const { data: bookingsData } = await supabase
       .from('bookings')
-      .select('*, profiles(id, full_name, email, birth_date, phone), attendance(status, basis, subscription_expires, id)')
+      .select('*, profiles!bookings_student_id_fkey(id, full_name, email, birth_date, phone)')
       .eq('schedule_id', lesson.id)
       .neq('status', 'cancelled')
-    setBookings((data || []).map(b => ({
-      ...b,
-      attendance_status: b.attendance?.[0]?.status || 'none',
-      basis: b.attendance?.[0]?.basis || 'none',
-      subscription_expires: b.attendance?.[0]?.subscription_expires,
-      attendance_id: b.attendance?.[0]?.id,
-    })))
+
+    const { data: attendanceData } = await supabase
+      .from('attendance')
+      .select('id, student_id, status, basis, subscription_expires, subscription_id')
+      .eq('schedule_id', lesson.id)
+
+    const attMap = {}
+    ;(attendanceData || []).forEach(a => { attMap[a.student_id] = a })
+
+    // Ищем абонементы для тех у кого нет attendance
+    const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' })
+    const studentIds = (bookingsData || []).filter(b => !attMap[b.student_id]).map(b => b.student_id)
+    const subMap = {}
+
+    if (studentIds.length > 0) {
+      const { data: subs } = await supabase
+        .from('subscriptions')
+        .select('id, student_id, visits_total, expires_at, subscription_allowed_groups(group_id)')
+        .in('student_id', studentIds)
+        .eq('is_frozen', false)
+        .or(`expires_at.is.null,expires_at.gte.${today}`)
+        .order('expires_at', { ascending: true })
+
+      ;(subs || []).forEach(s => {
+        if (subMap[s.student_id]) return
+        const groups = s.subscription_allowed_groups || []
+        const fits = groups.length === 0 || groups.some(g => g.group_id === lesson.group_id)
+        if (fits) {
+          subMap[s.student_id] = {
+            id: s.id,
+            basis: s.visits_total === null ? 'subscription' : s.visits_total <= 1 ? 'single' : 'subscription',
+            expires_at: s.expires_at,
+          }
+        }
+      })
+    }
+
+    setBookings((bookingsData || []).map(b => {
+      const att = attMap[b.student_id]
+      const sub = subMap[b.student_id]
+      return {
+        ...b,
+        attendance_status: att?.status || 'none',
+        basis: att?.basis || sub?.basis || 'none',
+        subscription_expires: att?.subscription_expires || sub?.expires_at,
+        attendance_id: att?.id,
+        subscription_id: att?.subscription_id || sub?.id,
+      }
+    }))
+
     setLoading(false)
   }
 
@@ -152,14 +363,18 @@ export default function AttendancePanel({ lesson, session, onClose, teachers, on
     }
   }
 
-  const handleStatusChange = async (booking, newStatus) => {
+  const handleStatusChange = async (booking, newStatus, prevStatus) => {
+    if (newStatus === 'transferred' && booking.basis === 'trial') {
+      setTransferBooking(booking)
+      return
+    }
+
     const { data: { user } } = await supabase.auth.getUser()
-
     let basis = booking.basis || 'none'
+    let subscriptionId = booking.subscription_id || null
 
-    // Если basis ещё не определён — ищем активный абонемент клиента
-    if (basis === 'none' && newStatus === 'present') {
-      const today = new Date().toISOString().split('T')[0]
+    if ((basis === 'none' || !subscriptionId) && newStatus === 'present') {
+      const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' })
       const { data: subs } = await supabase
         .from('subscriptions')
         .select('id, type, visits_total, visits_used, expires_at, subscription_allowed_groups(group_id)')
@@ -169,44 +384,68 @@ export default function AttendancePanel({ lesson, session, onClose, teachers, on
         .order('expires_at', { ascending: true })
 
       if (subs && subs.length > 0) {
-        // Ищем абонемент на эту группу или безлимит
         const matching = subs.find(s => {
           const groups = s.subscription_allowed_groups || []
-          if (groups.length === 0) return true // безлимит без привязки
+          if (groups.length === 0) return true
           return groups.some(g => g.group_id === lesson.group_id)
         })
         if (matching) {
-          // Определяем тип по visits_total
-          if (matching.visits_total === null) basis = 'subscription' // безлимит
-          else if (matching.visits_total <= 1) basis = 'single'      // разовое
-          else basis = 'subscription'                                 // на N занятий
+          subscriptionId = matching.id
+          if (matching.visits_total === null) basis = 'subscription'
+          else if (matching.visits_total <= 1) basis = 'single'
+          else basis = 'subscription'
         }
       }
     }
 
     if (booking.attendance_id) {
-      await supabase.from('attendance').update({ status: newStatus, basis, marked_by: user.id }).eq('id', booking.attendance_id)
+      await supabase.from('attendance')
+        .update({ status: newStatus, basis, marked_by: user?.id, subscription_id: subscriptionId })
+        .eq('id', booking.attendance_id)
     } else {
       await supabase.from('attendance').insert({
-        schedule_id: lesson.id, student_id: booking.student_id,
-        status: newStatus, basis, marked_by: user.id
+        schedule_id: lesson.id,
+        student_id: booking.student_id,
+        status: newStatus, basis,
+        marked_by: user?.id,
+        subscription_id: subscriptionId,
       })
     }
-    setBookings(prev => prev.map(b => b.id === booking.id ? { ...b, attendance_status: newStatus, basis } : b))
+
+    if (subscriptionId) {
+      const { data: sub } = await supabase
+        .from('subscriptions')
+        .select('visits_total, visits_used')
+        .eq('id', subscriptionId)
+        .maybeSingle()
+
+      if (sub && sub.visits_total !== null) {
+        if (newStatus === 'present' && prevStatus !== 'present') {
+          await supabase.from('subscriptions')
+            .update({ visits_used: (sub.visits_used || 0) + 1 })
+            .eq('id', subscriptionId)
+        }
+        if (prevStatus === 'present' && newStatus !== 'present') {
+          await supabase.from('subscriptions')
+            .update({ visits_used: Math.max(0, (sub.visits_used || 1) - 1) })
+            .eq('id', subscriptionId)
+        }
+      }
+    }
+
+    setBookings(prev => prev.map(b =>
+      b.id === booking.id
+        ? { ...b, attendance_status: newStatus, basis, subscription_id: subscriptionId }
+        : b
+    ))
   }
 
-  // ─── Расчёт зарплаты ────────────────────────────────────────────────────────
   const calculateSalary = async () => {
     setCalcLoading(true)
+    const paidCount = bookings.filter(b =>
+      b.attendance_status === 'present' && b.basis === 'subscription'
+    ).length
 
-    // 1. Кто пришёл с оплаченным абонементом (не пробный, не разовый)
-    const paidBases = ['subscription']
-    const presentPaid = bookings.filter(b =>
-      b.attendance_status === 'present' && paidBases.includes(b.basis)
-    )
-    const paidCount = presentPaid.length
-
-    // 2. Определяем кто фактически вёл (может быть замена)
     const { data: subData } = await supabase
       .from('teacher_substitutions')
       .select('substitute_teacher_id')
@@ -216,7 +455,6 @@ export default function AttendancePanel({ lesson, session, onClose, teachers, on
     const actualTeacherId = subData?.substitute_teacher_id || lesson.teacher_id
     const isSubstitution = !!subData
 
-    // 3. Получаем ставки препода (роль teacher, прогрессивная)
     const { data: tiers } = await supabase
       .from('salary_tiers')
       .select('*')
@@ -225,44 +463,33 @@ export default function AttendancePanel({ lesson, session, onClose, teachers, on
       .eq('is_active', true)
 
     let amount = 0
-    let tierUsed = null
-
     if (tiers && tiers.length > 0) {
-      // Ищем прогрессивную ставку
       const tieredTier = tiers.find(t => t.tier_type === 'per_lesson_tiered')
       if (tieredTier && tieredTier.tiers) {
-        // Сортируем пороги по max_students
         const sorted = [...tieredTier.tiers].sort((a, b) => {
           if (a.max_students === null) return 1
           if (b.max_students === null) return -1
           return a.max_students - b.max_students
         })
-        // Находим нужный tier
         for (const tier of sorted) {
           if (tier.max_students === null || paidCount <= tier.max_students) {
-            amount = Number(tier.amount)
-            tierUsed = tier
-            break
+            amount = Number(tier.amount); break
           }
         }
       } else {
-        // Фиксированная ставка за занятие
         const perLesson = tiers.find(t => t.tier_type === 'per_lesson')
         if (perLesson) amount = Number(perLesson.amount)
       }
     }
 
-    setSalaryCalc({ amount, paid_students: paidCount, actualTeacherId, isSubstitution, tierUsed })
+    setSalaryCalc({ amount, paid_students: paidCount, actualTeacherId, isSubstitution })
     setCalcLoading(false)
   }
 
   const saveSalaryCalc = async () => {
     if (!salaryCalc) return
     setCalcLoading(true)
-
-    // Удаляем старый расчёт если есть
     await supabase.from('lesson_payments').delete().eq('schedule_id', lesson.id)
-
     await supabase.from('lesson_payments').insert({
       schedule_id: lesson.id,
       staff_id: salaryCalc.actualTeacherId,
@@ -273,16 +500,13 @@ export default function AttendancePanel({ lesson, session, onClose, teachers, on
       original_teacher_id: salaryCalc.isSubstitution ? lesson.teacher_id : null,
       calculated_at: new Date().toISOString(),
     })
-
-    // Пишем в историю расписания
     await supabase.from('schedule_history').insert({
       schedule_id: lesson.id,
       action: 'attendance_marked',
-      author_id: session.user.id,
+      author_id: session?.user?.id,
       changes: { paid_students: salaryCalc.paid_students, amount: salaryCalc.amount },
-      comment: `Посещаемость закрыта. Оплаченных: ${salaryCalc.paid_students}. Начислено: ${salaryCalc.amount} ₽`
+      comment: `Посещаемость закрыта. Оплаченных: ${salaryCalc.paid_students}. Начислено: ${salaryCalc.amount} ₽`,
     })
-
     setCalcSaved(true)
     setCalcLoading(false)
   }
@@ -290,14 +514,24 @@ export default function AttendancePanel({ lesson, session, onClose, teachers, on
   const handleSearch = async (val) => {
     setSearch(val)
     if (val.length < 2) { setSearchResults([]); return }
-    const { data } = await supabase.from('profiles').select('id, full_name, email, phone').eq('role', 'client').ilike('full_name', `%${val}%`)
+    const { data } = await supabase
+      .from('profiles')
+      .select('id, full_name, email, phone')
+      .eq('role', 'client')
+      .ilike('full_name', `%${val}%`)
     setSearchResults(data || [])
   }
 
   const handleAddStudent = async (student) => {
     const already = bookings.find(b => b.student_id === student.id)
     if (already) { setSearch(''); setSearchResults([]); return }
-    await supabase.from('bookings').insert({ schedule_id: lesson.id, student_id: student.id, status: 'booked' })
+    const { error } = await supabase.from('bookings').insert({
+      schedule_id: lesson.id,
+      student_id: student.id,
+      status: 'booked',
+      ...(session?.user?.id ? { created_by: session.user.id } : {}),
+    })
+    if (error) { console.error('Booking error:', error); return }
     setSearch(''); setSearchResults([])
     loadBookings()
   }
@@ -306,9 +540,7 @@ export default function AttendancePanel({ lesson, session, onClose, teachers, on
     if (!newTeacherId) return
     setSaving(true)
     await supabase.from('schedule').update({ teacher_id: newTeacherId }).eq('id', lesson.id)
-    setSaving(false)
-    setShowChangeTeacher(false)
-    onLessonUpdate?.()
+    setSaving(false); setShowChangeTeacher(false); onLessonUpdate?.()
   }
 
   const handleReschedule = async () => {
@@ -316,29 +548,25 @@ export default function AttendancePanel({ lesson, session, onClose, teachers, on
     setSaving(true)
     const toLocalISO = (dateStr, timeStr) => {
       const d = new Date(`${dateStr}T${timeStr}`)
-      const offset = d.getTimezoneOffset()
-      return new Date(d.getTime() - offset * 60000).toISOString().slice(0, 19)
+      return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 19)
     }
     await supabase.from('schedule').update({
       starts_at: toLocalISO(newDate, newTimeFrom),
-      ends_at: toLocalISO(newDate, newTimeTo)
+      ends_at: toLocalISO(newDate, newTimeTo),
     }).eq('id', lesson.id)
-    setSaving(false)
-    setShowReschedule(false)
-    onLessonUpdate?.()
+    setSaving(false); setShowReschedule(false); onLessonUpdate?.()
   }
 
   const handleCancel = async () => {
     if (!confirm('Отменить занятие? Оно останется в расписании с пометкой "Отменено"')) return
     await supabase.from('schedule').update({ is_cancelled: true }).eq('id', lesson.id)
-    onLessonUpdate?.()
-    onClose()
+    onLessonUpdate?.(); onClose()
   }
 
   const formatHeader = () => {
-    const date = new Date(lesson.starts_at).toLocaleDateString('ru-RU', { day:'numeric', month:'long', year:'numeric' })
-    const timeFrom = new Date(lesson.starts_at).toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'})
-    const timeTo = new Date(lesson.ends_at).toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'})
+    const date = new Date(lesson.starts_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
+    const timeFrom = new Date(lesson.starts_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+    const timeTo = new Date(lesson.ends_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
     const title = lesson.groups?.name || lesson.title || 'Занятие'
     return { date, time: `${timeFrom}–${timeTo}`, title }
   }
@@ -347,185 +575,185 @@ export default function AttendancePanel({ lesson, session, onClose, teachers, on
   const presentCount = bookings.filter(b => b.attendance_status === 'present').length
   const absentCount = bookings.filter(b => b.attendance_status === 'absent').length
   const isPast = new Date(lesson.ends_at) < new Date()
-  const inputStyle = { width:'100%', padding:'8px 12px', border:'1px solid #e8e8e8', borderRadius:8, fontSize:13, boxSizing:'border-box', fontFamily:'Inter,sans-serif' }
+  const inputStyle = {
+    width: '100%', padding: '8px 12px', border: '1px solid #e8e8e8',
+    borderRadius: 8, fontSize: 13, boxSizing: 'border-box', fontFamily: 'Inter,sans-serif',
+  }
 
   return (
-    <div style={{
-      position:'fixed', top:0, right:0, bottom:0, width:480,
-      background:'#fff', boxShadow:'-4px 0 20px rgba(0,0,0,0.1)',
-      zIndex:100, display:'flex', flexDirection:'column', fontFamily:'Inter,sans-serif'
-    }}>
-      {/* Заголовок */}
-      <div style={{padding:'16px 20px', borderBottom:'1px solid #f0f0f0'}}>
-        <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:8}}>
-          <div>
-            <div style={{fontSize:15, fontWeight:700, color: lesson.is_cancelled ? '#BDBDBD' : '#2a2a2a', marginBottom:2, textDecoration: lesson.is_cancelled ? 'line-through' : 'none'}}>
-              {title} {lesson.is_cancelled && <span style={{fontSize:11, color:'#e74c3c', fontWeight:400, textDecoration:'none'}}> · Отменено</span>}
-            </div>
-            <div style={{fontSize:12, color:'#888'}}>{date} · {time}</div>
-            {lesson.teacher && <div style={{fontSize:12, color:'#888'}}>{lesson.teacher.full_name} · {lesson.hall}</div>}
-          </div>
-          <button onClick={onClose} style={{fontSize:20, color:'#BDBDBD', background:'none', border:'none', cursor:'pointer', padding:0, lineHeight:1}}>×</button>
-        </div>
+    <>
+      {transferBooking && (
+        <TransferModal
+          booking={transferBooking}
+          lesson={lesson}
+          onClose={() => setTransferBooking(null)}
+          onDone={() => { setTransferBooking(null); loadBookings() }}
+        />
+      )}
 
-        {/* Счётчики */}
-        <div style={{display:'flex', gap:8, marginBottom:12}}>
-          <span style={{background:'#eafaf1', color:'#27ae60', padding:'3px 10px', borderRadius:6, fontSize:12, fontWeight:600}}>✅ {presentCount}</span>
-          <span style={{background:'#fdecea', color:'#e74c3c', padding:'3px 10px', borderRadius:6, fontSize:12, fontWeight:600}}>❌ {absentCount}</span>
-          <span style={{background:'#f5f5f5', color:'#BDBDBD', padding:'3px 10px', borderRadius:6, fontSize:12, fontWeight:600}}>👥 {bookings.length}</span>
-        </div>
-
-        {/* Поиск */}
-        <div style={{position:'relative'}}>
-          <input value={search} onChange={e => handleSearch(e.target.value)}
-            placeholder="Записать ученика..."
-            style={{...inputStyle, marginBottom:0}} />
-          {searchResults.length > 0 && (
-            <div style={{position:'absolute', top:'100%', left:0, right:0, background:'#fff', border:'1px solid #e8e8e8', borderRadius:10, zIndex:10, boxShadow:'0 4px 12px rgba(0,0,0,0.1)', marginTop:4}}>
-              {searchResults.map(s => (
-                <div key={s.id} onClick={() => handleAddStudent(s)}
-                  style={{padding:'10px 14px', cursor:'pointer', fontSize:13, borderBottom:'1px solid #f5f5f5'}}
-                  onMouseEnter={e => e.currentTarget.style.background='#f9f9f9'}
-                  onMouseLeave={e => e.currentTarget.style.background='#fff'}>
-                  <div style={{fontWeight:500}}>{s.full_name || s.email}</div>
-                  {s.phone && <div style={{fontSize:11, color:'#BDBDBD'}}>{s.phone}</div>}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Список учеников */}
-      <div style={{flex:1, overflowY:'auto'}}>
-        {loading ? (
-          <div style={{textAlign:'center', color:'#BDBDBD', padding:40}}>Загрузка...</div>
-        ) : bookings.length === 0 ? (
-          <div style={{textAlign:'center', color:'#BDBDBD', padding:40}}>Никто не записан</div>
-        ) : (
-          bookings.map(b => <StudentRow key={b.id} booking={b} onStatusChange={handleStatusChange} />)
-        )}
-      </div>
-
-      {/* Блок расчёта ЗП — только для прошедших занятий */}
-      {isPast && !showChangeTeacher && !showReschedule && (
-        <div style={{padding:'12px 16px', borderTop:'1px solid #f0f0f0', background:'#fafde8'}}>
-          {!salaryCalc ? (
-            <button onClick={calculateSalary} disabled={calcLoading}
-              style={{width:'100%', padding:'10px', background:'#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif', opacity:calcLoading?0.6:1}}>
-              {calcLoading ? 'Считаем...' : '📊 Рассчитать зарплату'}
-            </button>
-          ) : (
+      <div style={{
+        position: 'fixed', top: 0, right: 0, bottom: 0, width: 480,
+        background: '#fff', boxShadow: '-4px 0 20px rgba(0,0,0,0.1)',
+        zIndex: 100, display: 'flex', flexDirection: 'column', fontFamily: 'Inter,sans-serif',
+      }}>
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid #f0f0f0' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
             <div>
-              <div style={{fontSize:12, fontWeight:600, color:'#6a7700', marginBottom:8}}>Расчёт зарплаты</div>
-              <div style={{display:'flex', gap:16, marginBottom:10}}>
-                <div>
-                  <div style={{fontSize:11, color:'#888'}}>Оплаченных клиентов</div>
-                  <div style={{fontSize:18, fontWeight:700, color:'#2a2a2a'}}>{salaryCalc.paid_students}</div>
-                </div>
-                <div>
-                  <div style={{fontSize:11, color:'#888'}}>К начислению</div>
-                  <div style={{fontSize:18, fontWeight:700, color: salaryCalc.amount > 0 ? '#27ae60' : '#e74c3c'}}>
-                    {salaryCalc.amount > 0 ? `${salaryCalc.amount.toLocaleString('ru-RU')} ₽` : 'Ставка не настроена'}
-                  </div>
-                </div>
-                {salaryCalc.isSubstitution && (
-                  <div style={{fontSize:11, color:'#f39c12', fontWeight:600, alignSelf:'center'}}>🔄 Замена</div>
+              <div style={{
+                fontSize: 15, fontWeight: 700, marginBottom: 2,
+                color: lesson.is_cancelled ? '#BDBDBD' : '#2a2a2a',
+                textDecoration: lesson.is_cancelled ? 'line-through' : 'none',
+              }}>
+                {title}
+                {lesson.is_cancelled && (
+                  <span style={{ fontSize: 11, color: '#e74c3c', fontWeight: 400, textDecoration: 'none' }}> · Отменено</span>
                 )}
               </div>
-              {!calcSaved ? (
-                <div style={{display:'flex', gap:8}}>
-                  <button onClick={saveSalaryCalc} disabled={calcLoading}
-                    style={{flex:1, padding:'8px', background:'#27ae60', border:'none', borderRadius:8, fontSize:12, fontWeight:700, color:'#fff', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-                    {calcLoading ? 'Сохраняем...' : '✅ Подтвердить'}
-                  </button>
-                  <button onClick={() => setSalaryCalc(null)}
-                    style={{padding:'8px 14px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:8, fontSize:12, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-                    Пересчитать
-                  </button>
+              <div style={{ fontSize: 12, color: '#888' }}>{date} · {time}</div>
+              {lesson.teacher && <div style={{ fontSize: 12, color: '#888' }}>{lesson.teacher.full_name} · {lesson.hall}</div>}
+            </div>
+            <button onClick={onClose} style={{ fontSize: 20, color: '#BDBDBD', background: 'none', border: 'none', cursor: 'pointer', padding: 0, lineHeight: 1 }}>×</button>
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+            <span style={{ background: '#eafaf1', color: '#27ae60', padding: '3px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600 }}>✅ {presentCount}</span>
+            <span style={{ background: '#fdecea', color: '#e74c3c', padding: '3px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600 }}>❌ {absentCount}</span>
+            <span style={{ background: '#f5f5f5', color: '#BDBDBD', padding: '3px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600 }}>👥 {bookings.length}</span>
+          </div>
+
+          <div style={{ position: 'relative' }}>
+            <input
+              value={search}
+              onChange={e => handleSearch(e.target.value)}
+              placeholder="Записать ученика..."
+              style={{ ...inputStyle, marginBottom: 0 }}
+            />
+            {searchResults.length > 0 && (
+              <div style={{
+                position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff',
+                border: '1px solid #e8e8e8', borderRadius: 10, zIndex: 10,
+                boxShadow: '0 4px 12px rgba(0,0,0,0.1)', marginTop: 4,
+              }}>
+                {searchResults.map(s => (
+                  <div
+                    key={s.id}
+                    onClick={() => handleAddStudent(s)}
+                    style={{ padding: '10px 14px', cursor: 'pointer', fontSize: 13, borderBottom: '1px solid #f5f5f5' }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#f9f9f9'}
+                    onMouseLeave={e => e.currentTarget.style.background = '#fff'}
+                  >
+                    <div style={{ fontWeight: 500 }}>{s.full_name || s.email}</div>
+                    {s.phone && <div style={{ fontSize: 11, color: '#BDBDBD' }}>{s.phone}</div>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div style={{ flex: 1, overflowY: 'auto' }}>
+          {loading ? (
+            <div style={{ textAlign: 'center', color: '#BDBDBD', padding: 40 }}>Загрузка...</div>
+          ) : bookings.length === 0 ? (
+            <div style={{ textAlign: 'center', color: '#BDBDBD', padding: 40 }}>Никто не записан</div>
+          ) : bookings.map(b => (
+            <StudentRow key={b.id} booking={b} onStatusChange={handleStatusChange} lessonStarted={Date.now() >= new Date(lesson.starts_at + '+03:00').getTime()} />
+          ))}
+        </div>
+
+        {isPast && !showChangeTeacher && !showReschedule && (
+          <div style={{ padding: '12px 16px', borderTop: '1px solid #f0f0f0', background: '#fafde8' }}>
+            {!salaryCalc ? (
+              <button onClick={calculateSalary} disabled={calcLoading} style={{ width: '100%', padding: '10px', background: '#BFD900', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700, color: '#2a2a2a', cursor: 'pointer', fontFamily: 'Inter,sans-serif', opacity: calcLoading ? 0.6 : 1 }}>
+                {calcLoading ? 'Считаем...' : '📊 Рассчитать зарплату'}
+              </button>
+            ) : (
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#6a7700', marginBottom: 8 }}>Расчёт зарплаты</div>
+                <div style={{ display: 'flex', gap: 16, marginBottom: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: '#888' }}>Оплаченных клиентов</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: '#2a2a2a' }}>{salaryCalc.paid_students}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: '#888' }}>К начислению</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: salaryCalc.amount > 0 ? '#27ae60' : '#e74c3c' }}>
+                      {salaryCalc.amount > 0 ? `${salaryCalc.amount.toLocaleString('ru-RU')} ₽` : 'Ставка не настроена'}
+                    </div>
+                  </div>
+                  {salaryCalc.isSubstitution && <div style={{ fontSize: 11, color: '#f39c12', fontWeight: 600, alignSelf: 'center' }}>🔄 Замена</div>}
                 </div>
-              ) : (
-                <div style={{fontSize:12, color:'#27ae60', fontWeight:600}}>✅ Начислено и сохранено</div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Замена преподавателя */}
-      {showChangeTeacher && (
-        <div style={{padding:'12px 16px', borderTop:'1px solid #f0f0f0', background:'#f9f9f9'}}>
-          <div style={{fontSize:12, fontWeight:600, color:'#2a2a2a', marginBottom:8}}>Заменить преподавателя</div>
-          <select value={newTeacherId} onChange={e => setNewTeacherId(e.target.value)}
-            style={{...inputStyle, marginBottom:8}}>
-            <option value="">Выберите преподавателя</option>
-            {teachers.map(t => <option key={t.id} value={t.id}>{t.full_name || t.email}</option>)}
-          </select>
-          <div style={{display:'flex', gap:8}}>
-            <button onClick={handleChangeTeacher} disabled={saving}
-              style={{flex:1, padding:'8px', background:'#BFD900', border:'none', borderRadius:8, fontSize:12, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-              {saving ? 'Сохраняем...' : 'Сохранить'}
-            </button>
-            <button onClick={() => setShowChangeTeacher(false)}
-              style={{padding:'8px 14px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:8, fontSize:12, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-              Отмена
-            </button>
+                {!calcSaved ? (
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={saveSalaryCalc} disabled={calcLoading} style={{ flex: 1, padding: '8px', background: '#27ae60', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#fff', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+                      {calcLoading ? 'Сохраняем...' : '✅ Подтвердить'}
+                    </button>
+                    <button onClick={() => setSalaryCalc(null)} style={{ padding: '8px 14px', background: 'transparent', border: '1px solid #e0e0e0', borderRadius: 8, fontSize: 12, color: '#888', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+                      Пересчитать
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 12, color: '#27ae60', fontWeight: 600 }}>✅ Начислено и сохранено</div>
+                )}
+              </div>
+            )}
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Перенос занятия */}
-      {showReschedule && (
-        <div style={{padding:'12px 16px', borderTop:'1px solid #f0f0f0', background:'#f9f9f9'}}>
-          <div style={{fontSize:12, fontWeight:600, color:'#2a2a2a', marginBottom:8}}>Перенести занятие</div>
-          <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8, marginBottom:8}}>
-            <div>
-              <div style={{fontSize:11, color:'#888', marginBottom:3}}>Дата</div>
-              <input value={newDate} onChange={e => setNewDate(e.target.value)} type="date" style={inputStyle} />
-            </div>
-            <div>
-              <div style={{fontSize:11, color:'#888', marginBottom:3}}>Начало</div>
-              <input value={newTimeFrom} onChange={e => setNewTimeFrom(e.target.value)} type="time" style={inputStyle} />
-            </div>
-            <div>
-              <div style={{fontSize:11, color:'#888', marginBottom:3}}>Конец</div>
-              <input value={newTimeTo} onChange={e => setNewTimeTo(e.target.value)} type="time" style={inputStyle} />
+        {showChangeTeacher && (
+          <div style={{ padding: '12px 16px', borderTop: '1px solid #f0f0f0', background: '#f9f9f9' }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#2a2a2a', marginBottom: 8 }}>Заменить преподавателя</div>
+            <select value={newTeacherId} onChange={e => setNewTeacherId(e.target.value)} style={{ ...inputStyle, marginBottom: 8 }}>
+              <option value="">Выберите преподавателя</option>
+              {teachers.map(t => <option key={t.id} value={t.id}>{t.full_name || t.email}</option>)}
+            </select>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={handleChangeTeacher} disabled={saving} style={{ flex: 1, padding: '8px', background: '#BFD900', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#2a2a2a', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+                {saving ? 'Сохраняем...' : 'Сохранить'}
+              </button>
+              <button onClick={() => setShowChangeTeacher(false)} style={{ padding: '8px 14px', background: 'transparent', border: '1px solid #e0e0e0', borderRadius: 8, fontSize: 12, color: '#888', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+                Отмена
+              </button>
             </div>
           </div>
-          <div style={{display:'flex', gap:8}}>
-            <button onClick={handleReschedule} disabled={saving}
-              style={{flex:1, padding:'8px', background:'#BFD900', border:'none', borderRadius:8, fontSize:12, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-              {saving ? 'Сохраняем...' : 'Перенести'}
+        )}
+
+        {showReschedule && (
+          <div style={{ padding: '12px 16px', borderTop: '1px solid #f0f0f0', background: '#f9f9f9' }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#2a2a2a', marginBottom: 8 }}>Перенести занятие</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
+              <div><div style={{ fontSize: 11, color: '#888', marginBottom: 3 }}>Дата</div><input value={newDate} onChange={e => setNewDate(e.target.value)} type="date" style={inputStyle} /></div>
+              <div><div style={{ fontSize: 11, color: '#888', marginBottom: 3 }}>Начало</div><input value={newTimeFrom} onChange={e => setNewTimeFrom(e.target.value)} type="time" style={inputStyle} /></div>
+              <div><div style={{ fontSize: 11, color: '#888', marginBottom: 3 }}>Конец</div><input value={newTimeTo} onChange={e => setNewTimeTo(e.target.value)} type="time" style={inputStyle} /></div>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={handleReschedule} disabled={saving} style={{ flex: 1, padding: '8px', background: '#BFD900', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#2a2a2a', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+                {saving ? 'Сохраняем...' : 'Перенести'}
+              </button>
+              <button onClick={() => setShowReschedule(false)} style={{ padding: '8px 14px', background: 'transparent', border: '1px solid #e0e0e0', borderRadius: 8, fontSize: 12, color: '#888', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+                Отмена
+              </button>
+            </div>
+          </div>
+        )}
+
+        {!showChangeTeacher && !showReschedule && (
+          <div style={{ padding: '12px 16px', borderTop: '1px solid #f0f0f0', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button onClick={() => {}} style={{ flex: 1, padding: '8px', background: '#fafde8', border: '1px solid #BFD900', borderRadius: 8, fontSize: 12, color: '#6a7700', cursor: 'pointer', fontWeight: 600, fontFamily: 'Inter,sans-serif' }}>
+              ✉️ Написать
             </button>
-            <button onClick={() => setShowReschedule(false)}
-              style={{padding:'8px 14px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:8, fontSize:12, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-              Отмена
+            <button onClick={() => setShowChangeTeacher(true)} style={{ flex: 1, padding: '8px', background: '#f5f5f5', border: 'none', borderRadius: 8, fontSize: 12, color: '#888', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+              👤 Заменить
+            </button>
+            <button onClick={() => setShowReschedule(true)} style={{ flex: 1, padding: '8px', background: '#f5f5f5', border: 'none', borderRadius: 8, fontSize: 12, color: '#888', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+              📅 Перенести
+            </button>
+            <button onClick={handleCancel} disabled={lesson.is_cancelled} style={{ flex: 1, padding: '8px', background: lesson.is_cancelled ? '#f5f5f5' : '#fdecea', border: 'none', borderRadius: 8, fontSize: 12, color: lesson.is_cancelled ? '#BDBDBD' : '#e74c3c', cursor: lesson.is_cancelled ? 'default' : 'pointer', fontFamily: 'Inter,sans-serif' }}>
+              {lesson.is_cancelled ? 'Отменено' : '✕ Отменить'}
             </button>
           </div>
-        </div>
-      )}
-
-      {/* Кнопки внизу */}
-      {!showChangeTeacher && !showReschedule && (
-        <div style={{padding:'12px 16px', borderTop:'1px solid #f0f0f0', display:'flex', gap:8, flexWrap:'wrap'}}>
-          <button onClick={() => {}}
-            style={{flex:1, padding:'8px', background:'#fafde8', border:'1px solid #BFD900', borderRadius:8, fontSize:12, color:'#6a7700', cursor:'pointer', fontWeight:600, fontFamily:'Inter,sans-serif'}}>
-            ✉️ Написать
-          </button>
-          <button onClick={() => setShowChangeTeacher(true)}
-            style={{flex:1, padding:'8px', background:'#f5f5f5', border:'none', borderRadius:8, fontSize:12, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-            👤 Заменить
-          </button>
-          <button onClick={() => setShowReschedule(true)}
-            style={{flex:1, padding:'8px', background:'#f5f5f5', border:'none', borderRadius:8, fontSize:12, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-            📅 Перенести
-          </button>
-          <button onClick={handleCancel} disabled={lesson.is_cancelled}
-            style={{flex:1, padding:'8px', background: lesson.is_cancelled ? '#f5f5f5' : '#fdecea', border:'none', borderRadius:8, fontSize:12, color: lesson.is_cancelled ? '#BDBDBD' : '#e74c3c', cursor: lesson.is_cancelled ? 'default' : 'pointer', fontFamily:'Inter,sans-serif'}}>
-            {lesson.is_cancelled ? 'Отменено' : '✕ Отменить'}
-          </button>
-        </div>
-      )}
-    </div>
+        )}
+      </div>
+    </>
   )
 }
