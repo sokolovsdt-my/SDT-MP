@@ -53,8 +53,9 @@ function ClientApp({ session }) {
 }
 
 function RootRedirect({ session }) {
-  const { role, loading } = useUserRole(session)
+  const { role, loading, error } = useUserRole(session)
   if (loading) return <Loader />
+  if (error) return <AuthError />
   if (role === 'teacher') return <Navigate to="/teacher" replace />
   if (role && ['admin','manager','owner'].includes(role))
     return <Navigate to="/admin/dashboard" replace />
@@ -69,15 +70,43 @@ function Loader() {
   )
 }
 
+function AuthError() {
+  return (
+    <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100vh',background:'#F8F8F8',fontFamily:'Inter,sans-serif',padding:16,textAlign:'center'}}>
+      <div style={{fontSize:48,marginBottom:16}}>⚠️</div>
+      <div style={{fontSize:18,fontWeight:600,color:'#2a2a2a',marginBottom:8}}>Не удалось проверить доступ</div>
+      <div style={{fontSize:13,color:'#888',marginBottom:24,maxWidth:320}}>Проблема с подключением к серверу. Обновите страницу.</div>
+      <button onClick={() => window.location.reload()}
+        style={{padding:'12px 24px',background:'#BFD900',border:'none',borderRadius:12,fontSize:14,fontWeight:700,color:'#2a2a2a',cursor:'pointer',fontFamily:'Inter,sans-serif'}}>
+        Обновить
+      </button>
+    </div>
+  )
+}
+
 function App() {
   const [session, setSession] = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    let cancelled = false
+    // Первичная загрузка сессии. Если onAuthStateChange успел стрельнуть
+    // раньше с реальным значением, не затираем его устаревшим snapshot'ом.
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session); setLoading(false)
+      if (cancelled) return
+      setSession(prev => prev ?? session)
+      setLoading(false)
     })
-    supabase.auth.onAuthStateChange((_event, session) => setSession(session))
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      // INITIAL_SESSION дублирует getSession() — игнорируем, иначе при гонке
+      // более старое значение может затереть свежее.
+      if (event === 'INITIAL_SESSION') return
+      setSession(session)
+    })
+    return () => {
+      cancelled = true
+      subscription?.unsubscribe()
+    }
   }, [])
 
   if (loading) return <Loader />
@@ -147,11 +176,13 @@ function Login() {
   const [regStep, setRegStep]   = useState('')
   const [copied, setCopied]     = useState(false)
   const intervalRef             = useRef(null)
+  const timeoutRef              = useRef(null)
 
   useEffect(() => () => stopPolling(), [])
 
   const stopPolling = () => {
     if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null }
+    if (timeoutRef.current)  { clearTimeout(timeoutRef.current);   timeoutRef.current  = null }
   }
 
   const cancelTg = () => {
@@ -212,7 +243,8 @@ function Login() {
         } catch (_) {}
       }, 2000)
 
-      setTimeout(() => {
+      timeoutRef.current = setTimeout(() => {
+        timeoutRef.current = null
         if (intervalRef.current) {
           stopPolling(); setTgStep('idle')
           setError('Время ожидания истекло. Попробуй снова.')
