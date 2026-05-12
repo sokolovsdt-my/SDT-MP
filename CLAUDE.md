@@ -8,12 +8,13 @@
 
 - **Frontend:** React 19, Vite 8, react-router-dom 7
 - **Язык:** JavaScript + JSX (TypeScript НЕ используется)
-- **Бэкенд:** Supabase (Postgres + Auth + Storage + Edge Functions)
+- **Бэкенд:** Supabase (Postgres + Auth + Storage + Edge Functions + **RPC**)
 - **Пуши:** Firebase Cloud Messaging (web push)
 - **Деплой:** Vercel (SPA-fallback в [vercel.json](vercel.json))
 - **Линт:** ESLint flat config ([eslint.config.js](eslint.config.js)) — `no-unused-vars` с исключением `^[A-Z_]`
 - **Стили:** **только inline `style={{}}`** в JSX. Никаких CSS-классов, Tailwind, styled-components, CSS-модулей. Глобальный [src/index.css](src/index.css) почти не используется (наследие шаблона Vite — можно игнорировать).
-- **Тестов нет**, фреймворка для тестов в зависимостях тоже нет.
+- **Sanitization:** `dompurify ^3.4.2` — единственная UI-зависимость кроме React/Supabase/Firebase. Доступна через [src/utils/safeHtml.js](src/utils/safeHtml.js).
+- **Тестов нет**, фреймворка для тестов в зависимостях тоже нет. Серверная логика покрыта Postgres `do $$ ... assert ... $$`-смоук-тестами при разработке RPC, постоянных тестов нет.
 
 ### Скрипты
 
@@ -75,7 +76,11 @@ src/
 │   └── AvatarUpload.jsx  # загрузка в bucket `avatars`
 │
 ├── hooks/
-│   └── useUserRole.js    # роль из profiles.role
+│   └── useUserRole.js    # роль из profiles.role + флаг error
+│
+├── utils/
+│   ├── tz.js             # todayMsk / toMskDateStr / mskDayStart/EndUtc для МСК-границ
+│   └── safeHtml.js       # обёртка над DOMPurify для dangerouslySetInnerHTML
 │
 └── assets/               # hero.png и др. статика
 
@@ -89,7 +94,7 @@ public/
 
 ## Роутинг и роли
 
-Роль читается из `profiles.role` в [src/hooks/useUserRole.js](src/hooks/useUserRole.js). Значения:
+Роль читается из `profiles.role` в [src/hooks/useUserRole.js](src/hooks/useUserRole.js). Хук возвращает `{ role, loading, error }`. Значения роли:
 
 - `client` (по умолчанию) — мобильный UI с BottomNav, страница выбирается через `useState`+`localStorage('activePage')`, **роутера у клиента нет**.
 - `teacher` — попадает на `/teacher` ([src/admin/TeacherPanel.jsx](src/admin/TeacherPanel.jsx)).
@@ -98,6 +103,8 @@ public/
 Сотрудник может одновременно иметь `staff_roles.role='teacher'` — тогда в админке появляется кнопка «🎓 Режим преподавателя».
 
 Гард уровня роута — `<RequireRole allow={['owner', ...]}>` ([src/components/RequireRole.jsx](src/components/RequireRole.jsx)). Финансы доступны только `owner`. Расписание и задачи — всем, включая `teacher`.
+
+**Важно:** при транзитной ошибке (сеть, RLS deny) `useUserRole` возвращает `error: true, role: null`. `RequireRole` и `RootRedirect` в этом случае показывают «Не удалось проверить доступ» с кнопкой «Обновить», **а не понижают админа до клиентского UI** — это была одна из критичных уязвимостей и она закрыта. Не возвращай старое поведение `role='client'` на ошибке.
 
 ### Авторизация
 
@@ -115,11 +122,11 @@ public/
 
 ### Профили и роли
 
-- **profiles** — `id, full_name, first_name, last_name, patronymic, avatar_url, bio, email, phone, role, birth_date, ad_source, ad_source_custom, bonus_rubles, bonus_coins, push_token, created_at`. Основная таблица всех пользователей. `id` = `auth.users.id`.
+- **profiles** — `id, full_name, first_name, last_name, patronymic, avatar_url, bio, email, phone, role, birth_date, ad_source, ad_source_custom, bonus_rubles, bonus_coins, push_token, sort_order, telegram_id, telegram_username, created_at`. Основная таблица всех пользователей. `id` = `auth.users.id`. CHECK на `role`: `client/teacher/admin/manager/owner/content_creator/other`. Изменение `role` защищено триггером `prevent_unauthorized_role_change` — менять можно только через RPC или с админским JWT.
 - **staff_roles** — `staff_id, role, is_primary`. Доп. роли сотрудника (например, админ + преподаватель).
 - **staff_info** — `staff_id, hire_date, phone, contact`.
-- **salary_tiers** — `staff_id, tier_type, amount, is_active`.
-- **staff_salary_settings** — `staff_id, field, value`.
+- **salary_tiers** — `staff_id, role_context, tier_type, amount, tiers (jsonb), is_active`. **Источник истины для ставок.** `tier_type ∈ {salary, per_lesson, per_lesson_tiered, percentage}`. Для `per_lesson_tiered` ставка зависит от количества учеников — массив в `tiers`.
+- **staff_salary_settings** — `staff_id, type, amount, is_active`. **Legacy**, в проде 1 случайная строка, никем не пополняется. Не используй, если только не правишь миграцию. Реальные ставки — в `salary_tiers`.
 - **staff_absences** — `staff_id, absence_date, reason`.
 
 ### Абонементы и каталог продаж
@@ -134,10 +141,10 @@ public/
 
 ### Расписание и индивы
 
-- **schedule** — `id, title, starts_at, ends_at, hall, group_id, teacher_id, indiv_student_id, event_id, lesson_type, is_cancelled, created_by, created_at`. `lesson_type='indiv'` для индивидуальных.
-- **schedule_history** — аудит.
-- **bookings** — `id, student_id, schedule_id, status, created_at`. Статусы: `booked`, `cancelled`.
-- **attendance** — `id, schedule_id, student_id, basis, status, marked_by, marked_at, created_at`. `basis ∈ {subscription, single, trial, indiv, event, none}`, `status ∈ {present, absent}`.
+- **schedule** — `id, title, starts_at, ends_at, hall, group_id, teacher_id, indiv_student_id, event_id, lesson_type, repeat_rule, repeat_id, is_cancelled, created_at`. `lesson_type='indiv'` для индивидуальных. `starts_at`/`ends_at` — `timestamp WITHOUT time zone`, хранятся в UTC.
+- **schedule_history** — аудит. `action`-значения: `attendance_marked`, `cancelled`, и др.
+- **bookings** — `id, student_id, schedule_id, subscription_id, status, created_at`. Статусы: `booked`, `cancelled`.
+- **attendance** — `id, schedule_id, student_id, basis, status, subscription_id, subscription_expires, teacher_id, marked_by, marked_at, note, created_at`. `basis ∈ {subscription, single, trial, indiv, event, none}`, `status ∈ {present, absent, cancelled, transferred}`. **`UNIQUE(schedule_id, student_id)`** — UPSERT через `ON CONFLICT` безопасен, дубли невозможны.
 - **teacher_substitutions** — `schedule_id, original_teacher_id, substitute_teacher_id`.
 - **teacher_indiv_slots** — `id, teacher_id, slot_date, start_time, end_time, is_active, max_students`.
 - **teacher_slot_dates** — доступность дат на 30 дней вперёд (см. недавний коммит).
@@ -160,7 +167,6 @@ public/
 - **merch_variants** — `product_id, size, color, stock_count, price`.
 - **merch_images** — галерея.
 - **merch_preorders** — `product_id, client_id, variant_id, quantity, status`.
-- **merch** / **sales** — устаревшие/общие таблицы (см. использование в [src/admin/AdminCashbox.jsx](src/admin/AdminCashbox.jsx)).
 
 ### Новости
 
@@ -183,8 +189,8 @@ public/
 
 ### Финансы
 
-- **sales** — `id, sale_date, client_id, product_id, total_net, amount_paid, payment_method, is_cancelled, created_by, created_at`. **Не учитывать отменённые: `is_cancelled = false`**.
-- **lesson_payments** — почасовая/поурочная оплата преподавателей.
+- **sales** — `id, sale_date, client_id, product_id, product_type, product_name, teacher_id, price_original, discount_percent, discount_amount, discount_reason, bonus_rubles_used, bonus_coins_used, payment_method, amount_paid, acquiring_fee, total_net, payer_type, payer_representative_id, payer_name, receipt_id, comment, is_cancelled, cancelled_at, cancelled_by, created_by, created_at`. **Не учитывать отменённые: `is_cancelled = false`**. Один чек = несколько строк с общим `receipt_id`. CHECK на `payment_method` (`cash, bank, bank_transfer, online, bonus, bonus_only, coins, mixed, other`) и `product_type` (`subscription, service, indiv, merch, event, other`).
+- **lesson_payments** — почасовая/поурочная оплата преподавателей. **`UNIQUE(schedule_id, staff_id)`** — UPSERT через `ON CONFLICT`.
 - **staff_payments**, **staff_payments_history** — выплаты сотрудникам.
 - **expenses**, **expense_categories**, **expense_subcategories** — расходы.
 - **finance_settings** — `key, value` (KV).
@@ -193,7 +199,7 @@ public/
 
 - **prizes** — `id, name, description, image_url, coins_price, stock_count, badge_text, badge_color, sort_order, is_active`.
 - **prize_requests** — `client_id, prize_id, status, handled_by, handled_at`. Статус `pending` показывается бейджем в меню.
-- **bonus_history** — `student_id, amount, reason, created_by`. Поля баланса (`bonus_rubles`, `bonus_coins`) живут прямо в `profiles`.
+- **bonus_history** — `student_id, type, amount, operation, reason, client_reason, created_by, created_at`. CHECK на `operation` (`credit/debit`) и `client_reason` (`manual_credit, manual_debit, prize, referral, subscription_payment, cancellation`). `type` свободный — по факту `coins` или `rubles`. Поля баланса (`bonus_rubles`, `bonus_coins`) живут прямо в `profiles` и **меняются только через RPC** (см. ниже).
 - **client_loyalty** — `client_id, level` (`adept, loyal, edge, risk`).
 
 ### Прочее
@@ -210,10 +216,30 @@ public/
 - **telegram-login** — выдача кода, поллинг подтверждения, выдача `hashed_token` для `verifyOtp`.
 - **create-staff** — создание `auth.users` + строки в `profiles` от имени админа (используется и для добавления клиента в [AdminDashboard.jsx:134](src/admin/AdminDashboard.jsx:134)).
 
+### RPC-функции (Postgres `SECURITY DEFINER`)
+
+Все денежные / визитные / отменяющие операции идут через RPC. Каждая функция:
+- авторизуется через `auth.uid()`, проверяет роль вызывающего;
+- блокирует задействованные строки `FOR UPDATE`;
+- возвращает `json` вида `{ ok: true, ... }` либо `{ ok: false, error: '...', ... }`;
+- доступна только `authenticated` (revoke от `anon`).
+
+| RPC | Когда вызывать | Что делает |
+|---|---|---|
+| `complete_prize_request(p_req_id uuid)` | Админ жмёт «✅ Приз выдан» в [AdminPrizes](src/admin/AdminPrizes.jsx) | Атомарно: статус заявки → `completed`, `prizes.stock_count -= 1`, `profiles.bonus_coins -= price`, запись в `bonus_history`. Ошибки: `already_handled`, `out_of_stock`, `insufficient_balance`. |
+| `admin_adjust_coins(p_client_id, p_delta int, p_reason text)` | Ручное начисление/списание SDTшек в карточке клиента в `AdminPrizes` | Атомарный сдвиг `bonus_coins` + запись `bonus_history` с `manual_credit/manual_debit`. Не пускает в минус. |
+| `mark_attendance(p_schedule_id, p_student_id, p_new_status)` | Отметка посещаемости в [AttendancePanel](src/admin/AttendancePanel.jsx), [TeacherPanel](src/admin/TeacherPanel.jsx) и при переносе пробного в `TransferModal` | UPSERT в `attendance` через `ON CONFLICT`. Сама подбирает подходящий `subscription_id` и `basis` для нового ученика. При переходе в/из `present` корректирует `subscriptions.visits_used` атомарно, с верхней границей (`out_of_visits`). Для индив-урока — `basis='indiv'` без списания. Учитель допускается только к своему/подменному уроку. |
+| `cancel_lesson(p_schedule_id)` | «✕ Отменить занятие» в [AttendancePanel](src/admin/AttendancePanel.jsx) | Помечает урок `is_cancelled=true`, возвращает визиты всем `present`-ученикам, удаляет `lesson_payments` за этот урок, пишет в `schedule_history`. |
+| `create_sale(p_payload jsonb)` | «Пробить продажу» в [AdminCashbox](src/admin/AdminCashbox.jsx) и `SaleModal` в [AdminClientCard](src/admin/AdminClientCard.jsx) | Один вызов вместо sales.insert + profiles.update + bonus_history.insert + subscriptions.insert + subscription_allowed_groups.insert. **Целочисленная разбивка сумм по позициям** (остаток в первую строку — сумма по строкам = общая). Проверка `bonus_rubles >= used`. `expires_at` для подписок считается из `product_subscriptions.duration_days` сервером. |
+| `cancel_sale(p_sale_id, p_cancel_whole_receipt bool=true)` | «Отменить» в [AdminFinance](src/admin/AdminFinance.jsx) | Отменяет весь чек по `receipt_id`, замораживает связанные подписки (`is_frozen=true` + `expires_at=today-1` + аудит в `subscription_date_changes`), возвращает `bonus_rubles` + reversal в `bonus_history`. Если у подписки были `visits_used > 0` — в ответе `visits_already_used: true`, визиты не возвращаются. |
+| `save_lesson_salary(p_schedule_id)` | «📊 Рассчитать зарплату» / «✅ Подтвердить» в [AttendancePanel](src/admin/AttendancePanel.jsx) | Сервер сам считает `paid_students` из `attendance`, подбирает тариф из `salary_tiers` (приоритет `per_lesson_tiered → per_lesson`), учитывает `teacher_substitutions`, делает UPSERT в `lesson_payments` + INSERT в `schedule_history`. |
+
+**Общая модель ошибок:** `not_authenticated`, `forbidden`, `<resource>_not_found`, `lesson_cancelled`, `not_your_lesson` (для teacher), `already_handled` / `already_cancelled`. Все клиентские обработчики имеют словарь `{ error_code: 'русское сообщение' }` и `alert()` на неизвестный код. Сохраняй этот паттерн при добавлении новых RPC.
+
 ### Особенности запросов
 
 - FK-алиасы в join: `teacher:profiles!schedule_teacher_id_fkey(full_name)`, `package:indiv_packages(name)` и т.д.
-- Часовой пояс для дат `slot_date` и т.п. — **Europe/Moscow**, формат `YYYY-MM-DD` получается через `toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' })`.
+- Часовой пояс для дат `slot_date` и т.п. — **Europe/Moscow**. Для границ суток в фильтрах по `timestamp WITHOUT time zone` (`sale_date`, `starts_at`, `created_at`) используй хелперы из [src/utils/tz.js](src/utils/tz.js): `todayMsk()`, `toMskDateStr(d)`, `mskDayStartUtc(dateStr)`, `mskDayEndUtc(dateStr)`. **Не пиши `from + 'T00:00:00'`** — это даст границу в TZ браузера, отчёты «съезжают» у админов не из МСК.
 
 ---
 
@@ -223,21 +249,43 @@ public/
 
 - **Только функциональные компоненты + хуки.** Без классов. Без `useReducer`/`context`/Redux — состояние локальное, поднимается через пропсы.
 - **Все стили inline** через `style={{...}}`. Если нужен hover/анимация — `onMouseEnter`/`onMouseLeave` или встроенный `<style>{`@keyframes pulse{...}`}</style>` в конце компонента (см. [src/App.jsx:366](src/App.jsx:366)). Не вводи Tailwind/styled — это нарушит единый стиль файла.
-- **Никакой абстракции над Supabase.** Запросы пишутся прямо в компоненте, рядом с использованием. `useEffect` → `async load()` → `setState`. Это сознательное решение, не переноси в отдельные сервисы/хуки без явной просьбы.
+- **Read-операции — прямо через `supabase.from(...)`** в компоненте, без слоя репозиториев/сервисов. `useEffect` → `async load()` → `setState` — это сознательный паттерн.
+- **Мутации денег/визитов/учёта — ТОЛЬКО через RPC.** Изменение `profiles.bonus_rubles` / `profiles.bonus_coins` / `subscriptions.visits_used` / `prizes.stock_count` через прямой `update()` запрещено — у этих полей нет защиты от гонок, и read-modify-write на клиенте уже стоил нам нескольких критических багов (см. историю в `git log --grep='RPC'`). Если нужна новая денежная операция — заводи новую RPC по образцу [миграций Supabase](https://supabase.com/docs/guides/database/functions). Простые CRUD (новости, задачи, представители, расписание без денег) — пиши прямо.
 - **Файлы крупные** (300–1500 строк) и содержат несколько вложенных компонентов одной фичи (например, `MyLessons`, `MyStats`, `Referral` внутри [Profile.jsx](src/pages/Profile.jsx)). Это норма — не дроби без необходимости.
 - **Язык интерфейса — русский.** Все строки UI, статусы, alert/confirm — по-русски. Допустимы эмодзи в UI-копи.
 - **Комментарии в коде — по-русски**, чаще всего как разделители блоков: `// ─── Заголовок ──────────`.
 - **localStorage используется как лёгкий «роутер»** для клиента: `activePage`, `lessons_tab`, `profileScreen`, `shop_cat`, `news_tag`.
 - **Кнопки `confirm()` и `alert()`** для критичных действий — это нормально, не заменяй на кастомный модал без просьбы.
 - **`session` пробрасывается пропсом** во все страницы; не дёргай `supabase.auth.getUser()` повторно без причины.
+- **HTML от админов всегда через `safeHtml()`.** Любой `dangerouslySetInnerHTML` из новостей/рассылок/RichEditor должен идти через [src/utils/safeHtml.js](src/utils/safeHtml.js) (DOMPurify под капотом). Без этого утечка админ-аккаунта = stored XSS у всех клиентов.
+- **Границы суток МСК — через хелперы из [src/utils/tz.js](src/utils/tz.js).** Не строй вручную `dateStr + 'T00:00:00'` для фильтров — это даст границу в TZ браузера. Используй `mskDayStartUtc(todayMsk())` и т.п.
+- **Защита от двойного клика** на любой мутирующей кнопке: локальный `if (saving) return` в начале handler + `disabled={saving}`. Особенно критично для денежных RPC, у которых RPC сама идемпотентна, но клиент может успеть отправить два запроса до ответа.
 
 ### Конвенции запросов
 
 - Сначала проверка валидности (`if (!session?.user?.id) return`), затем `setLoading(true)`, потом запросы, затем `setLoading(false)`.
 - Для счётчиков-бейджей в layout — `setInterval` + `window.addEventListener('focus', fetch)` (см. [AdminLayout.jsx:48](src/admin/AdminLayout.jsx:48)).
-- Дата «сегодня» в МСК: `new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' })`.
+- Дата «сегодня» в МСК: `todayMsk()` из `utils/tz.js` (старое `toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' })` теперь только внутри хелпера).
+- Границы суток для фильтров timestamp: `.gte('sale_date', mskDayStartUtc(from)).lte('sale_date', mskDayEndUtc(to))`.
 - Деньги: `(Number(n) || 0).toLocaleString('ru-RU') + ' ₽'`.
-- Время: `toLocaleTimeString('ru-RU', { hour:'2-digit', minute:'2-digit' })`.
+- Время: `toLocaleTimeString('ru-RU', { hour:'2-digit', minute:'2-digit', timeZone:'Europe/Moscow' })` — таймзону указывай явно, даже если кажется что не нужна.
+- `is_cancelled=false` для всех агрегаций `sales` — без этого фильтра отчёты включают отменённые продажи. Все денежные суммы на UI берут только активные строки.
+
+### Паттерн вызова RPC на клиенте
+
+```js
+const { data, error } = await supabase.rpc('rpc_name', { p_arg: value })
+if (error) { alert('Ошибка сети: ' + error.message); return }
+if (!data?.ok) {
+  const msg = {
+    forbidden:         'Недостаточно прав',
+    not_authenticated: 'Сессия истекла, войдите заново',
+    // ... остальные специфичные для этой RPC коды
+  }[data?.error] || `Не удалось выполнить: ${data?.error || 'неизвестная ошибка'}`
+  alert(msg); return
+}
+// успех — используй data.* (new_balance, refunded_visits, ...)
+```
 
 ### Что не делать
 
@@ -246,6 +294,10 @@ public/
 - Не заменять inline-стили на классы «для красоты».
 - Не писать комментарии-описания того, что и так видно. Разделители `// ─── … ───` сохранять, если они уже есть.
 - Не трогать `index.css` без явной просьбы — он почти везде не действует (`#root` имеет свой layout в JSX).
+- **Не делать прямой `update` балансов / `visits_used` / `stock_count`** — только через RPC. См. раздел «RPC-функции» выше.
+- **Не делать `delete + insert`** там, где можно UPSERT через `ON CONFLICT`. В `attendance` и `lesson_payments` уже есть нужные `UNIQUE`-constraints.
+- **Не понижать `useUserRole` до `client` при ошибке.** Возвращай `error: true` — гарды покажут «обновить». Это закрытая критическая уязвимость.
+- **Не использовать `staff_salary_settings`** для чтения ставок — она legacy и не наполняется. Реальные ставки в `salary_tiers`.
 
 ---
 
@@ -306,3 +358,7 @@ public/
 - Поправить логин/Telegram-flow — [src/App.jsx:138](src/App.jsx:138).
 - Логика записи на занятие и проверка абонемента — [src/pages/Schedule.jsx](src/pages/Schedule.jsx) и [src/admin/AttendancePanel.jsx](src/admin/AttendancePanel.jsx).
 - Каталог продаваемых продуктов (включая 30-дневные индив-слоты) — [src/admin/AdminCatalog.jsx](src/admin/AdminCatalog.jsx).
+- Денежные операции (продажа / отмена / бонусы / призы / визиты / зарплата / отмена урока) — RPC из раздела «RPC-функции». Клиентский вызов — `supabase.rpc(...)` с обработкой ошибок по общему паттерну.
+- HTML-контент от админов в UI — оборачивай `safeHtml()` из [src/utils/safeHtml.js](src/utils/safeHtml.js).
+- Любые границы суток / фильтры по датам — через хелперы из [src/utils/tz.js](src/utils/tz.js).
+- Если нужно посмотреть, что менялось в денежно-учётном контуре — `git log --grep='fix(prizes\|fix(sales\|fix(attendance\|fix(salary\|fix(lesson'`.
