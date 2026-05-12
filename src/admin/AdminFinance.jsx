@@ -555,16 +555,36 @@ function FinanceDetail() {
       .gte('sale_date', from + 'T00:00:00')
       .lte('sale_date', to + 'T23:59:59')
 
-    // Все преподаватели с настройками зарплат
+    // Все преподаватели
     const { data: staffProfiles } = await supabase.from('profiles')
       .select('id, full_name, email')
       .eq('role', 'teacher')
 
-    const { data: salarySettings } = await supabase.from('staff_salary_settings')
-      .select('*')
+    // Fixed-часть ФОТ — из salary_tiers с tier_type='salary' (месячный оклад)
+    const { data: tiersRaw } = await supabase.from('salary_tiers')
+      .select('staff_id, tier_type, amount')
+      .eq('role_context', 'teacher')
       .eq('is_active', true)
+      .eq('tier_type', 'salary')
 
-    // Считаем ФОТ за период (пропорционально дням)
+    // Variable-часть ФОТ — фактические начисления из lesson_payments за период,
+    // отфильтрованные по дате занятия (schedule.starts_at).
+    const { data: periodSchedules } = await supabase.from('schedule')
+      .select('id')
+      .gte('starts_at', from + 'T00:00:00')
+      .lte('starts_at', to + 'T23:59:59')
+    const periodScheduleIds = (periodSchedules || []).map(s => s.id)
+    let lessonPmts = []
+    if (periodScheduleIds.length > 0) {
+      const { data } = await supabase.from('lesson_payments')
+        .select('staff_id, amount')
+        .in('schedule_id', periodScheduleIds)
+      lessonPmts = data || []
+    }
+    const variableMap = {}
+    lessonPmts.forEach(p => { variableMap[p.staff_id] = (variableMap[p.staff_id] || 0) + Number(p.amount) })
+
+    // Пропорция дней периода к 30-дневному месяцу
     const fromDate = new Date(from)
     const toDate = new Date(to)
     const periodDays = Math.round((toDate - fromDate) / (1000 * 60 * 60 * 24)) + 1
@@ -575,16 +595,14 @@ function FinanceDetail() {
       const indivCount = sales.length
       const indivRevenue = sales.reduce((s, x) => s + Number(x.total_net), 0)
 
-      const salary = salarySettings?.find(s => s.staff_id === t.id && s.type === 'salary')
-      const perLesson = salarySettings?.find(s => s.staff_id === t.id && s.type === 'per_lesson')
-
-      const fixedFOT = salary ? Math.round(Number(salary.amount) * periodDays / monthDays) : 0
-      const variableFOT = perLesson ? Math.round(Number(perLesson.amount) * indivCount) : 0
+      const salaryTier = (tiersRaw || []).find(s => s.staff_id === t.id)
+      const fixedFOT = salaryTier ? Math.round(Number(salaryTier.amount) * periodDays / monthDays) : 0
+      const variableFOT = Math.round(variableMap[t.id] || 0)
       const totalFOT = fixedFOT + variableFOT
       const margin = indivRevenue - totalFOT
 
       return { id: t.id, name: t.full_name || t.email, indivCount, indivRevenue, fixedFOT, variableFOT, totalFOT, margin }
-    }).filter(t => t.indivCount > 0 || t.fixedFOT > 0)
+    }).filter(t => t.indivCount > 0 || t.fixedFOT > 0 || t.variableFOT > 0)
 
     setTeachers(teacherData)
 

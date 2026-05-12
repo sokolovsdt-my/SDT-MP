@@ -447,22 +447,25 @@ export default function AttendancePanel({ lesson, session, onClose, teachers, on
   }
 
   const saveSalaryCalc = async () => {
-    if (!salaryCalc) return
+    if (!salaryCalc || calcLoading) return
     setCalcLoading(true)
-    await supabase.from('lesson_payments').delete().eq('schedule_id', lesson.id)
-    await supabase.from('lesson_payments').insert({
-      schedule_id: lesson.id, staff_id: salaryCalc.actualTeacherId, role_context: 'teacher',
-      paid_students: salaryCalc.paid_students, amount: salaryCalc.amount,
-      is_substitution: salaryCalc.isSubstitution, original_teacher_id: salaryCalc.isSubstitution ? lesson.teacher_id : null,
-      calculated_at: new Date().toISOString(),
-    })
-    await supabase.from('schedule_history').insert({
-      schedule_id: lesson.id, action: 'attendance_marked', author_id: session?.user?.id,
-      changes: { paid_students: salaryCalc.paid_students, amount: salaryCalc.amount },
-      comment: `Посещаемость закрыта. Оплаченных: ${salaryCalc.paid_students}. Начислено: ${salaryCalc.amount} ₽`,
-    })
-    setCalcSaved(true)
+    const { data, error } = await supabase.rpc('save_lesson_salary', { p_schedule_id: lesson.id })
     setCalcLoading(false)
+    if (error) { alert('Ошибка сети: ' + error.message); return }
+    if (!data?.ok) {
+      const msg = {
+        not_authenticated: 'Сессия истекла, войдите заново',
+        forbidden:         'Недостаточно прав',
+        lesson_not_found:  'Занятие не найдено',
+        lesson_cancelled:  'Занятие отменено',
+        no_teacher:        'У занятия не назначен преподаватель',
+        not_your_lesson:   'Можно закрывать только свои занятия',
+      }[data?.error] || `Не удалось сохранить начисление: ${data?.error || 'неизвестная ошибка'}`
+      alert(msg); return
+    }
+    // Если расчёт сервера отличается от клиентского предпросмотра — показываем серверный
+    setSalaryCalc(prev => ({ ...prev, paid_students: data.paid_students, amount: Number(data.amount), saved: true }))
+    setCalcSaved(true)
   }
 
   const handleSearch = async (val) => {
