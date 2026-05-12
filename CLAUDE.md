@@ -362,3 +362,76 @@ if (!data?.ok) {
 - HTML-контент от админов в UI — оборачивай `safeHtml()` из [src/utils/safeHtml.js](src/utils/safeHtml.js).
 - Любые границы суток / фильтры по датам — через хелперы из [src/utils/tz.js](src/utils/tz.js).
 - Если нужно посмотреть, что менялось в денежно-учётном контуре — `git log --grep='fix(prizes\|fix(sales\|fix(attendance\|fix(salary\|fix(lesson'`.
+
+---
+
+## Остаток аудита
+
+Бэклог из аудита на момент `62c4b7c`. Закрытые пункты не перечисляются — историю смотри в `git log` по префиксам выше. Ссылки на строки могут смещаться, но имена функций/файлов стабильны.
+
+### 🔴 Критичные
+
+Все закрыты (см. коммиты с `512900d` по `538f548`). Если найдёшь новый — добавь сюда.
+
+### 🟠 Высокие
+
+- **Гонки в расписании.** `checkConflict` в [`AdminSchedule.handleSave`](src/admin/AdminSchedule.jsx) делает SELECT, потом INSERT — между ними другой админ может занять зал. `SubstitutionModal` пишет три независимых insert/update без транзакции — падение второго оставляет «висящую» строку `teacher_substitutions`. `AdminTasks.handleConfirm` подтверждения индив-заявки: проверка зала + `schedule.insert` + `indiv_requests.update` без атомарности. Решение: серия RPC по образцу уже сделанных (`create_schedule_event`, `assign_substitution`, `confirm_indiv_request`).
+- **`subscription_allowed_groups.length===0` ≡ «универсальный».** Используется в [`mark_attendance` RPC](#rpc-функции-postgres-security-definer), [`Schedule.jsx`](src/pages/Schedule.jsx), [`Profile.jsx`](src/pages/Profile.jsx). Если админ забыл заполнить группы — клиент попадает на любое занятие. Нужен явный флаг `is_universal` в `subscriptions` или фолбэк в «нет доступа». Это меняет семантику абонементов — требует продуктового решения.
+- **STAFF-whitelist на клиенте** ([App.jsx:179](src/App.jsx:179)). Сейчас это UX-фильтр от случайных magic-link логинов сотрудников — реальной защиты нет, любой может убрать ветку из бандла. Должно быть в Supabase Auth Hook или RLS-политике на signInWithOtp.
+- **Реферальная ссылка `user.id.slice(0,8)`** ([Profile.jsx:432](src/pages/Profile.jsx:432)). 8 hex символов uuid — не криптостойкая. Если рефералка начисляет бонусы, простой перебор даст чужой код. Заменить на отдельный `referral_codes` с настоящим случайным токеном или хотя бы HMAC от `user.id`.
+- **Хардкод URL Supabase в 4 местах.** [App.jsx:31](src/App.jsx:31) (`TG_LOGIN_URL`), [AdminDashboard.jsx:134](src/admin/AdminDashboard.jsx:134), [AdminClients.jsx:66](src/admin/AdminClients.jsx:66), [AdminStaff.jsx:49](src/admin/AdminStaff.jsx:49). Заменить на `import.meta.env.VITE_SUPABASE_URL`.
+
+### 🟡 Средние
+
+**Логика клиентской мобилки:**
+- **Безлимит-индив-пакеты ломаются на NaN.** [Shop.jsx:165](src/pages/Shop.jsx:165), [Team.jsx:77](src/pages/Team.jsx:77): `pkg.visits_used < pkg.visits_total` при `visits_total=null` даёт `false`, и безлимит-пакет помечается «нет пакета». Нужно отдельно обработать `visits_total === null` как «бесконечно».
+- **`isToday` не сверяет год** ([Home.jsx:65](src/pages/Home.jsx:65), [Profile.jsx:174](src/pages/Profile.jsx:174)) — через 365 дней показывает «Сегодня» для прошлогодней даты.
+- **«Следующее занятие» в Home игнорирует индивы и события** ([Home.jsx:46](src/pages/Home.jsx:46)) — смотрит только `bookings`. У клиента с ближайшим индивом — «Нет занятий».
+- **Учитель не отображается в «Следующее занятие».** [Home.jsx:96](src/pages/Home.jsx:96): рендерится `nextLesson.profiles?.full_name`, а в селекте поле названо `teacher:profiles!...` — нужно `nextLesson.teacher?.full_name`. Однострочный фикс.
+- **Streak по `attendance.created_at`** ([Profile.jsx:340](src/pages/Profile.jsx:340)). Это время отметки админом, не дата занятия. Поздняя отметка ломает серию. Считать через `schedule.starts_at`.
+- **Push-баннер всплывает каждый раз** после записи ([Schedule.jsx:269](src/pages/Schedule.jsx:269)) — нет сохранения отказа в `localStorage`, не проверяет `Notification.permission === 'granted'`.
+- **Глубокие ссылки клиента не работают** ([App.jsx:55](src/App.jsx:55)): `*` ловит всё кроме `/admin` и `/teacher`, редиректит на `/`. Поделиться ссылкой на `/profile` нельзя, кнопка «Назад» браузера ломает навигацию. Перевод клиента на react-router — заметная работа.
+
+**Аналитика owner:**
+- **«Не ходят 10 дней»** считается от `activated_at` ([AdminFinance.jsx:1184](src/admin/AdminFinance.jsx:1184)), а не от последнего посещения. Активный клиент с давно купленным абонементом попадает сюда ошибочно.
+- **TransferModal: первый шаг через RPC, второй — нет** ([AttendancePanel.jsx:172](src/admin/AttendancePanel.jsx:172)). `mark_attendance('transferred')` атомарный, но последующий `bookings.insert` на новое занятие идёт отдельным запросом. Можно объединить в `transfer_trial(p_schedule_id, p_target_schedule_id, p_student_id)` RPC. Сейчас при сбое второго шага UI говорит «Перенос помечен, но не удалось создать новую запись» — это work-around, не решение.
+- **`saveSalaryCalc` атомарен, но `calculateSalary` (предпросмотр) дублирует формулу на клиенте** ([AttendancePanel.jsx:419](src/admin/AttendancePanel.jsx:419)). Если расчёт сервера отличается, админ удивится после клика «Подтвердить». Решение — `preview_lesson_salary` RPC (read-only) и убрать клиентскую формулу.
+
+**State и производительность:**
+- **Двойной `RequireRole` + `useUserRole`** на каждом `/admin/*` ([App.jsx:96](src/App.jsx:96)) → 3-4 параллельных запроса к `profiles` на каждом переходе. Завести `RoleContext` в `AdminLayout`.
+- **Отсутствие cancel-флага в useEffect** — массово в `pages/*` и нескольких местах в `admin/*`. При быстрой смене сессии setState на размонтированном компоненте.
+- **Три `setInterval(..., 30000)` + focus listener** в [AdminLayout.jsx:48](src/admin/AdminLayout.jsx:48) — переоформить в один полл.
+- **`DAYS = getDays(30)` при загрузке модуля** ([Schedule.jsx:18](src/pages/Schedule.jsx:18)). PWA, открытое сутками, не обновит «Сегодня».
+- **`attendance.select(...)` без фильтра по дате** для статистики профиля ([Profile.jsx:319](src/pages/Profile.jsx:319)) — тянет всю историю клиента.
+- **`upsert` в цикле для тегов новостей** ([News.jsx:31](src/pages/News.jsx:31)) — N HTTP-запросов вместо одного `upsert([...])`.
+- **`loadAll` в `AdminSchedule` последовательный** ([AdminSchedule.jsx:423](src/admin/AdminSchedule.jsx:423)) — 6+ `await` без `Promise.all`.
+
+**Инфра и UX:**
+- **`vercel.json` rewrite `/(.*) → /index.html`** ловит всё, включая `/firebase-messaging-sw.js`. Поведение Vercel сейчас выдаёт реальный файл первым, но неявно. Стоит явно исключить SW и manifest.
+- **Service Worker регистрируется неявно** через Firebase SDK при `getToken` — зависит от того, что файл доступен по корню (см. предыдущий пункт).
+- **Hardcoded Firebase ключи в SW** ([firebase-messaging-sw.js](public/firebase-messaging-sw.js)) при том что в [firebase.js](src/firebase.js) они в env — двойной источник истины.
+- **Нет `.env.example`** в корне — новый разработчик не знает, какие `VITE_*` обязательны.
+- **ESLint flat config** не включает `react-hooks/exhaustive-deps` уровнем `error`. Куча `useEffect` с устаревшими зависимостями проходит молча.
+- **`handleLogout` в AdminLayout** делает `navigate('/')` после `signOut` ([AdminLayout.jsx:77](src/admin/AdminLayout.jsx:77)) — мёртвый код, Router размонтируется раньше.
+- **`min="31" max="31"`** для `available_to_day` ([AdminCatalog.jsx:1027](src/admin/AdminCatalog.jsx:1027)) — можно ввести только `31`. Должно быть `min="1" max="31"`.
+- **Форма быстрого добавления клиента в кассе без кнопки сохранения** ([AdminCashbox.jsx:78](src/admin/AdminCashbox.jsx:78)) — мёртвый UI.
+- **«Получателей» в истории рассылок всегда «—»** ([AdminBroadcasts.jsx:609](src/admin/AdminBroadcasts.jsx:609)) — статистика отправок не выводится, хотя данные в `broadcast_recipients` есть.
+- **`alert/confirm` непоследовательны** — часть критичных действий (отмена занятия в Schedule.jsx клиента) без подтверждения, часть с нативным confirm.
+- **Кликабельные `<div>` вместо `<button>`** — `BottomNav`, карточки списков, аватарка с overlay по hover. Accessibility (фокус с клавиатуры, скринридер) не работает.
+- **`<html lang="en">`** при русском интерфейсе ([index.html:2](index.html:2)).
+
+### 🟢 Низкие
+
+- **Склонения** «день/дня/дней», «занятие/занятия/занятий» для 11–14 и 21 ([Profile.jsx:584](src/pages/Profile.jsx:584), [Shop.jsx:357](src/pages/Shop.jsx:357), [Team.jsx:195](src/pages/Team.jsx:195)). Сделать общую утилиту `plural(n, ['день','дня','дней'])`.
+- **Округление среднего чека до рубля** ([AdminFinance.jsx:357](src/admin/AdminFinance.jsx:357)).
+- **Возраст по `getFullYear()`** без учёта прошёл ли ДР в этом году ([AttendancePanel.jsx:84](src/admin/AttendancePanel.jsx:84)).
+- **`Math.min(...)` от пустого массива** → `Infinity` в карточке преподавателя без активных пакетов ([AdminCatalog.jsx:802](src/admin/AdminCatalog.jsx:802)). UI покажет «∞ ₽».
+- **`file.name.split('.').pop()` для расширений** ([AvatarUpload.jsx:12](src/components/AvatarUpload.jsx:12), [AdminCatalog.jsx:44](src/admin/AdminCatalog.jsx:44)). Лучше из MIME + whitelist.
+- **ФИО без `trim()`** ([Profile.jsx:543](src/pages/Profile.jsx:543)) — пробелы по краям летят в БД.
+- **Cache-busting `?t=${Date.now()}` в URL аватара** ([AvatarUpload.jsx:18](src/components/AvatarUpload.jsx:18)) сохраняется в БД — мусор в `profiles.avatar_url` накапливается.
+- **`published_at = now` даже при `is_active=false`** ([AdminNews.jsx:280](src/admin/AdminNews.jsx:280)) — архивная новость сбивает сортировку при активации.
+- **Overlay аватара только по `onMouseEnter`** ([AvatarUpload.jsx:37](src/components/AvatarUpload.jsx:37)) — на тач-устройствах никогда не показывается.
+
+### Как пополнять список
+
+Когда находишь баг при работе — либо чини сразу (если он маленький и попутный), либо добавляй сюда новой строкой с пометкой приоритета и ссылкой на файл:строку. После фикса убирай отсюда и упоминай коммит-хэш в commit message.
