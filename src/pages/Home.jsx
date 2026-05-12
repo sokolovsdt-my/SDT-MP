@@ -42,16 +42,18 @@ export default function Home({ session, onNewsAll, onBonus }) {
       }, 0)
       setStats({ thisMonth: thisMonthCount, totalHours: Math.round(totalMinutes / 60) })
 
+      const nowIso = new Date().toISOString()
       const { data: bookings } = await supabase
         .from('bookings')
-        .select('schedule:schedule_id(id, title, starts_at, ends_at, hall, groups(name), profiles:teacher_id(full_name))')
+        .select('schedule:schedule_id(id, title, starts_at, ends_at, hall, groups(name), teacher:profiles!schedule_teacher_id_fkey(full_name))')
         .eq('student_id', session.user.id)
-        .eq('status', 'confirmed')
-        .gte('schedule.starts_at', new Date().toISOString())
-        .order('schedule.starts_at', { ascending: true })
-        .limit(1)
+        .eq('status', 'booked')
 
-      const next = bookings?.[0]?.schedule
+      const next = (bookings || [])
+        .map(b => b.schedule)
+        .filter(s => s && new Date(s.starts_at) >= new Date())
+        .sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at))[0]
+
       if (next) setNextLesson(next)
     }
     load()
