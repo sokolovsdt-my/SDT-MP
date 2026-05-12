@@ -57,6 +57,9 @@ export default function AdminPrizes({ session }) {
   const [coinReason, setCoinReason] = useState('')
   const [coinSaving, setCoinSaving] = useState(false)
 
+  // id заявки, по которой сейчас идёт RPC — для дизейбла кнопок и защиты от двойного клика
+  const [completingId, setCompletingId] = useState(null)
+
   useEffect(() => { load() }, [tab])
 
   const load = async () => {
@@ -140,18 +143,40 @@ export default function AdminPrizes({ session }) {
   }
 
   const handleComplete = async (req) => {
-    if (!confirm(`Отметить приз «${req.prize?.name}» как выданный? Остаток уменьшится на 1.`)) return
-    await supabase.from('prize_requests').update({ status:'completed', handled_by: session.user.id, handled_at: new Date().toISOString() }).eq('id', req.id)
-    await supabase.from('prizes').update({ stock_count: Math.max(0, (req.prize_stock||0) - 1) }).eq('id', req.prize_id)
-    // Обновим stock через отдельный запрос
-    const { data: prize } = await supabase.from('prizes').select('stock_count').eq('id', req.prize_id).single()
-    if (prize) await supabase.from('prizes').update({ stock_count: Math.max(0, prize.stock_count - 1) }).eq('id', req.prize_id)
+    if (completingId) return
+    const price = req.prize?.coins_price ?? 0
+    const balance = req.client?.bonus_coins ?? 0
+    if (!confirm(`Выдать «${req.prize?.name}»? Спишется ${price} ⭐ у ${req.client?.full_name || 'клиента'} (баланс: ${balance}).`)) return
+    setCompletingId(req.id)
+    const { data, error } = await supabase.rpc('complete_prize_request', { p_req_id: req.id })
+    setCompletingId(null)
+    if (error) { alert('Ошибка сети: ' + error.message); return }
+    if (!data?.ok) {
+      const msg = {
+        forbidden:            'Недостаточно прав',
+        not_authenticated:    'Сессия истекла, войдите заново',
+        not_found:            'Заявка не найдена',
+        already_handled:      'Заявка уже обработана другим администратором',
+        prize_not_found:      'Приз удалён',
+        out_of_stock:         'Призов больше нет в наличии',
+        insufficient_balance: `У клиента не хватает SDTшек (${data.balance ?? 0} из ${data.required ?? price})`,
+        client_not_found:     'Клиент не найден',
+      }[data?.error] || `Не удалось выдать приз: ${data?.error || 'неизвестная ошибка'}`
+      alert(msg)
+    }
     load()
   }
 
   const handleCancel = async (id) => {
+    if (completingId) return
     if (!confirm('Отменить заявку?')) return
-    await supabase.from('prize_requests').update({ status:'cancelled', handled_by: session.user.id, handled_at: new Date().toISOString() }).eq('id', id)
+    setCompletingId(id)
+    await supabase
+      .from('prize_requests')
+      .update({ status:'cancelled', handled_by: session.user.id, handled_at: new Date().toISOString() })
+      .eq('id', id)
+      .eq('status', 'pending')
+    setCompletingId(null)
     load()
   }
 
@@ -164,25 +189,39 @@ export default function AdminPrizes({ session }) {
   }
 
   const handleCoinOperation = async (operation) => {
-    if (!coinAmount || !coinReason.trim()) return
-    setCoinSaving(true)
+    if (coinSaving) return
     const amount = parseInt(coinAmount)
+    if (!amount || amount <= 0 || !coinReason.trim()) return
     const delta = operation === 'credit' ? amount : -amount
-    await supabase.from('profiles').update({ bonus_coins: Math.max(0, (clientProfile.bonus_coins || 0) + delta) }).eq('id', clientModal)
-    await supabase.from('bonus_history').insert({
-      student_id: clientModal,
-      type: 'coins',
-      amount: delta,
-      reason: coinReason,
-      operation,
-      client_reason: 'manual_' + operation,
+
+    setCoinSaving(true)
+    const { data, error } = await supabase.rpc('admin_adjust_coins', {
+      p_client_id: clientModal,
+      p_delta:     delta,
+      p_reason:    coinReason.trim(),
     })
-    setCoinAmount(''); setCoinReason('')
     setCoinSaving(false)
-    // Обновляем профиль
-    const { data: updated } = await supabase.from('profiles').select('*').eq('id', clientModal).single()
-    setClientProfile(updated)
-    const { data: hist } = await supabase.from('bonus_history').select('*').eq('student_id', clientModal).order('created_at', { ascending: false }).limit(10)
+
+    if (error) { alert('Ошибка сети: ' + error.message); return }
+    if (!data?.ok) {
+      const msg = {
+        forbidden:            'Недостаточно прав',
+        not_authenticated:    'Сессия истекла, войдите заново',
+        client_not_found:     'Клиент не найден',
+        invalid_delta:        'Укажите положительное число',
+        reason_required:      'Укажите причину',
+        insufficient_balance: `У клиента не хватает SDTшек (${data.balance ?? 0} из ${data.required ?? amount})`,
+      }[data?.error] || `Не удалось выполнить операцию: ${data?.error || 'неизвестная ошибка'}`
+      alert(msg)
+      return
+    }
+
+    setCoinAmount(''); setCoinReason('')
+    setClientProfile(p => p ? { ...p, bonus_coins: data.new_balance } : p)
+    const { data: hist } = await supabase
+      .from('bonus_history').select('*')
+      .eq('student_id', clientModal)
+      .order('created_at', { ascending: false }).limit(10)
     setClientHistory(hist || [])
     load()
   }
@@ -395,22 +434,26 @@ export default function AdminPrizes({ session }) {
                         </span>
                       </div>
 
-                      {req.status === 'pending' && (
-                        <div style={{marginTop:12, paddingTop:12, borderTop:'1px solid #f0f0f0', display:'flex', gap:8, flexWrap:'wrap'}}>
-                          <button onClick={() => openClientModal(client?.id)}
-                            style={{padding:'7px 14px', background:'#e8f4fd', border:'1px solid #2980b9', borderRadius:8, fontSize:12, color:'#2980b9', cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight:600}}>
-                            👤 Карточка клиента
-                          </button>
-                          <button onClick={() => handleComplete(req)}
-                            style={{padding:'7px 14px', background:'#eafaf1', border:'1px solid #27ae60', borderRadius:8, fontSize:12, color:'#27ae60', cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight:600}}>
-                            ✅ Приз выдан
-                          </button>
-                          <button onClick={() => handleCancel(req.id)}
-                            style={{padding:'7px 14px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:8, fontSize:12, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-                            Отменить
-                          </button>
-                        </div>
-                      )}
+                      {req.status === 'pending' && (() => {
+                        const busy = completingId === req.id
+                        const anyBusy = !!completingId
+                        return (
+                          <div style={{marginTop:12, paddingTop:12, borderTop:'1px solid #f0f0f0', display:'flex', gap:8, flexWrap:'wrap'}}>
+                            <button onClick={() => openClientModal(client?.id)} disabled={anyBusy}
+                              style={{padding:'7px 14px', background:'#e8f4fd', border:'1px solid #2980b9', borderRadius:8, fontSize:12, color:'#2980b9', cursor: anyBusy ? 'default' : 'pointer', fontFamily:'Inter,sans-serif', fontWeight:600, opacity: anyBusy ? 0.5 : 1}}>
+                              👤 Карточка клиента
+                            </button>
+                            <button onClick={() => handleComplete(req)} disabled={anyBusy}
+                              style={{padding:'7px 14px', background:'#eafaf1', border:'1px solid #27ae60', borderRadius:8, fontSize:12, color:'#27ae60', cursor: anyBusy ? 'default' : 'pointer', fontFamily:'Inter,sans-serif', fontWeight:600, opacity: anyBusy ? 0.5 : 1}}>
+                              {busy ? 'Выдаём…' : '✅ Приз выдан'}
+                            </button>
+                            <button onClick={() => handleCancel(req.id)} disabled={anyBusy}
+                              style={{padding:'7px 14px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:8, fontSize:12, color:'#888', cursor: anyBusy ? 'default' : 'pointer', fontFamily:'Inter,sans-serif', opacity: anyBusy ? 0.5 : 1}}>
+                              {busy ? 'Отменяем…' : 'Отменить'}
+                            </button>
+                          </div>
+                        )
+                      })()}
                     </div>
                   )
                 })}
@@ -464,12 +507,12 @@ export default function AdminPrizes({ session }) {
                   </div>
                   <div style={{display:'flex', gap:8}}>
                     <button onClick={() => handleCoinOperation('credit')} disabled={coinSaving || !coinAmount || !coinReason.trim()}
-                      style={{flex:1, padding:'8px', background:'#eafaf1', border:'1px solid #27ae60', borderRadius:8, fontSize:12, color:'#27ae60', cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight:600, opacity:(!coinAmount||!coinReason.trim())?0.5:1}}>
-                      + Начислить SDTшки
+                      style={{flex:1, padding:'8px', background:'#eafaf1', border:'1px solid #27ae60', borderRadius:8, fontSize:12, color:'#27ae60', cursor: coinSaving ? 'default' : 'pointer', fontFamily:'Inter,sans-serif', fontWeight:600, opacity:(coinSaving||!coinAmount||!coinReason.trim())?0.5:1}}>
+                      {coinSaving ? 'Сохраняем…' : '+ Начислить SDTшки'}
                     </button>
                     <button onClick={() => handleCoinOperation('debit')} disabled={coinSaving || !coinAmount || !coinReason.trim()}
-                      style={{flex:1, padding:'8px', background:'#fdecea', border:'1px solid #e74c3c', borderRadius:8, fontSize:12, color:'#e74c3c', cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight:600, opacity:(!coinAmount||!coinReason.trim())?0.5:1}}>
-                      − Списать SDTшки
+                      style={{flex:1, padding:'8px', background:'#fdecea', border:'1px solid #e74c3c', borderRadius:8, fontSize:12, color:'#e74c3c', cursor: coinSaving ? 'default' : 'pointer', fontFamily:'Inter,sans-serif', fontWeight:600, opacity:(coinSaving||!coinAmount||!coinReason.trim())?0.5:1}}>
+                      {coinSaving ? 'Сохраняем…' : '− Списать SDTшки'}
                     </button>
                   </div>
                 </div>
