@@ -70,10 +70,16 @@ function StudentRow({ booking, onStatusChange, lessonStarted }) {
   const [status, setStatus] = useState(booking.attendance_status || 'none')
   const [saving, setSaving] = useState(false)
 
+  // Синхронизируем при перезагрузке списка (после loadBookings из родителя)
+  useEffect(() => { setStatus(booking.attendance_status || 'none') }, [booking.attendance_status])
+
   const handleChange = async (newStatus) => {
+    if (saving) return
+    const prev = status
     setSaving(true)
-    setStatus(newStatus)
-    await onStatusChange(booking, newStatus, status)
+    setStatus(newStatus)            // оптимистично
+    const ok = await onStatusChange(booking, newStatus, prev)
+    if (!ok) setStatus(prev)        // откат, если RPC не прошла
     setSaving(false)
   }
 
@@ -170,15 +176,38 @@ function TransferModal({ booking, lesson, onClose, onDone }) {
   }, [])
 
   const handleConfirm = async () => {
-    if (!selected) return
+    if (!selected || saving) return
     setSaving(true)
-    const { data: { user } } = await supabase.auth.getUser()
-    if (booking.attendance_id) {
-      await supabase.from('attendance').update({ status: 'transferred', marked_by: user?.id }).eq('id', booking.attendance_id)
-    } else {
-      await supabase.from('attendance').insert({ schedule_id: lesson.id, student_id: booking.student_id, status: 'transferred', basis: 'trial', marked_by: user?.id })
+
+    // 1. Помечаем текущее занятие как «перенесено» — атомарно через RPC
+    //    (если у ученика был present, RPC сам вернёт визит в абонемент).
+    const { data: rpcRes, error: rpcErr } = await supabase.rpc('mark_attendance', {
+      p_schedule_id: lesson.id,
+      p_student_id:  booking.student_id,
+      p_new_status:  'transferred',
+    })
+    if (rpcErr) { alert('Ошибка сети: ' + rpcErr.message); setSaving(false); return }
+    if (!rpcRes?.ok) {
+      const msg = {
+        not_authenticated: 'Сессия истекла, войдите заново',
+        forbidden:         'Недостаточно прав',
+        lesson_cancelled:  'Занятие отменено — перенос невозможен',
+        not_your_lesson:   'Можно отмечать только свои занятия',
+      }[rpcRes?.error] || `Не удалось пометить перенос: ${rpcRes?.error || 'неизвестная ошибка'}`
+      alert(msg); setSaving(false); return
     }
-    await supabase.from('bookings').insert({ schedule_id: selected, student_id: booking.student_id, status: 'booked', ...(user?.id ? { created_by: user.id } : {}) })
+
+    // 2. Создаём новую запись на выбранное занятие
+    const { data: { user } } = await supabase.auth.getUser()
+    const { error: bookErr } = await supabase
+      .from('bookings')
+      .insert({ schedule_id: selected, student_id: booking.student_id, status: 'booked',
+                ...(user?.id ? { created_by: user.id } : {}) })
+    if (bookErr) {
+      alert('Перенос помечен, но не удалось создать новую запись: ' + bookErr.message)
+      setSaving(false); return
+    }
+
     setSaving(false)
     onDone()
   }
@@ -345,37 +374,46 @@ export default function AttendancePanel({ lesson, session, onClose, teachers, on
     }
   }
 
-  const handleStatusChange = async (booking, newStatus, prevStatus) => {
+  const handleStatusChange = async (booking, newStatus) => {
+    // Перенос пробного — отдельный сценарий через модалку, RPC не вызывается
     if (newStatus === 'transferred' && booking.basis === 'trial') {
       setTransferBooking(booking)
-      return
+      return false
     }
 
-    const { data: { user } } = await supabase.auth.getUser()
-    const basis = booking.basis || 'indiv'
-    const subscriptionId = booking.subscription_id || null
+    const { data, error } = await supabase.rpc('mark_attendance', {
+      p_schedule_id: lesson.id,
+      p_student_id:  booking.student_id,
+      p_new_status:  newStatus,
+    })
 
-    // Для индив-занятий нет абонемента — просто пишем attendance
-    if (booking.attendance_id) {
-      await supabase.from('attendance').update({ status: newStatus, basis, marked_by: user?.id, subscription_id: subscriptionId }).eq('id', booking.attendance_id)
-    } else {
-      await supabase.from('attendance').insert({ schedule_id: lesson.id, student_id: booking.student_id, status: newStatus, basis, marked_by: user?.id, subscription_id: subscriptionId })
+    if (error) {
+      alert('Ошибка сети: ' + error.message)
+      return false
+    }
+    if (!data?.ok) {
+      const msg = {
+        not_authenticated: 'Сессия истекла, войдите заново',
+        forbidden:         'Недостаточно прав',
+        invalid_status:    'Недопустимый статус',
+        lesson_not_found:  'Занятие не найдено',
+        lesson_cancelled:  'Занятие отменено — отметка невозможна',
+        not_your_lesson:   'Можно отмечать только свои занятия',
+        out_of_visits:     `На абонементе нет свободных визитов (${data.visits_used ?? '?'} из ${data.visits_total ?? '?'})`,
+      }[data?.error] || `Не удалось сохранить отметку: ${data?.error || 'неизвестная ошибка'}`
+      alert(msg)
+      return false
     }
 
-    // Списание визитов только для обычных абонементов
-    if (subscriptionId && !booking.is_indiv) {
-      const { data: sub } = await supabase.from('subscriptions').select('visits_total, visits_used').eq('id', subscriptionId).maybeSingle()
-      if (sub && sub.visits_total !== null) {
-        if (newStatus === 'present' && prevStatus !== 'present') {
-          await supabase.from('subscriptions').update({ visits_used: (sub.visits_used || 0) + 1 }).eq('id', subscriptionId)
-        }
-        if (prevStatus === 'present' && newStatus !== 'present') {
-          await supabase.from('subscriptions').update({ visits_used: Math.max(0, (sub.visits_used || 1) - 1) }).eq('id', subscriptionId)
-        }
-      }
-    }
-
-    setBookings(prev => prev.map(b => b.id === booking.id ? { ...b, attendance_status: newStatus } : b))
+    // Синхронизируем строку: используем серверные basis/subscription_id, чтобы UI не врал
+    setBookings(prev => prev.map(b => b.id === booking.id ? {
+      ...b,
+      attendance_status: newStatus,
+      attendance_id:     data.attendance_id || b.attendance_id,
+      basis:             data.basis || b.basis,
+      subscription_id:   data.subscription_id ?? b.subscription_id,
+    } : b))
+    return true
   }
 
   const calculateSalary = async () => {
