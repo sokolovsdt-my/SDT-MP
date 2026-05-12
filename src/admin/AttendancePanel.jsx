@@ -500,8 +500,27 @@ export default function AttendancePanel({ lesson, session, onClose, teachers, on
   }
 
   const handleCancel = async () => {
-    if (!confirm('Отменить занятие? Оно останется в расписании с пометкой "Отменено"')) return
-    await supabase.from('schedule').update({ is_cancelled: true }).eq('id', lesson.id)
+    if (saving) return
+    if (!confirm('Отменить занятие?\n\nЕсли кто-то был отмечен «Пришёл» — визиты вернутся в их абонементы. Зарплата за этот урок будет отозвана.')) return
+    setSaving(true)
+    const { data, error } = await supabase.rpc('cancel_lesson', { p_schedule_id: lesson.id })
+    setSaving(false)
+    if (error) { alert('Ошибка сети: ' + error.message); return }
+    if (!data?.ok) {
+      const msg = {
+        not_authenticated: 'Сессия истекла, войдите заново',
+        forbidden:         'Недостаточно прав',
+        lesson_not_found:  'Занятие не найдено',
+        already_cancelled: 'Занятие уже отменено',
+        not_your_lesson:   'Можно отменять только свои занятия',
+      }[data?.error] || `Не удалось отменить: ${data?.error || 'неизвестная ошибка'}`
+      alert(msg); return
+    }
+    const parts = [
+      `Возвращено визитов: ${data.refunded_visits}`,
+      data.removed_payments > 0 ? 'Зарплата за урок отозвана' : null,
+    ].filter(Boolean)
+    if (parts.length > 0) alert(parts.join('\n'))
     onLessonUpdate?.(); onClose()
   }
 

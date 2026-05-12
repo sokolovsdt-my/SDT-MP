@@ -150,9 +150,13 @@ function FinanceOverview() {
     if (!ranges) { setLoading(false); return }
     setLoading(true)
     const { from, to, prevFrom, prevTo } = ranges
-    const { data: sales } = await supabase.from('sales').select('total_net, payment_method, sale_date').gte('sale_date', from + 'T00:00:00').lte('sale_date', to + 'T23:59:59')
+    const { data: sales } = await supabase.from('sales').select('total_net, payment_method, sale_date')
+      .eq('is_cancelled', false)
+      .gte('sale_date', from + 'T00:00:00').lte('sale_date', to + 'T23:59:59')
     const { data: exp } = await supabase.from('expenses').select('amount, expense_date').gte('expense_date', from).lte('expense_date', to)
-    const { data: prevSales } = await supabase.from('sales').select('total_net').gte('sale_date', prevFrom + 'T00:00:00').lte('sale_date', prevTo + 'T23:59:59')
+    const { data: prevSales } = await supabase.from('sales').select('total_net')
+      .eq('is_cancelled', false)
+      .gte('sale_date', prevFrom + 'T00:00:00').lte('sale_date', prevTo + 'T23:59:59')
     const { data: prevExp } = await supabase.from('expenses').select('amount').gte('expense_date', prevFrom).lte('expense_date', prevTo)
 
     const totalRevenue = (sales || []).reduce((s, x) => s + Number(x.total_net), 0)
@@ -610,7 +614,7 @@ function FinanceDetail() {
     const { data: groupsList } = await supabase.from('groups').select('id, name').order('name')
 
     const { data: subGroups } = await supabase.from('subscription_allowed_groups')
-      .select('group_id, subscription:subscription_id(sale_id)')
+      .select('group_id, subscription:subscription_id(id, sale_id)')
 
     const { data: periodSales } = await supabase.from('sales')
       .select('id, total_net')
@@ -621,15 +625,26 @@ function FinanceDetail() {
     const saleNetMap = {}
     ;(periodSales || []).forEach(s => { saleNetMap[s.id] = Number(s.total_net) })
 
+    // Подсчитываем, сколько групп у каждой подписки — выручку sale делим на это число,
+    // чтобы абонемент на N групп не считался N раз в общей сумме.
+    const subGroupCount = {}
+    ;(subGroups || []).forEach(sg => {
+      const subId = sg.subscription?.id
+      if (subId) subGroupCount[subId] = (subGroupCount[subId] || 0) + 1
+    })
+
     const groupRevenue = {}
     const groupCount = {}
     ;(subGroups || []).forEach(sg => {
+      const subId  = sg.subscription?.id
       const saleId = sg.subscription?.sale_id
-      if (saleId && saleNetMap[saleId] !== undefined) {
-        groupRevenue[sg.group_id] = (groupRevenue[sg.group_id] || 0) + saleNetMap[saleId]
-        groupCount[sg.group_id] = (groupCount[sg.group_id] || 0) + 1
-      }
+      if (!subId || !saleId || saleNetMap[saleId] === undefined) return
+      const share = saleNetMap[saleId] / (subGroupCount[subId] || 1)
+      groupRevenue[sg.group_id] = (groupRevenue[sg.group_id] || 0) + share
+      groupCount[sg.group_id]   = (groupCount[sg.group_id]   || 0) + 1
     })
+    // Округляем итоговую сумму, чтобы в UI не плавали копейки
+    Object.keys(groupRevenue).forEach(k => { groupRevenue[k] = Math.round(groupRevenue[k]) })
 
     const groupData = (groupsList || [])
       .map(g => ({ id: g.id, name: g.name, revenue: groupRevenue[g.id] || 0, count: groupCount[g.id] || 0 }))
