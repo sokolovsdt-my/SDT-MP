@@ -106,7 +106,6 @@ function SaleModal({ client, session, onClose, onSuccess }) {
   const bonusRublesUsed = parseFloat(bonusRublesUse)||0
   const afterDiscount = Math.max(0, subtotal - discountAmount - bonusRublesUsed)
   const acquiringFee = paymentMethod === 'online' ? Math.round(afterDiscount * acquiringPercent / 100) : 0
-  const totalNet = paymentMethod === 'bonus' || paymentMethod === 'coins' ? 0 : afterDiscount - acquiringFee
 
   const addProduct = () => {
     const p = productsByType.find(p => p.id === selectedProduct)
@@ -120,70 +119,54 @@ function SaleModal({ client, session, onClose, onSuccess }) {
   }
 
   const handleSubmit = async () => {
+    if (saving) return
     if (!items.length || !paymentMethod) return
     if (discountAmount > 0 && !discountReason.trim()) { alert('Укажите причину скидки'); return }
     if (bonusRublesUsed > 0 && bonusRublesUsed > (client.bonus_rubles||0)) {
       alert(`Нельзя списать ${bonusRublesUsed} ₽ — на балансе только ${client.bonus_rubles||0} ₽`); return
     }
     setSaving(true)
-    const receiptId = crypto.randomUUID()
-    const perItem = items.length
-    const rows = items.map(item => ({
-      receipt_id: receiptId, client_id: client.id,
-      product_id: item.product_id, product_type: item.product_type, product_name: item.product_name,
-      teacher_id: item.teacher_id||null,
-      price_original: item.price,
-      discount_percent: discountMode === 'percent' ? (parseFloat(discountValue)||0) : 0,
-      discount_amount: discountAmount/perItem,
-      discount_reason: discountReason||null,
-      bonus_rubles_used: bonusRublesUsed/perItem,
-      bonus_coins_used: 0,
-      payment_method: paymentMethod,
-      amount_paid: afterDiscount/perItem,
-      acquiring_fee: acquiringFee/perItem,
-      total_net: totalNet/perItem,
-      payer_type: payerType,
-      payer_representative_id: payerType === 'representative' ? payerRepId||null : null,
-      payer_name: payerType === 'other' ? payerName||null : null,
-      comment: comment||null,
-      created_by: session.user.id,
-      sale_date: new Date().toISOString(),
-    }))
-    const { data: insertedSales, error } = await supabase.from('sales').insert(rows).select()
-    if (error) { console.error('Sale error:', error); alert('Ошибка при продаже: '+error.message); setSaving(false); return }
-    if (bonusRublesUsed > 0) {
-      await supabase.from('profiles').update({ bonus_rubles: Math.max(0,(client.bonus_rubles||0)-bonusRublesUsed) }).eq('id',client.id)
-      await supabase.from('bonus_history').insert({
-        student_id: client.id, type:'rubles', amount:-bonusRublesUsed,
-        reason: `Оплата: ${items.map(i=>i.product_name).join(', ')}`,
-        created_by: session.user.id, operation:'debit', client_reason:'subscription_payment'
-      })
+
+    const { data, error } = await supabase.rpc('create_sale', {
+      p_payload: {
+        client_id: client.id,
+        items: items.map(i => ({
+          product_id: i.product_id, product_type: i.product_type,
+          product_name: i.product_name, price: i.price,
+          teacher_id: i.teacher_id || null,
+        })),
+        discount_amount: discountAmount,
+        discount_percent: discountMode === 'percent' ? (parseFloat(discountValue) || 0) : 0,
+        discount_reason: discountReason || null,
+        bonus_rubles_used: bonusRublesUsed,
+        payment_method: paymentMethod,
+        acquiring_fee_percent: acquiringPercent,
+        payer_type: payerType,
+        payer_representative_id: payerType === 'representative' ? payerRepId || null : null,
+        payer_name: payerType === 'other' ? payerName || null : null,
+        comment: comment || null,
+        selected_group_ids: selectedGroupIds,
+      },
+    })
+
+    if (error) { alert('Ошибка сети: ' + error.message); setSaving(false); return }
+    if (!data?.ok) {
+      const msg = {
+        not_authenticated:        'Сессия истекла, войдите заново',
+        forbidden:                'Недостаточно прав',
+        no_items:                 'Чек пуст',
+        no_client:                'Не выбран клиент',
+        no_payment_method:        'Не выбран способ оплаты',
+        negative_amount:          'Отрицательные суммы недопустимы',
+        discount_reason_required: 'Укажите причину скидки',
+        client_not_found:         'Клиент не найден',
+        insufficient_bonus_rubles: `На балансе только ${data.balance ?? 0} ₽, нужно ${data.required ?? bonusRublesUsed} ₽`,
+        discount_exceeds_subtotal: `Скидка + бонусы (${(data.discount ?? 0) + (data.bonus ?? 0)} ₽) больше суммы чека (${data.subtotal ?? 0} ₽)`,
+      }[data?.error] || `Не удалось оформить продажу: ${data?.error || 'неизвестная ошибка'}`
+      alert(msg)
+      setSaving(false); return
     }
-    const subItems = items.filter(i => i.product_type === 'subscription' || i.product_type === 'service')
-    if (subItems.length > 0) {
-      const { data: productSubs } = await supabase.from('product_subscriptions')
-        .select('product_id, visits_count, duration_days, fixed_end_day').in('product_id', subItems.map(i=>i.product_id))
-      const today = new Date()
-      const subscriptionRows = subItems.map(item => {
-        const ps = productSubs?.find(p => p.product_id === item.product_id)
-        const saleRecord = insertedSales?.find(s => s.product_id === item.product_id)
-        let expiresAt = null
-        if (ps?.fixed_end_day) {
-          const d = new Date(today.getFullYear(), today.getMonth()+1, ps.fixed_end_day)
-          expiresAt = toLocalDateStr(d)
-        } else if (ps?.duration_days) {
-          const d = new Date(today); d.setDate(d.getDate()+ps.duration_days)
-          expiresAt = toLocalDateStr(d)
-        }
-        return { student_id:client.id, type:item.product_name, visits_total:ps?.visits_count||null, visits_used:0, price:item.price, activated_at:toLocalDateStr(today), expires_at:expiresAt, is_frozen:false, sale_id:saleRecord?.id||null }
-      })
-      const { data: insertedSubs } = await supabase.from('subscriptions').insert(subscriptionRows).select()
-      if (insertedSubs && selectedGroupIds.length > 0) {
-        await supabase.from('subscription_allowed_groups').insert(
-          insertedSubs.flatMap(sub => selectedGroupIds.map(groupId => ({ subscription_id:sub.id, group_id:groupId })))
-        )
-      }
-    }
+
     setSaving(false)
     onSuccess()
   }

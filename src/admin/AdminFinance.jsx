@@ -332,8 +332,30 @@ function FinanceSales({ session }) {
   }
 
   const handleCancel = async (sale) => {
-    if (!confirm(`Отменить продажу "${sale.product_name}" на ${fmtMoney(sale.amount_paid)}? Это действие нельзя отменить.`)) return
-    await supabase.from('sales').update({ is_cancelled: true, cancelled_at: new Date().toISOString(), cancelled_by: session.user.id }).eq('id', sale.id)
+    if (!confirm(`Отменить продажу "${sale.product_name}" на ${fmtMoney(sale.amount_paid)}?\n\nЕсли чек содержал несколько позиций — будет отменён весь чек, бонусные рубли вернутся клиенту, связанные абонементы будут заморожены.`)) return
+    const { data, error } = await supabase.rpc('cancel_sale', {
+      p_sale_id: sale.id,
+      p_cancel_whole_receipt: true,
+    })
+    if (error) { alert('Ошибка сети: ' + error.message); return }
+    if (!data?.ok) {
+      const msg = {
+        not_authenticated: 'Сессия истекла, войдите заново',
+        forbidden:         'Недостаточно прав',
+        not_found:         'Продажа не найдена',
+        already_cancelled: 'Эта продажа уже отменена',
+      }[data?.error] || `Не удалось отменить: ${data?.error || 'неизвестная ошибка'}`
+      alert(msg); return
+    }
+    const cancelled = (data.cancelled_sale_ids || []).length
+    const frozen    = (data.frozen_subscription_ids || []).length
+    const summary = [
+      `Отменено позиций: ${cancelled}`,
+      frozen > 0 ? `Заморожено абонементов: ${frozen}` : null,
+      data.refunded_bonus_rubles > 0 ? `Возвращено бонусов: ${data.refunded_bonus_rubles} ₽` : null,
+      data.visits_already_used ? '⚠ По одному из абонементов уже были посещения — визиты не возвращаются.' : null,
+    ].filter(Boolean).join('\n')
+    alert(summary)
     load()
   }
 
