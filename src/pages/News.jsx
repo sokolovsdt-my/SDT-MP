@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../supabase'
+import { safeHtml } from '../utils/safeHtml'
 
 export default function News({ session, onBack }) {
   const [news, setNews] = useState([])
@@ -87,12 +88,12 @@ export default function News({ session, onBack }) {
 
             {item.title && (
               <div style={{fontSize:15, fontWeight:600, color: item.title_color || '#2a2a2a', marginBottom:6, lineHeight:1.4}}
-                dangerouslySetInnerHTML={{ __html: item.title }} />
+                dangerouslySetInnerHTML={safeHtml(item.title)} />
             )}
 
             {item.body && (
               <div style={{fontSize:13, color: item.body_color || '#2a2a2a', lineHeight:1.6, overflow:'hidden', maxHeight: expanded===item.id ? 'none' : 72}}
-                dangerouslySetInnerHTML={{ __html: item.body }} />
+                dangerouslySetInnerHTML={safeHtml(item.body)} />
             )}
 
             {item.body && item.body.length > 200 && (

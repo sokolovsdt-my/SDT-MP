@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabase'
+import { todayMsk, toMskDateStr, mskDayStartUtc, mskDayEndUtc } from '../utils/tz'
 
 const inputStyle = { width:'100%', padding:'9px 12px', border:'1px solid #e8e8e8', borderRadius:10, fontSize:13, boxSizing:'border-box', fontFamily:'Inter,sans-serif' }
 const labelStyle = { fontSize:12, color:'#888', marginBottom:6, fontWeight:600, display:'block' }
@@ -12,12 +13,8 @@ const chipStyle = (active) => ({ padding:'7px 14px', borderRadius:10, fontSize:1
 const smallBtn = { padding:'5px 10px', borderRadius:7, fontSize:11, cursor:'pointer', fontFamily:'Inter,sans-serif', border:'none' }
 
 const fmtMoney = (n) => (Number(n) || 0).toLocaleString('ru-RU') + ' ₽'
-const fmtDate = (d) => new Date(d).toLocaleDateString('ru-RU', { day:'numeric', month:'short', year:'numeric' })
-const fmtDateTime = (d) => new Date(d).toLocaleString('ru-RU', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })
-const todayStr = () => {
-  const d = new Date()
-  return d.toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' })
-}
+const fmtDate = (d) => new Date(d).toLocaleDateString('ru-RU', { day:'numeric', month:'short', year:'numeric', timeZone:'Europe/Moscow' })
+const fmtDateTime = (d) => new Date(d).toLocaleString('ru-RU', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit', timeZone:'Europe/Moscow' })
 
 const PERIODS = [
   ['today', 'Сегодня'], ['week', 'Неделя'], ['month', 'Этот месяц'],
@@ -40,13 +37,6 @@ const PRODUCT_TYPES = {
   event: 'Мероприятие',
 }
 
-function toLocalStr(date) {
-  const y = date.getFullYear()
-  const m = String(date.getMonth() + 1).padStart(2, '0')
-  const d = String(date.getDate()).padStart(2, '0')
-  return `${y}-${m}-${d}`
-}
-
 function getPeriodRange(period) {
   const now = new Date()
   const y = now.getFullYear()
@@ -65,7 +55,7 @@ function getPeriodRange(period) {
     from = new Date(y, qStart, 1); to = new Date(y, qStart + 3, 0)
   }
   else if (period === 'year') { from = new Date(y, 0, 1); to = new Date(y, 11, 31) }
-  return { from: toLocalStr(from), to: toLocalStr(to) }
+  return { from: toMskDateStr(from), to: toMskDateStr(to) }
 }
 
 function getPrevPeriodRange(period, from, to) {
@@ -74,7 +64,7 @@ function getPrevPeriodRange(period, from, to) {
   const days = Math.round((t - f) / (1000 * 60 * 60 * 24)) + 1
   const prevTo = new Date(f); prevTo.setDate(prevTo.getDate() - 1)
   const prevFrom = new Date(prevTo); prevFrom.setDate(prevFrom.getDate() - days + 1)
-  return { from: toLocalStr(prevFrom), to: toLocalStr(prevTo) }
+  return { from: toMskDateStr(prevFrom), to: toMskDateStr(prevTo) }
 }
 
 function pctChange(curr, prev) {
@@ -152,11 +142,11 @@ function FinanceOverview() {
     const { from, to, prevFrom, prevTo } = ranges
     const { data: sales } = await supabase.from('sales').select('total_net, payment_method, sale_date')
       .eq('is_cancelled', false)
-      .gte('sale_date', from + 'T00:00:00').lte('sale_date', to + 'T23:59:59')
+      .gte('sale_date', mskDayStartUtc(from)).lte('sale_date', mskDayEndUtc(to))
     const { data: exp } = await supabase.from('expenses').select('amount, expense_date').gte('expense_date', from).lte('expense_date', to)
     const { data: prevSales } = await supabase.from('sales').select('total_net')
       .eq('is_cancelled', false)
-      .gte('sale_date', prevFrom + 'T00:00:00').lte('sale_date', prevTo + 'T23:59:59')
+      .gte('sale_date', mskDayStartUtc(prevFrom)).lte('sale_date', mskDayEndUtc(prevTo))
     const { data: prevExp } = await supabase.from('expenses').select('amount').gte('expense_date', prevFrom).lte('expense_date', prevTo)
 
     const totalRevenue = (sales || []).reduce((s, x) => s + Number(x.total_net), 0)
@@ -174,7 +164,7 @@ function FinanceOverview() {
     const toDate = new Date(to)
     const days = Math.round((toDate - fromDate) / (1000 * 60 * 60 * 24)) + 1
     const byDay = {}
-    ;(sales || []).forEach(s => { const day = s.sale_date.split('T')[0]; byDay[day] = (byDay[day] || 0) + Number(s.total_net) })
+    ;(sales || []).forEach(s => { const day = toMskDateStr(s.sale_date); byDay[day] = (byDay[day] || 0) + Number(s.total_net) })
     const byDayExp = {}
     ;(exp || []).forEach(e => { byDayExp[e.expense_date] = (byDayExp[e.expense_date] || 0) + Number(e.amount) })
 
@@ -182,7 +172,7 @@ function FinanceOverview() {
     if (days <= 31) {
       for (let i = 0; i < days; i++) {
         const d = new Date(fromDate); d.setDate(d.getDate() + i)
-        const key = toLocalStr(d)
+        const key = toMskDateStr(d)
         chart.push({ label: d.toLocaleDateString('ru-RU', { day:'numeric', month:'short' }), income: byDay[key] || 0, expense: byDayExp[key] || 0 })
       }
     } else {
@@ -192,7 +182,7 @@ function FinanceOverview() {
         let inc = 0, expV = 0
         for (let j = 0; j < 7; j++) {
           const d = new Date(cur); d.setDate(d.getDate() + j)
-          const key = toLocalStr(d)
+          const key = toMskDateStr(d)
           inc += byDay[key] || 0; expV += byDayExp[key] || 0
         }
         chart.push({ label, income: inc, expense: expV })
@@ -321,8 +311,8 @@ function FinanceSales({ session }) {
     setLoading(true)
     const { data } = await supabase.from('sales')
       .select('*, client:client_id(full_name, email), creator:created_by(id, full_name, email)')
-      .gte('sale_date', range.from + 'T00:00:00')
-      .lte('sale_date', range.to + 'T23:59:59')
+      .gte('sale_date', mskDayStartUtc(range.from))
+      .lte('sale_date', mskDayEndUtc(range.to))
       .order('sale_date', { ascending: false })
     setSales(data || [])
 
@@ -556,8 +546,8 @@ function FinanceDetail() {
       .select('teacher_id, amount_paid, total_net, product_name')
       .eq('product_type', 'indiv')
       .eq('is_cancelled', false)
-      .gte('sale_date', from + 'T00:00:00')
-      .lte('sale_date', to + 'T23:59:59')
+      .gte('sale_date', mskDayStartUtc(from))
+      .lte('sale_date', mskDayEndUtc(to))
 
     // Все преподаватели
     const { data: staffProfiles } = await supabase.from('profiles')
@@ -575,8 +565,8 @@ function FinanceDetail() {
     // отфильтрованные по дате занятия (schedule.starts_at).
     const { data: periodSchedules } = await supabase.from('schedule')
       .select('id')
-      .gte('starts_at', from + 'T00:00:00')
-      .lte('starts_at', to + 'T23:59:59')
+      .gte('starts_at', mskDayStartUtc(from))
+      .lte('starts_at', mskDayEndUtc(to))
     const periodScheduleIds = (periodSchedules || []).map(s => s.id)
     let lessonPmts = []
     if (periodScheduleIds.length > 0) {
@@ -619,8 +609,8 @@ function FinanceDetail() {
     const { data: periodSales } = await supabase.from('sales')
       .select('id, total_net')
       .eq('is_cancelled', false)
-      .gte('sale_date', from + 'T00:00:00')
-      .lte('sale_date', to + 'T23:59:59')
+      .gte('sale_date', mskDayStartUtc(from))
+      .lte('sale_date', mskDayEndUtc(to))
 
     const saleNetMap = {}
     ;(periodSales || []).forEach(s => { saleNetMap[s.id] = Number(s.total_net) })
@@ -963,7 +953,7 @@ function FinanceExpenses({ session }) {
   const [filterCategory, setFilterCategory] = useState('all')
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState(null)
-  const [form, setForm] = useState({ category:'', subcategoryMode:'existing', subcategoryExisting:'', subcategoryCustom:'', saveSubcategory:false, amount:'', expense_date: todayStr(), comment:'' })
+  const [form, setForm] = useState({ category:'', subcategoryMode:'existing', subcategoryExisting:'', subcategoryCustom:'', saveSubcategory:false, amount:'', expense_date: todayMsk(), comment:'' })
 
   useEffect(() => { loadCategories() }, [])
   useEffect(() => { loadExpenses() }, [period, customFrom, customTo, filterCategory])
@@ -992,7 +982,7 @@ function FinanceExpenses({ session }) {
     setLoading(false)
   }
 
-  const resetForm = () => { setForm({ category:'', subcategoryMode:'existing', subcategoryExisting:'', subcategoryCustom:'', saveSubcategory:false, amount:'', expense_date: todayStr(), comment:'' }); setEditingId(null) }
+  const resetForm = () => { setForm({ category:'', subcategoryMode:'existing', subcategoryExisting:'', subcategoryCustom:'', saveSubcategory:false, amount:'', expense_date: todayMsk(), comment:'' }); setEditingId(null) }
   const handleStartAdd = () => { resetForm(); setShowForm(true) }
   const handleStartEdit = (exp) => {
     setForm({ category: exp.category, subcategoryMode: 'existing', subcategoryExisting: exp.subcategory || '', subcategoryCustom: '', saveSubcategory: false, amount: String(exp.amount), expense_date: exp.expense_date, comment: exp.comment || '' })
@@ -1180,10 +1170,10 @@ function FinanceLoyalty({ session }) {
 
   const load = async () => {
     setLoading(true)
-    const today = toLocalStr(new Date())
-    const in7days = toLocalStr(new Date(Date.now() + 7 * 86400000))
-    const ago30 = toLocalStr(new Date(Date.now() - 30 * 86400000))
-    const ago10 = toLocalStr(new Date(Date.now() - 10 * 86400000))
+    const today = toMskDateStr(new Date())
+    const in7days = toMskDateStr(new Date(Date.now() + 7 * 86400000))
+    const ago30 = toMskDateStr(new Date(Date.now() - 30 * 86400000))
+    const ago10 = toMskDateStr(new Date(Date.now() - 10 * 86400000))
 
     // Активные абонементы
     const { data: activeSubs } = await supabase.from('subscriptions')
@@ -1238,7 +1228,7 @@ function FinanceLoyalty({ session }) {
     // Клиенты с активным абонементом, не посещавшие 10+ дней
     const { data: recentAttendance } = await supabase.from('attendance')
       .select('student_id, created_at')
-      .gte('created_at', ago10 + 'T00:00:00')
+      .gte('created_at', mskDayStartUtc(ago10))
       .eq('status', 'present')
 
     const recentStudentIds = new Set((recentAttendance || []).map(a => a.student_id))
@@ -1260,12 +1250,12 @@ function FinanceLoyalty({ session }) {
     const { data: groups } = await supabase.from('groups').select('id, name')
     const { data: scheduleData } = await supabase.from('schedule')
       .select('id, group_id, starts_at')
-      .gte('starts_at', ago30 + 'T00:00:00')
-      .lte('starts_at', today + 'T23:59:59')
+      .gte('starts_at', mskDayStartUtc(ago30))
+      .lte('starts_at', mskDayEndUtc(today))
     const { data: attendanceData } = await supabase.from('attendance')
       .select('schedule_id, student_id, status')
       .eq('status', 'present')
-      .gte('created_at', ago30 + 'T00:00:00')
+      .gte('created_at', mskDayStartUtc(ago30))
 
     const scheduleByGroup = {}
     ;(scheduleData || []).forEach(s => {

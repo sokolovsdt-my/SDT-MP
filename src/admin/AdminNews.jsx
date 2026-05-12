@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabase'
+import { safeHtml } from '../utils/safeHtml'
 
 const PALETTE = [
   '#ffffff', '#f8f8f8', '#2a2a2a', '#000000',
@@ -326,7 +327,7 @@ const payload = {
       )}
       {form.title && (
         <div style={{fontSize:14, fontWeight:600, color: form.title_color||'#2a2a2a', marginBottom:4, lineHeight:1.4, textAlign:'center'}}
-          dangerouslySetInnerHTML={{ __html: form.title }} />
+          dangerouslySetInnerHTML={safeHtml(form.title)} />
       )}
       {form.body && (
         <div style={{fontSize:12, color: form.body_color||'#2a2a2a', lineHeight:1.5, maxHeight:48, overflow:'hidden', textAlign:'center'}}>
@@ -408,7 +409,7 @@ const payload = {
                       <span style={{fontSize:11, color:'#2980b9', background:'#e8f4fd', padding:'2px 8px', borderRadius:6}}>🔄 {REPEAT_TYPES[item.repeat_type]}</span>
                     )}
                   </div>
-                  <div style={{fontSize:14, fontWeight:600, color: item.title_color||'#2a2a2a', marginBottom:4}} dangerouslySetInnerHTML={{ __html: item.title }} />
+                  <div style={{fontSize:14, fontWeight:600, color: item.title_color||'#2a2a2a', marginBottom:4}} dangerouslySetInnerHTML={safeHtml(item.title)} />
                   {item.body && <div style={{fontSize:12, color: item.body_color||'#888', lineHeight:1.5, maxHeight:40, overflow:'hidden'}}>{stripHtml(item.body).slice(0,120)}</div>}
                   <div style={{fontSize:11, color:'#BDBDBD', marginTop:6}}>
                     {fmtDT(item.published_at)}{item.profiles?.full_name && ` · ${item.profiles.full_name}`}

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabase'
+import { safeHtml } from '../utils/safeHtml'
 
 const cardStyle = { background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', padding:20, marginBottom:16 }
 const inputStyle = { width:'100%', padding:'9px 12px', border:'1px solid #e8e8e8', borderRadius:10, fontSize:13, boxSizing:'border-box', fontFamily:'Inter,sans-serif' }
@@ -540,8 +541,8 @@ export default function AdminBroadcasts({ session }) {
               <div style={cardStyle}>
                 <div style={{fontSize:12, color:'#888', marginBottom:10, fontWeight:600}}>Предпросмотр</div>
                 <div style={{background:'#f9f9f9', borderRadius:10, padding:14}}>
-                  {title && <div style={{fontSize:13, fontWeight:700, color:'#2a2a2a', marginBottom:6}} dangerouslySetInnerHTML={{ __html: title }} />}
-                  {content && <div style={{fontSize:12, color:'#3a3a3a', lineHeight:1.6}} dangerouslySetInnerHTML={{ __html: content }} />}
+                  {title && <div style={{fontSize:13, fontWeight:700, color:'#2a2a2a', marginBottom:6}} dangerouslySetInnerHTML={safeHtml(title)} />}
+                  {content && <div style={{fontSize:12, color:'#3a3a3a', lineHeight:1.6}} dangerouslySetInnerHTML={safeHtml(content)} />}
                 </div>
               </div>
             )}
@@ -561,7 +562,7 @@ export default function AdminBroadcasts({ session }) {
                 <div key={t.id} style={cardStyle}>
                   <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a', marginBottom:8}}>{t.name}</div>
                   <div style={{fontSize:12, color:'#888', marginBottom:12, lineHeight:1.5, maxHeight:60, overflow:'hidden'}}
-                    dangerouslySetInnerHTML={{ __html: t.content }} />
+                    dangerouslySetInnerHTML={safeHtml(t.content)} />
                   <div style={{display:'flex', gap:8}}>
                     <button onClick={() => { setTitle(t.title || ''); setContent(t.content || ''); setTab('new') }}
                       style={{flex:1, padding:'7px', background:'#BFD900', border:'none', borderRadius:8, fontSize:12, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
@@ -599,7 +600,7 @@ export default function AdminBroadcasts({ session }) {
                   {broadcasts.map(b => (
                     <tr key={b.id} style={{borderBottom:'1px solid #f8f8f8'}}>
                       <td style={{padding:'12px 16px', fontSize:13, fontWeight:500, color:'#2a2a2a'}}
-                        dangerouslySetInnerHTML={{ __html: b.title }} />
+                        dangerouslySetInnerHTML={safeHtml(b.title)} />
                       <td style={{padding:'12px 16px', fontSize:12, color:'#888'}}>{b.channel === 'push' ? '📱 Пуш' : '📧 Email'}</td>
                       <td style={{padding:'12px 16px'}}>
                         <span style={{fontSize:11, fontWeight:600, color: STATUS_COLORS[b.status], background: STATUS_COLORS[b.status]+'22', padding:'2px 8px', borderRadius:6}}>

@@ -1,18 +1,12 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../supabase'
+import { todayMsk, toMskDateStr, mskDayStartUtc, mskDayEndUtc } from '../utils/tz'
 
 const cardStyle = { background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', padding:20, marginBottom:16 }
 const fmtMoney = (n) => (Number(n) || 0).toLocaleString('ru-RU') + ' ₽'
-const fmtTime = (d) => new Date(d).toLocaleTimeString('ru-RU', { hour:'2-digit', minute:'2-digit' })
-const fmtDate = (d) => new Date(d).toLocaleDateString('ru-RU', { day:'numeric', month:'short' })
-
-function toLocalStr(date) {
-  const y = date.getFullYear()
-  const m = String(date.getMonth() + 1).padStart(2, '0')
-  const d = String(date.getDate()).padStart(2, '0')
-  return `${y}-${m}-${d}`
-}
+const fmtTime = (d) => new Date(d).toLocaleTimeString('ru-RU', { hour:'2-digit', minute:'2-digit', timeZone:'Europe/Moscow' })
+const fmtDate = (d) => new Date(d).toLocaleDateString('ru-RU', { day:'numeric', month:'short', timeZone:'Europe/Moscow' })
 
 export default function AdminDashboard({ session }) {
   const navigate = useNavigate()
@@ -47,20 +41,20 @@ export default function AdminDashboard({ session }) {
     setUserRole(role)
     setUserName(profile?.full_name || '')
 
-    const today = toLocalStr(new Date())
+    const today = todayMsk()
     const now = new Date()
-    const monthStart = toLocalStr(new Date(now.getFullYear(), now.getMonth(), 1))
-    const in7days = toLocalStr(new Date(Date.now() + 7 * 86400000))
-    const ago7 = toLocalStr(new Date(Date.now() - 7 * 86400000))
+    const monthStart = toMskDateStr(new Date(now.getFullYear(), now.getMonth(), 1))
+    const in7days = toMskDateStr(new Date(Date.now() + 7 * 86400000))
+    const ago7 = toMskDateStr(new Date(Date.now() - 7 * 86400000))
 
     if (role === 'owner') {
       const { data: salesTodayData } = await supabase.from('sales')
-        .select('total_net').gte('sale_date', today + 'T00:00:00').lte('sale_date', today + 'T23:59:59').eq('is_cancelled', false)
+        .select('total_net').gte('sale_date', mskDayStartUtc(today)).lte('sale_date', mskDayEndUtc(today)).eq('is_cancelled', false)
       setRevenueToday((salesTodayData || []).reduce((s, x) => s + Number(x.total_net), 0))
       setSalesToday((salesTodayData || []).length)
 
       const { data: salesMonthData } = await supabase.from('sales')
-        .select('total_net').gte('sale_date', monthStart + 'T00:00:00').lte('sale_date', today + 'T23:59:59').eq('is_cancelled', false)
+        .select('total_net').gte('sale_date', mskDayStartUtc(monthStart)).lte('sale_date', mskDayEndUtc(today)).eq('is_cancelled', false)
       setRevenueMonth((salesMonthData || []).reduce((s, x) => s + Number(x.total_net), 0))
 
       const { count: activeCount } = await supabase.from('subscriptions')
@@ -74,7 +68,7 @@ export default function AdminDashboard({ session }) {
 
     let scheduleQuery = supabase.from('schedule')
       .select('id, title, starts_at, ends_at, hall, group_id, groups(name, color), teacher_id')
-      .gte('starts_at', today + 'T00:00:00').lte('starts_at', today + 'T23:59:59').order('starts_at')
+      .gte('starts_at', mskDayStartUtc(today)).lte('starts_at', mskDayEndUtc(today)).order('starts_at')
     if (role === 'teacher') scheduleQuery = scheduleQuery.eq('teacher_id', user.id)
     const { data: scheduleData } = await scheduleQuery
     setTodaySchedule(scheduleData || [])
@@ -113,7 +107,7 @@ export default function AdminDashboard({ session }) {
 
     const { data: newClientsData } = await supabase.from('profiles')
       .select('id, full_name, email, phone, created_at').eq('role', 'client')
-      .gte('created_at', ago7 + 'T00:00:00').order('created_at', { ascending: false }).limit(10)
+      .gte('created_at', mskDayStartUtc(ago7)).order('created_at', { ascending: false }).limit(10)
     setNewClients(newClientsData || [])
 
     if (role === 'teacher') {

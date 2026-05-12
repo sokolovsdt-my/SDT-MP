@@ -357,7 +357,6 @@ function TaskCard({ task, session, staff, onUpdate }) {
   const handleStatusChange = async (newStatus) => {
     const isDone = newStatus === 'done'
     await supabase.from('tasks').update({ status: newStatus, completed_at: isDone ? new Date().toISOString() : null, completed_by: isDone ? session.user.id : null }).eq('id', task.id)
-    if (isDone) await supabase.from('task_assignees').delete().eq('task_id', task.id).neq('user_id', session.user.id)
     const completedByName = staff.find(s => s.id === session.user.id)?.full_name || 'Сотрудник'
     await supabase.from('task_history').insert({ task_id: task.id, author_id: session.user.id, action: 'status_changed', comment: isDone ? `Выполнена сотрудником: ${completedByName}` : `Статус изменён на: ${STATUS_LABELS[newStatus].label}` })
     onUpdate()
@@ -428,7 +427,6 @@ function NewClientCard({ task, session, staff, onUpdate }) {
   const handleDone = async () => {
     const name = staff.find(s=>s.id===session.user.id)?.full_name || 'Сотрудник'
     await supabase.from('tasks').update({ status:'done', completed_at:new Date().toISOString(), completed_by:session.user.id }).eq('id', task.id)
-    await supabase.from('task_assignees').delete().eq('task_id', task.id).neq('user_id', session.user.id)
     await supabase.from('task_history').insert({ task_id:task.id, author_id:session.user.id, action:'status_changed', comment:`Выполнена сотрудником: ${name}` })
     onUpdate()
   }

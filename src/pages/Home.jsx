@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../supabase'
+import { safeHtml } from '../utils/safeHtml'
 
 export default function Home({ session, onNewsAll, onBonus }) {
   const [profile, setProfile] = useState(null)
@@ -160,7 +161,7 @@ export default function Home({ session, onNewsAll, onBonus }) {
 
           {n.title && (
             <div style={{fontSize:14, fontWeight:600, color: n.title_color || '#2a2a2a', marginBottom:4, lineHeight:1.4, textAlign:'center'}}
-              dangerouslySetInnerHTML={{ __html: n.title }} />
+              dangerouslySetInnerHTML={safeHtml(n.title)} />
           )}
 
           {n.body && (

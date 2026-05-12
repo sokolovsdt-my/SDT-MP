@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabase'
 import AttendancePanel from './AttendancePanel'
+import { toMskDateStr, mskDayStartUtc, mskDayEndUtc } from '../utils/tz'
 
 const GROUP_COLORS = [
   { bg:'#FFEBEE', border:'#D32F2F', text:'#B71C1C' },
@@ -408,22 +409,22 @@ export default function AdminSchedule({ session }) {
 
   const loadAll = async () => {
     setLoading(true)
-    let from, to
+    let fromDate, toDate
     if (view === 'day') {
-      from = new Date(currentDate); from.setHours(0,0,0,0)
-      to = new Date(currentDate); to.setHours(23,59,59,999)
+      fromDate = currentDate; toDate = currentDate
     } else if (view === 'week') {
       const days = getWeekDays(currentDate)
-      from = new Date(days[0]); from.setHours(0,0,0,0)
-      to = new Date(days[6]); to.setHours(23,59,59,999)
+      fromDate = days[0]; toDate = days[6]
     } else {
-      from = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1)
-      to = new Date(currentDate.getFullYear(), currentDate.getMonth()+1, 0, 23, 59, 59)
+      fromDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1)
+      toDate   = new Date(currentDate.getFullYear(), currentDate.getMonth()+1, 0)
     }
+    const fromMsk = toMskDateStr(fromDate)
+    const toMsk   = toMskDateStr(toDate)
     const { data: ev } = await supabase.from('schedule')
       .select('*, groups(name), teacher:profiles!schedule_teacher_id_fkey(full_name), student:profiles!schedule_indiv_student_id_fkey(full_name)')
-      .gte('starts_at', from.toISOString())
-      .lte('starts_at', to.toISOString())
+      .gte('starts_at', mskDayStartUtc(fromMsk))
+      .lte('starts_at', mskDayEndUtc(toMsk))
       .order('starts_at')
     setEvents(ev || [])
 
@@ -438,8 +439,8 @@ export default function AdminSchedule({ session }) {
     const { data: edData } = await supabase
       .from('event_dates')
       .select('*, event:events!event_dates_event_id_fkey(id, name, hall, teacher_id, teacher:profiles!events_teacher_id_fkey(full_name))')
-      .lte('date_start', to.toISOString().split('T')[0])
-      .gte('date_end', from.toISOString().split('T')[0])
+      .lte('date_start', toMsk)
+      .gte('date_end', fromMsk)
     setEventDates((edData || []).filter(d => d.event))
     setStudents(s || [])
     const { data: g } = await supabase.from('groups').select('id, name, color')
