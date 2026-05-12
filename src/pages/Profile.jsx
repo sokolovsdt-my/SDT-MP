@@ -3,6 +3,10 @@ import { supabase } from '../supabase'
 import AvatarUpload from '../components/AvatarUpload'
 import { requestPermission } from '../firebase'
 
+// ─── ЗАМЕНИ функцию MyLessons в Profile.jsx ───────────────────────────────────
+// Найди: function MyLessons({ session, onBack }) {
+// И замени всю функцию до следующей function MyStats
+
 function MyLessons({ session, onBack }) {
   const [tab, setTab] = useState(() => localStorage.getItem('lessons_tab') || 'upcoming')
   const goTab = (t) => { setTab(t); localStorage.setItem('lessons_tab', t) }
@@ -14,6 +18,10 @@ function MyLessons({ session, onBack }) {
 
   const load = async () => {
     setLoading(true)
+    const now = new Date()
+    const today = now.toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' })
+
+    // ─── 1. Обычные записи из bookings ────────────────────────────────────
     const { data: bookings } = await supabase
       .from('bookings')
       .select('*, schedule:schedule_id(id, title, starts_at, ends_at, hall, group_id, is_cancelled, groups(name), teacher:profiles!schedule_teacher_id_fkey(full_name))')
@@ -31,8 +39,7 @@ function MyLessons({ session, onBack }) {
       ;(attData || []).forEach(a => { attMap[a.schedule_id] = a })
     }
 
-    // Загружаем активные абонементы клиента
-    const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' })
+    // Абонементы для определения basis
     const { data: subs } = await supabase
       .from('subscriptions')
       .select('id, visits_total, visits_used, expires_at, subscription_allowed_groups(group_id)')
@@ -50,26 +57,138 @@ function MyLessons({ session, onBack }) {
       return matching.visits_total === null ? 'subscription' : matching.visits_total <= 1 ? 'single' : 'subscription'
     }
 
-    const now = new Date()
-    const withAtt = (bookings || []).map(b => ({
-      ...b,
-      att: attMap[b.schedule_id] || { basis: getSubBasis(b.schedule?.group_id), status: null }
+    const regularLessons = (bookings || []).map(b => ({
+      id: `booking-${b.id}`,
+      type: 'regular',
+      title: b.schedule?.groups?.name || b.schedule?.title || 'Занятие',
+      starts_at: b.schedule?.starts_at,
+      ends_at: b.schedule?.ends_at,
+      hall: b.schedule?.hall,
+      teacher: b.schedule?.teacher?.full_name,
+      is_cancelled: b.schedule?.is_cancelled,
+      basis: attMap[b.schedule_id]?.basis || getSubBasis(b.schedule?.group_id),
+      att_status: attMap[b.schedule_id]?.status || null,
+      booking_id: b.id,
+      canCancel: true,
+    })).filter(l => l.starts_at)
+
+    // ─── 2. Индив-запросы ──────────────────────────────────────────────────
+    const { data: indivReqs } = await supabase
+      .from('indiv_requests')
+      .select('*, teacher:profiles!indiv_requests_teacher_id_fkey(full_name), package:indiv_packages(name)')
+      .eq('client_id', session.user.id)
+      .in('status', ['pending', 'confirmed'])
+      .order('slot_date', { ascending: true })
+
+    // Для подтверждённых — загружаем attendance по schedule_id
+    const confirmedScheduleIds = (indivReqs || []).filter(r => r.schedule_id).map(r => r.schedule_id)
+    let indivAttMap = {}
+    if (confirmedScheduleIds.length > 0) {
+      const { data: indivAtt } = await supabase
+        .from('attendance')
+        .select('schedule_id, status')
+        .eq('student_id', session.user.id)
+        .in('schedule_id', confirmedScheduleIds)
+      ;(indivAtt || []).forEach(a => { indivAttMap[a.schedule_id] = a })
+    }
+
+    const indivLessons = (indivReqs || []).map(r => {
+      const startDt = new Date(`${r.slot_date}T${r.start_time}`)
+      const endDt = new Date(`${r.slot_date}T${r.end_time}`)
+      return {
+        id: `indiv-${r.id}`,
+        type: 'indiv',
+        title: `Индив · ${r.teacher?.full_name || ''}`,
+        starts_at: startDt.toISOString(),
+        ends_at: endDt.toISOString(),
+        hall: r.hall,
+        teacher: r.teacher?.full_name,
+        is_cancelled: false,
+        basis: 'indiv',
+        att_status: indivAttMap[r.schedule_id]?.status || null,
+        indiv_status: r.status,
+        package_name: r.package?.name,
+        has_package: !!r.package_id,
+        canCancel: false,
+      }
+    })
+
+    // ─── 3. Прошедшие индив-занятия из schedule (для истории) ─────────────
+    const { data: pastIndivSchedule } = await supabase
+      .from('schedule')
+      .select('id, title, starts_at, ends_at, hall, teacher:profiles!schedule_teacher_id_fkey(full_name)')
+      .eq('indiv_student_id', session.user.id)
+      .eq('lesson_type', 'indiv')
+      .lt('starts_at', now.toISOString())
+      .order('starts_at', { ascending: false })
+      .limit(20)
+
+    const pastIndivIds = (pastIndivSchedule || []).map(s => s.id)
+    let pastIndivAttMap = {}
+    if (pastIndivIds.length > 0) {
+      const { data: pastAtt } = await supabase
+        .from('attendance')
+        .select('schedule_id, status')
+        .eq('student_id', session.user.id)
+        .in('schedule_id', pastIndivIds)
+      ;(pastAtt || []).forEach(a => { pastIndivAttMap[a.schedule_id] = a })
+    }
+
+    const pastIndivLessons = (pastIndivSchedule || []).map(s => ({
+      id: `past-indiv-${s.id}`,
+      type: 'indiv',
+      title: s.title || `Индив · ${s.teacher?.full_name || ''}`,
+      starts_at: s.starts_at,
+      ends_at: s.ends_at,
+      hall: s.hall,
+      teacher: s.teacher?.full_name,
+      basis: 'indiv',
+      att_status: pastIndivAttMap[s.id]?.status || null,
+      canCancel: false,
     }))
-    setUpcoming(withAtt.filter(b => b.schedule && new Date(b.schedule.starts_at) >= now).sort((a, b) => new Date(a.schedule.starts_at) - new Date(b.schedule.starts_at)))
-    setHistory(withAtt.filter(b => b.schedule && new Date(b.schedule.starts_at) < now).sort((a, b) => new Date(b.schedule.starts_at) - new Date(a.schedule.starts_at)).slice(0, 30))
+
+    // ─── Объединяем ────────────────────────────────────────────────────────
+    const all = [...regularLessons, ...indivLessons, ...pastIndivLessons]
+
+    setUpcoming(
+      all.filter(l => new Date(l.starts_at) >= now && !l.is_cancelled)
+        .sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at))
+    )
+    setHistory(
+      all.filter(l => new Date(l.starts_at) < now)
+        .sort((a, b) => new Date(b.starts_at) - new Date(a.starts_at))
+        .slice(0, 30)
+    )
     setLoading(false)
   }
 
   const handleCancel = async (bookingId) => {
     if (!confirm('Отменить запись на занятие?')) return
-    await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', bookingId)
+    const id = bookingId.replace('booking-', '')
+    await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', id)
     load()
   }
 
   const fmtDate = (d) => new Date(d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
   const fmtTime = (d) => new Date(d).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
   const isToday = (d) => { const n = new Date(), dd = new Date(d); return dd.getDate() === n.getDate() && dd.getMonth() === n.getMonth() }
+
   const BASIS = { subscription: 'Абонемент', single: 'Разовое', trial: 'Пробное', indiv: 'Индив', none: '⚠️ Нет основания' }
+
+  const IndivStatusBadge = ({ lesson }) => {
+    if (lesson.type !== 'indiv') return null
+    if (lesson.indiv_status === 'pending') return (
+      <span style={{ fontSize: 11, fontWeight: 600, color: '#f39c12', background: '#fef9e7', padding: '2px 8px', borderRadius: 6 }}>
+        ⏳ Ожидает подтверждения
+      </span>
+    )
+    if (lesson.indiv_status === 'confirmed') return (
+      <span style={{ fontSize: 11, fontWeight: 600, color: '#27ae60', background: '#eafaf1', padding: '2px 8px', borderRadius: 6 }}>
+        ✓ Подтверждено
+      </span>
+    )
+    return null
+  }
 
   return (
     <div style={{ fontFamily: 'Inter,sans-serif', maxWidth: 480, margin: '0 auto' }}>
@@ -90,46 +209,51 @@ function MyLessons({ session, onBack }) {
         ) : tab === 'upcoming' ? (
           upcoming.length === 0 ? (
             <div style={{ textAlign: 'center', color: '#BDBDBD', padding: 40, fontSize: 13 }}>Нет предстоящих занятий</div>
-          ) : upcoming.map(b => {
-            const s = b.schedule
-            const basis = b.att?.basis || 'none'
-            const isCancelled = s?.is_cancelled
-            return (
-              <div key={b.id} style={{ background: '#fff', borderRadius: 14, border: isCancelled ? '1px solid #fdecea' : '1px solid #f0f0f0', padding: 14, marginBottom: 10 }}>
-                {isCancelled && (
-                  <div style={{ fontSize: 11, fontWeight: 700, color: '#e74c3c', background: '#fdecea', borderRadius: 6, padding: '3px 8px', display: 'inline-block', marginBottom: 8 }}>
-                    ✕ Занятие отменено
-                  </div>
-                )}
-                <div style={{ fontSize: 13, fontWeight: 600, color: isCancelled ? '#BDBDBD' : '#2a2a2a', marginBottom: 4, textDecoration: isCancelled ? 'line-through' : 'none' }}>
-                  {s?.groups?.name || s?.title || 'Занятие'}
+          ) : upcoming.map(lesson => (
+            <div key={lesson.id} style={{ background: '#fff', borderRadius: 14, border: lesson.type === 'indiv' ? '1px solid #e8f4fd' : '1px solid #f0f0f0', padding: 14, marginBottom: 10 }}>
+              {lesson.type === 'indiv' && (
+                <div style={{ fontSize: 10, fontWeight: 700, color: '#2980b9', background: '#e8f4fd', borderRadius: 6, padding: '2px 8px', display: 'inline-block', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  Индивидуальное
                 </div>
-                <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>
-                  {isToday(s?.starts_at) ? 'Сегодня' : fmtDate(s?.starts_at)} · {fmtTime(s?.starts_at)}–{fmtTime(s?.ends_at)}
-                </div>
-                {s?.teacher?.full_name && <div style={{ fontSize: 11, color: '#BDBDBD', marginBottom: 2 }}>{s.teacher.full_name}</div>}
-                {s?.hall && <div style={{ fontSize: 11, color: '#BDBDBD', marginBottom: 8 }}>{s.hall}</div>}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: basis === 'none' ? '#e74c3c' : '#27ae60', background: basis === 'none' ? '#fdecea' : '#eafaf1', padding: '2px 8px', borderRadius: 6 }}>
-                    {BASIS[basis] || basis}
-                  </span>
-                  {!isCancelled && (
-                    <button onClick={() => handleCancel(b.id)} style={{ fontSize: 11, color: '#e74c3c', background: 'none', border: '1px solid #fdecea', borderRadius: 8, padding: '4px 12px', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
-                      Отменить запись
-                    </button>
+              )}
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#2a2a2a', marginBottom: 4 }}>{lesson.title}</div>
+              <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>
+                {isToday(lesson.starts_at) ? 'Сегодня' : fmtDate(lesson.starts_at)} · {fmtTime(lesson.starts_at)}–{fmtTime(lesson.ends_at)}
+              </div>
+              {lesson.teacher && <div style={{ fontSize: 11, color: '#BDBDBD', marginBottom: 2 }}>{lesson.teacher}</div>}
+              {lesson.hall && <div style={{ fontSize: 11, color: '#BDBDBD', marginBottom: 8 }}>{lesson.hall}</div>}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {lesson.type === 'indiv'
+                    ? <IndivStatusBadge lesson={lesson} />
+                    : (
+                      <span style={{ fontSize: 11, fontWeight: 600, color: lesson.basis === 'none' ? '#e74c3c' : '#27ae60', background: lesson.basis === 'none' ? '#fdecea' : '#eafaf1', padding: '2px 8px', borderRadius: 6 }}>
+                        {BASIS[lesson.basis] || lesson.basis}
+                      </span>
+                    )
+                  }
+                  {lesson.type === 'indiv' && lesson.has_package !== undefined && (
+                    <span style={{ fontSize: 11, fontWeight: 600, color: lesson.has_package ? '#27ae60' : '#f39c12', background: lesson.has_package ? '#eafaf1' : '#fef9e7', padding: '2px 8px', borderRadius: 6 }}>
+                      {lesson.has_package ? '✓ Пакет оплачен' : '⚠ Нет пакета'}
+                    </span>
                   )}
                 </div>
+                {lesson.canCancel && (
+                  <button onClick={() => handleCancel(lesson.id)} style={{ fontSize: 11, color: '#e74c3c', background: 'none', border: '1px solid #fdecea', borderRadius: 8, padding: '4px 12px', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+                    Отменить
+                  </button>
+                )}
               </div>
-            )
-          })
+            </div>
+          ))
         ) : (
           history.length === 0 ? (
             <div style={{ textAlign: 'center', color: '#BDBDBD', padding: 40, fontSize: 13 }}>История пуста</div>
           ) : (
             <>
               {(() => {
-                const present = history.filter(b => b.att?.status === 'present').length
-                const absent = history.filter(b => b.att?.status === 'absent').length
+                const present = history.filter(b => b.att_status === 'present').length
+                const absent = history.filter(b => b.att_status === 'absent').length
                 const total = present + absent
                 const pct = total > 0 ? Math.round(present / total * 100) : 0
                 return (
@@ -154,25 +278,22 @@ function MyLessons({ session, onBack }) {
                   </div>
                 )
               })()}
-              {history.map(b => {
-                const s = b.schedule
-                const status = b.att?.status
-                return (
-                  <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '10px 0', borderBottom: '1px solid #f8f8f8' }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 13, color: '#2a2a2a', fontWeight: 500 }}>{s?.groups?.name || s?.title || 'Занятие'}</div>
-                      <div style={{ fontSize: 11, color: '#BDBDBD', marginTop: 2 }}>{fmtDate(s?.starts_at)} · {fmtTime(s?.starts_at)}</div>
-                      <div style={{ display: 'flex', gap: 8, marginTop: 2, flexWrap: 'wrap' }}>
-                        {s?.teacher?.full_name && <span style={{ fontSize: 11, color: '#BDBDBD' }}>👤 {s.teacher.full_name}</span>}
-                        {s?.hall && <span style={{ fontSize: 11, color: '#BDBDBD' }}>🏛 {s.hall}</span>}
-                      </div>
+              {history.map(lesson => (
+                <div key={lesson.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '10px 0', borderBottom: '1px solid #f8f8f8' }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, color: '#2a2a2a', fontWeight: 500 }}>{lesson.title}</div>
+                    <div style={{ fontSize: 11, color: '#BDBDBD', marginTop: 2 }}>{fmtDate(lesson.starts_at)} · {fmtTime(lesson.starts_at)}</div>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 2, flexWrap: 'wrap' }}>
+                      {lesson.teacher && <span style={{ fontSize: 11, color: '#BDBDBD' }}>👤 {lesson.teacher}</span>}
+                      {lesson.hall && <span style={{ fontSize: 11, color: '#BDBDBD' }}>🏛 {lesson.hall}</span>}
+                      {lesson.type === 'indiv' && <span style={{ fontSize: 10, fontWeight: 600, color: '#2980b9', background: '#e8f4fd', padding: '1px 6px', borderRadius: 4 }}>Индив</span>}
                     </div>
-                    <span style={{ fontSize: 11, fontWeight: 600, color: status === 'present' ? '#27ae60' : status === 'absent' ? '#e74c3c' : '#BDBDBD', background: status === 'present' ? '#eafaf1' : status === 'absent' ? '#fdecea' : '#f5f5f5', padding: '2px 8px', borderRadius: 6, flexShrink: 0, marginLeft: 8 }}>
-                      {status === 'present' ? '✓ Был' : status === 'absent' ? '✗ Не был' : '—'}
-                    </span>
                   </div>
-                )
-              })}
+                  <span style={{ fontSize: 11, fontWeight: 600, color: lesson.att_status === 'present' ? '#27ae60' : lesson.att_status === 'absent' ? '#e74c3c' : '#BDBDBD', background: lesson.att_status === 'present' ? '#eafaf1' : lesson.att_status === 'absent' ? '#fdecea' : '#f5f5f5', padding: '2px 8px', borderRadius: 6, flexShrink: 0, marginLeft: 8 }}>
+                    {lesson.att_status === 'present' ? '✓ Был' : lesson.att_status === 'absent' ? '✗ Не был' : '—'}
+                  </span>
+                </div>
+              ))}
             </>
           )
         )}

@@ -17,9 +17,9 @@ export default function AdminLayout({ session }) {
   const navigate = useNavigate()
   const [tasksCount, setTasksCount] = useState(0)
   const [prizesCount, setPrizesCount] = useState(0)
+  const [indivCount, setIndivCount] = useState(0)
   const [isAlsoTeacher, setIsAlsoTeacher] = useState(false)
 
-  // Проверяем есть ли роль teacher в staff_roles (дополнительно к основной)
   useEffect(() => {
     if (!session?.user?.id || role === 'teacher') return
     const checkTeacherRole = async () => {
@@ -62,6 +62,18 @@ export default function AdminLayout({ session }) {
     return () => { clearInterval(interval); window.removeEventListener('focus', fetchPrizes) }
   }, [session])
 
+  useEffect(() => {
+    if (!session?.user?.id) return
+    const fetchIndivs = async () => {
+      const { count } = await supabase.from('indiv_requests').select('*', { count:'exact', head:true }).eq('status','pending')
+      setIndivCount(count || 0)
+    }
+    fetchIndivs()
+    const interval = setInterval(fetchIndivs, 30000)
+    window.addEventListener('focus', fetchIndivs)
+    return () => { clearInterval(interval); window.removeEventListener('focus', fetchIndivs) }
+  }, [session])
+
   const handleLogout = async () => {
     await supabase.auth.signOut()
     navigate('/')
@@ -71,14 +83,13 @@ export default function AdminLayout({ session }) {
     { to: '/admin/dashboard',  label: 'Дашборд',    roles: ['teacher','admin','manager','owner'] },
     { to: '/admin/clients',    label: 'Клиенты',    roles: ['admin','manager','owner'] },
     { to: '/admin/schedule',   label: 'Расписание', roles: ['teacher','admin','manager','owner'] },
-    { to: '/admin/tasks',      label: 'Задачи',     roles: ['teacher','admin','manager','owner'], badge: tasksCount },
+    { to: '/admin/tasks',      label: 'Задачи',     roles: ['teacher','admin','manager','owner'], badge: tasksCount + indivCount },
     { to: '/admin/cashbox',    label: 'Касса',      roles: ['admin','manager','owner'] },
     { to: '/admin/groups',     label: 'Группы',     roles: ['admin','manager','owner'] },
     { to: '/admin/catalog',    label: 'Каталог',    roles: ['admin','manager','owner'] },
     { to: '/admin/broadcasts', label: 'Рассылки',   roles: ['admin','manager','owner'] },
     { to: '/admin/news',       label: 'Новости',    roles: ['admin','manager','owner'] },
     { to: '/admin/finance',    label: 'Финансы',    roles: ['owner'] },
-    { to: '/admin/indivs',     label: 'Индивы',     roles: ['admin','manager','owner'] },
     { to: '/admin/staff',      label: 'Сотрудники', roles: ['admin','manager','owner'] },
     { to: '/admin/prizes',     label: 'Призы',      roles: ['admin','manager','owner'], badge: prizesCount },
   ].filter(item => role && item.roles.includes(role))

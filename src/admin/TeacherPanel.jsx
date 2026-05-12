@@ -4,11 +4,15 @@ import { supabase } from '../supabase'
 
 const DAYS = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб']
 const MONTHS = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек']
+const MONTHS_FULL = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря']
 
 const toMoscow = (d) => new Date(new Date(d).toLocaleString('en-US', { timeZone: 'Europe/Moscow' }))
 const fmtTime = (d) => new Date(d).toLocaleTimeString('ru-RU', { hour:'2-digit', minute:'2-digit', timeZone:'Europe/Moscow' })
 const fmtDate = (d) => { const dt = toMoscow(d); return `${dt.getDate()} ${MONTHS[dt.getMonth()]}` }
+const fmtDateFull = (d) => { const dt = new Date(d); return `${dt.getDate()} ${MONTHS_FULL[dt.getMonth()]}` }
 const fmtDT = (d) => { if (!d) return '—'; return new Date(d).toLocaleString('ru-RU', { timeZone:'Europe/Moscow', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' }) }
+const toDateStr = (d) => d.toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' })
+
 const isToday = (d) => {
   const now = toMoscow(new Date())
   const dt = toMoscow(d)
@@ -168,11 +172,7 @@ function TasksSection({ tasks, session, onReload }) {
                 {t.description && <div style={{fontSize:12, color:'#888', marginBottom:8, lineHeight:1.5}}>{t.description}</div>}
                 <div style={{display:'flex', gap:8, alignItems:'center', flexWrap:'wrap'}}>
                   <span style={{fontSize:11, padding:'3px 10px', borderRadius:6, fontWeight:600, background:st.bg, color:st.color}}>{st.label}</span>
-                  {t.completed_at && (
-                    <span style={{fontSize:11, color:'#27ae60'}}>
-                      ✅ {fmtDT(t.completed_at)}
-                    </span>
-                  )}
+                  {t.completed_at && <span style={{fontSize:11, color:'#27ae60'}}>✅ {fmtDT(t.completed_at)}</span>}
                   <span style={{fontSize:11, color:'#BDBDBD', marginLeft:'auto'}}>{expanded===t.id ? '▲' : '▼'}</span>
                 </div>
               </div>
@@ -187,6 +187,256 @@ function TasksSection({ tasks, session, onReload }) {
   )
 }
 
+function IndivsSection({ teacherId, session }) {
+  const [requests, setRequests] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [filterStatus, setFilterStatus] = useState('pending')
+
+  useEffect(() => { load() }, [])
+
+  const load = async () => {
+    setLoading(true)
+    const { data } = await supabase
+      .from('indiv_requests')
+      .select('*, client:profiles!indiv_requests_client_id_fkey(id, full_name, phone, email), package:indiv_packages(id, name, visits_count)')
+      .eq('teacher_id', teacherId)
+      .order('slot_date', { ascending: true })
+      .order('start_time', { ascending: true })
+    setRequests(data || [])
+    setLoading(false)
+  }
+
+  const filtered = requests.filter(r => {
+    if (filterStatus === 'pending') return r.status === 'pending'
+    if (filterStatus === 'confirmed') return r.status === 'confirmed'
+    if (filterStatus === 'done') return r.status === 'rejected' || r.status === 'cancelled'
+    return true
+  })
+
+  const pendingCount = requests.filter(r => r.status === 'pending').length
+
+  if (loading) return <div style={{textAlign:'center', color:'#BDBDBD', padding:40}}>Загрузка...</div>
+
+  return (
+    <div>
+      <div style={{display:'flex', gap:6, marginBottom:16, overflowX:'auto', scrollbarWidth:'none'}}>
+        {[
+          ['pending', `Новые${pendingCount > 0 ? ` (${pendingCount})` : ''}`],
+          ['confirmed', 'Подтверждены'],
+          ['done', 'Завершены'],
+        ].map(([v, l]) => (
+          <button key={v} onClick={() => setFilterStatus(v)}
+            style={{flexShrink:0, padding:'7px 16px', borderRadius:10, border:filterStatus===v?'none':'1px solid #e0e0e0', background:filterStatus===v?'#BFD900':'#fff', fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight:filterStatus===v?600:400, color:filterStatus===v?'#2a2a2a':'#888'}}>
+            {l}
+          </button>
+        ))}
+      </div>
+
+      {filtered.length === 0 ? (
+        <div style={{textAlign:'center', color:'#BDBDBD', padding:60, fontSize:13}}>
+          {filterStatus === 'pending' ? 'Новых запросов нет 🎉' : 'Нет записей'}
+        </div>
+      ) : filtered.map(r => {
+        const isPending = r.status === 'pending'
+        const isConfirmed = r.status === 'confirmed'
+        const hasPackage = !!r.package_id
+        const dateLabel = fmtDateFull(r.slot_date)
+        const dayLabel = DAYS[new Date(r.slot_date + 'T00:00:00').getDay()]
+        const timeLabel = `${r.start_time?.slice(0,5)} — ${r.end_time?.slice(0,5)}`
+        const borderColor = isPending ? (hasPackage ? '#BFD900' : '#e74c3c') : isConfirmed ? '#27ae60' : '#BDBDBD'
+
+        return (
+          <div key={r.id} style={{background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', borderLeft:`3px solid ${borderColor}`, padding:14, marginBottom:10}}>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:8}}>
+              <div>
+                <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a', marginBottom:3}}>{r.client?.full_name || '—'}</div>
+                <div style={{fontSize:12, color:'#888'}}>{dayLabel}, {dateLabel} · {timeLabel}</div>
+              </div>
+              <div style={{display:'flex', flexDirection:'column', alignItems:'flex-end', gap:4}}>
+                {isPending && <span style={{fontSize:11, fontWeight:600, color:'#f39c12', background:'#fef9e7', padding:'2px 8px', borderRadius:20}}>Новый</span>}
+                {isConfirmed && <span style={{fontSize:11, fontWeight:600, color:'#27ae60', background:'#eafaf1', padding:'2px 8px', borderRadius:20}}>Подтверждён</span>}
+                {(r.status === 'rejected' || r.status === 'cancelled') && <span style={{fontSize:11, fontWeight:600, color:'#888', background:'#f5f5f5', padding:'2px 8px', borderRadius:20}}>Отклонён</span>}
+              </div>
+            </div>
+            <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
+              <span style={{fontSize:11, fontWeight:600, color: hasPackage ? '#27ae60' : '#e74c3c', background: hasPackage ? '#eafaf1' : '#fdecea', padding:'2px 8px', borderRadius:6}}>
+                {hasPackage ? `✓ ${r.package?.name || 'Пакет оплачен'}` : '✕ Нет пакета'}
+              </span>
+              {r.hall && <span style={{fontSize:11, color:'#888', background:'#f5f5f5', padding:'2px 8px', borderRadius:6}}>{r.hall}</span>}
+              {r.client?.phone && (
+                <a href={`tel:${r.client.phone}`} style={{fontSize:11, color:'#2980b9', background:'#e8f4fd', padding:'2px 8px', borderRadius:6, textDecoration:'none'}}>
+                  📱 {r.client.phone}
+                </a>
+              )}
+            </div>
+            {r.reject_reason && <div style={{fontSize:11, color:'#888', marginTop:6}}>Причина: {r.reject_reason}</div>}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── 30-дневный календарь слотов для преподавателя ─────────────────────────
+function SlotsCalendar({ teacherId }) {
+  const [slots, setSlots] = useState([])
+  const [selectedDate, setSelectedDate] = useState(null)
+  const [showAdd, setShowAdd] = useState(false)
+  const [newStart, setNewStart] = useState('10:00')
+  const [duration, setDuration] = useState(60)
+  const [saving, setSaving] = useState(false)
+
+  const days = Array.from({ length: 30 }, (_, i) => {
+    const d = new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate() + i)
+    return d
+  })
+
+  useEffect(() => { loadSlots() }, [teacherId])
+
+  const loadSlots = async () => {
+    const from = toDateStr(days[0])
+    const to = toDateStr(days[days.length - 1])
+    const { data } = await supabase
+      .from('teacher_slot_dates')
+      .select('*')
+      .eq('teacher_id', teacherId)
+      .gte('date', from)
+      .lte('date', to)
+      .order('date').order('start_time')
+    setSlots(data || [])
+  }
+
+  const slotsForDate = (dateStr) => slots.filter(s => s.date === dateStr)
+
+  const handleAdd = async () => {
+    if (!selectedDate || !newStart) return
+    setSaving(true)
+    const [h, m] = newStart.split(':').map(Number)
+    const totalMins = h * 60 + m + duration
+    const endH = String(Math.floor(totalMins / 60)).padStart(2, '0')
+    const endM = String(totalMins % 60).padStart(2, '0')
+    await supabase.from('teacher_slot_dates').insert({
+      teacher_id: teacherId,
+      date: toDateStr(selectedDate),
+      start_time: newStart + ':00',
+      end_time: `${endH}:${endM}:00`,
+      is_active: true,
+    })
+    setShowAdd(false)
+    setSaving(false)
+    loadSlots()
+  }
+
+  const handleDelete = async (id) => {
+    await supabase.from('teacher_slot_dates').delete().eq('id', id)
+    loadSlots()
+  }
+
+  const handleToggle = async (slot) => {
+    await supabase.from('teacher_slot_dates').update({ is_active: !slot.is_active }).eq('id', slot.id)
+    loadSlots()
+  }
+
+  const inp = { padding:'10px 12px', border:'1px solid #e8e8e8', borderRadius:10, fontSize:14, fontFamily:'Inter,sans-serif', boxSizing:'border-box', width:'100%' }
+  const selectedDateStr = selectedDate ? toDateStr(selectedDate) : null
+  const todayStr = toDateStr(new Date())
+
+  return (
+    <div>
+      <div style={{fontSize:15, fontWeight:600, color:'#2a2a2a', marginBottom:12}}>Мои слоты для индивов</div>
+
+      {/* Горизонтальный календарь */}
+      <div style={{display:'flex', gap:6, overflowX:'auto', scrollbarWidth:'none', paddingBottom:8, marginBottom:16}}>
+        {days.map(d => {
+          const ds = toDateStr(d)
+          const count = slotsForDate(ds).length
+          const isSel = selectedDateStr === ds
+          const isToday = ds === todayStr
+          return (
+            <div key={ds} onClick={() => { setSelectedDate(d); setShowAdd(false) }}
+              style={{flexShrink:0, width:52, textAlign:'center', padding:'8px 4px', borderRadius:10, cursor:'pointer',
+                background: isSel ? '#BFD900' : isToday ? '#fafde8' : '#fff',
+                border: isSel ? 'none' : isToday ? '1px solid #BFD900' : '1px solid #f0f0f0'}}>
+              <div style={{fontSize:10, color: isSel ? '#2a2a2a' : '#888', marginBottom:2}}>{DAYS[d.getDay()]}</div>
+              <div style={{fontSize:15, fontWeight:600, color:'#2a2a2a'}}>{d.getDate()}</div>
+              <div style={{fontSize:10, color: isSel ? '#2a2a2a' : '#BDBDBD'}}>{MONTHS[d.getMonth()]}</div>
+              {count > 0 && (
+                <div style={{marginTop:4, fontSize:10, fontWeight:700, color: isSel ? '#2a2a2a' : '#27ae60'}}>{count} сл.</div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Слоты выбранной даты */}
+      {selectedDate ? (
+        <div style={{background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', padding:14}}>
+          <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12}}>
+            <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a'}}>
+              {DAYS[selectedDate.getDay()]}, {selectedDate.getDate()} {MONTHS[selectedDate.getMonth()]}
+            </div>
+            <button onClick={() => setShowAdd(!showAdd)}
+              style={{padding:'7px 14px', background:'#BFD900', border:'none', borderRadius:8, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+              + Слот
+            </button>
+          </div>
+
+          {showAdd && (
+            <div style={{background:'#f9f9f9', borderRadius:10, padding:12, marginBottom:12}}>
+              <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10}}>
+                <div>
+                  <div style={{fontSize:11, color:'#888', marginBottom:4}}>Начало</div>
+                  <input type="time" value={newStart} onChange={e => setNewStart(e.target.value)} style={inp} />
+                </div>
+                <div>
+                  <div style={{fontSize:11, color:'#888', marginBottom:4}}>Длительность</div>
+                  <select value={duration} onChange={e => setDuration(Number(e.target.value))} style={inp}>
+                    {[30,45,60,90].map(m => <option key={m} value={m}>{m} мин</option>)}
+                  </select>
+                </div>
+              </div>
+              <div style={{display:'flex', gap:8}}>
+                <button onClick={handleAdd} disabled={saving}
+                  style={{flex:1, padding:'10px', background:'#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+                  {saving ? 'Создаём...' : 'Добавить'}
+                </button>
+                <button onClick={() => setShowAdd(false)}
+                  style={{padding:'10px 14px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:10, fontSize:13, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+                  Отмена
+                </button>
+              </div>
+            </div>
+          )}
+
+          {slotsForDate(selectedDateStr).length === 0 ? (
+            <div style={{fontSize:13, color:'#BDBDBD', textAlign:'center', padding:'12px 0'}}>Слотов нет — нажми «+ Слот»</div>
+          ) : (
+            <div style={{display:'flex', flexDirection:'column', gap:6}}>
+              {slotsForDate(selectedDateStr).map(s => (
+                <div key={s.id} style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 12px', background: s.is_active ? '#f9f9f9' : '#f0f0f0', borderRadius:10, border:'1px solid #f0f0f0', opacity: s.is_active ? 1 : 0.5}}>
+                  <div style={{fontSize:14, color:'#2a2a2a'}}>{s.start_time.slice(0,5)} — {s.end_time.slice(0,5)}</div>
+                  <div style={{display:'flex', gap:10, alignItems:'center'}}>
+                    <button onClick={() => handleToggle(s)}
+                      style={{fontSize:12, color: s.is_active ? '#27ae60' : '#888', background:'none', border:'none', cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight:600}}>
+                      {s.is_active ? '✓ Вкл' : 'Выкл'}
+                    </button>
+                    <button onClick={() => handleDelete(s.id)}
+                      style={{fontSize:12, color:'#e74c3c', background:'none', border:'none', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+                      Удалить
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div style={{textAlign:'center', color:'#BDBDBD', padding:24, fontSize:13}}>Выберите дату в календаре</div>
+      )}
+    </div>
+  )
+}
+
 export default function TeacherPanel({ session }) {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -194,18 +444,14 @@ export default function TeacherPanel({ session }) {
   const [profile, setProfile] = useState(null)
   const [schedule, setSchedule] = useState([])
   const [tasks, setTasks] = useState([])
-  const [slots, setSlots] = useState([])
+  const [indivPendingCount, setIndivPendingCount] = useState(0)
   const [stats, setStats] = useState({ lessons: 0, students: 0, thisMonth: 0 })
   const [birthdays, setBirthdays] = useState([])
   const [scheduleView, setScheduleView] = useState('today')
-  const [showAddSlot, setShowAddSlot] = useState(false)
-  const [newSlot, setNewSlot] = useState({ day_of_week: 1, start_time: '10:00', end_time: '18:00', duration: 60 })
   const [loading, setLoading] = useState(true)
   const [attendancePanel, setAttendancePanel] = useState(null)
 
-  // Показываем кнопку "В AdminPanel" если основная роль выше чем teacher
   const hasAdminAccess = profile && ['owner','manager','admin'].includes(profile.role)
-
   const goTab = (t) => setSearchParams({ tab: t })
 
   useEffect(() => { loadAll() }, [])
@@ -220,7 +466,9 @@ export default function TeacherPanel({ session }) {
     const now = new Date().toISOString()
     const future = new Date(Date.now() + 30*24*60*60*1000).toISOString()
     const { data: sch } = await supabase.from('schedule')
-      .select('*, groups(name, color), bookings(id, student_id, status, profiles:student_id(full_name, first_name, last_name))')
+      .select(`*, groups(name, color),
+        bookings(id, student_id, status, profiles:student_id(full_name, first_name, last_name)),
+        indiv_student:profiles!schedule_indiv_student_id_fkey(id, full_name, first_name, last_name)`)
       .eq('teacher_id', uid)
       .gte('starts_at', now)
       .lte('starts_at', future)
@@ -233,9 +481,11 @@ export default function TeacherPanel({ session }) {
       .in('tasks.status', ['new','in_progress','postponed','problem'])
     setTasks((ta || []).map(t => t.tasks).filter(Boolean))
 
-    const { data: sl } = await supabase.from('teacher_indiv_slots')
-      .select('*').eq('teacher_id', uid).order('day_of_week').order('start_time')
-    setSlots(sl || [])
+    const { count } = await supabase.from('indiv_requests')
+      .select('*', { count:'exact', head:true })
+      .eq('teacher_id', uid)
+      .eq('status', 'pending')
+    setIndivPendingCount(count || 0)
 
     const { data: att } = await supabase.from('attendance')
       .select('created_at, student_id')
@@ -272,42 +522,18 @@ export default function TeacherPanel({ session }) {
     setLoading(false)
   }
 
-  const handleToggleSlot = async (slot) => {
-    await supabase.from('teacher_indiv_slots').update({ is_active: !slot.is_active }).eq('id', slot.id)
-    loadAll()
-  }
-
-  const handleDeleteSlot = async (id) => {
-    if (!confirm('Удалить слот?')) return
-    await supabase.from('teacher_indiv_slots').delete().eq('id', id)
-    loadAll()
-  }
-
-  const handleAddSlot = async () => {
-    const [sh, sm] = newSlot.start_time.split(':').map(Number)
-    const [eh, em] = newSlot.end_time.split(':').map(Number)
-    const dur = newSlot.duration || 60
-    let cur = sh * 60 + sm
-    const end = eh * 60 + em
-    const inserts = []
-    while (cur + dur <= end) {
-      const s = `${String(Math.floor(cur/60)).padStart(2,'0')}:${String(cur%60).padStart(2,'0')}`
-      const e = `${String(Math.floor((cur+dur)/60)).padStart(2,'0')}:${String((cur+dur)%60).padStart(2,'0')}`
-      inserts.push({ teacher_id: session.user.id, day_of_week: Number(newSlot.day_of_week), start_time: s, end_time: e, is_active: true })
-      cur += dur
-    }
-    if (inserts.length > 0) await supabase.from('teacher_indiv_slots').insert(inserts)
-    setShowAddSlot(false)
-    loadAll()
-  }
-
-  const markAttendance = async (bookingId, studentId, scheduleId, status) => {
+  const markAttendance = async (studentId, scheduleId, status) => {
     await supabase.from('attendance').upsert({
-      schedule_id: scheduleId,
-      student_id: studentId,
-      teacher_id: session.user.id,
-      status,
-      created_at: new Date().toISOString(),
+      schedule_id: scheduleId, student_id: studentId, teacher_id: session.user.id,
+      status, basis: 'indiv', created_at: new Date().toISOString(),
+    }, { onConflict: 'schedule_id,student_id' })
+    loadAll()
+  }
+
+  const markGroupAttendance = async (bookingId, studentId, scheduleId, status) => {
+    await supabase.from('attendance').upsert({
+      schedule_id: scheduleId, student_id: studentId, teacher_id: session.user.id,
+      status, created_at: new Date().toISOString(),
     }, { onConflict: 'schedule_id,student_id' })
     loadAll()
   }
@@ -322,7 +548,7 @@ export default function TeacherPanel({ session }) {
     return d >= now && d <= weekEnd
   })
 
-  const inputStyle = { width:'100%', padding:'10px 12px', border:'1px solid #e8e8e8', borderRadius:10, fontSize:14, boxSizing:'border-box', fontFamily:'Inter,sans-serif' }
+  const totalBadge = tasks.length + indivPendingCount
 
   const getHour = () => {
     const h = new Date().getHours()
@@ -341,10 +567,91 @@ export default function TeacherPanel({ session }) {
     ['main','🏠 Главная'],
     ['schedule','📅 Расписание'],
     ['tasks', tasks.length > 0 ? `✅ Задачи (${tasks.length})` : '✅ Задачи'],
-    ['indivs','💃 Индивы'],
+    ['indivs', indivPendingCount > 0 ? `💃 Индивы (${indivPendingCount})` : '💃 Индивы'],
     ['slots','🕐 Слоты'],
     ['profile','👤 Профиль'],
   ]
+
+  const LessonCard = ({ s, showAttendance = false }) => {
+    const isIndiv = s.lesson_type === 'indiv'
+    const indivStudent = s.indiv_student
+    const groupBookings = (s.bookings || []).filter(b => b.status === 'confirmed' || b.status === 'booked')
+    const isOpen = attendancePanel === s.id
+
+    return (
+      <div style={{background:'#fff', borderRadius:14, border: isIndiv ? '1px solid #e8f4fd' : '1px solid #f0f0f0', padding:14, marginBottom:10}}>
+        <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start'}}>
+          <div style={{flex:1}}>
+            {isIndiv && (
+              <div style={{fontSize:10, fontWeight:700, color:'#2980b9', background:'#e8f4fd', borderRadius:4, padding:'1px 6px', display:'inline-block', marginBottom:4, textTransform:'uppercase', letterSpacing:'0.06em'}}>
+                Индив
+              </div>
+            )}
+            <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a', marginBottom:2}}>
+              {isIndiv ? (getName(indivStudent) || 'Индив') : (s.groups?.name || 'Занятие')}
+            </div>
+            <div style={{fontSize:12, color:'#888'}}>
+              {isToday(s.starts_at) ? 'Сегодня' : isTomorrow(s.starts_at) ? 'Завтра' : fmtDate(s.starts_at)}, {fmtTime(s.starts_at)} — {fmtTime(s.ends_at)}
+            </div>
+            <div style={{fontSize:11, color:'#BDBDBD', marginTop:2}}>
+              {s.hall || '—'}{!isIndiv && ` · ${groupBookings.length} чел.`}
+            </div>
+          </div>
+          {showAttendance && (
+            <button onClick={() => setAttendancePanel(isOpen ? null : s.id)}
+              style={{padding:'6px 12px', background: isOpen ? '#fafde8' : '#f5f5f5', border: isOpen ? '1px solid #BFD900' : 'none', borderRadius:8, fontSize:11, fontWeight:600, color: isOpen ? '#6a7700' : '#888', cursor:'pointer', fontFamily:'Inter,sans-serif', flexShrink:0}}>
+              {isOpen ? 'Закрыть' : 'Посещаемость'}
+            </button>
+          )}
+        </div>
+
+        {isOpen && (
+          <div style={{marginTop:12, paddingTop:12, borderTop:'1px solid #f0f0f0'}}>
+            {isIndiv ? (
+              indivStudent ? (
+                <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 0'}}>
+                  <div>
+                    <div style={{fontSize:13, color:'#2a2a2a', fontWeight:500}}>{getName(indivStudent)}</div>
+                    <div style={{fontSize:11, color:'#BDBDBD'}}>Индивидуальное занятие</div>
+                  </div>
+                  <div style={{display:'flex', gap:6}}>
+                    <button onClick={() => markAttendance(indivStudent.id, s.id, 'present')}
+                      style={{padding:'6px 12px', background:'#eafaf1', border:'none', borderRadius:8, fontSize:12, color:'#27ae60', cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight:600}}>
+                      ✓ Был
+                    </button>
+                    <button onClick={() => markAttendance(indivStudent.id, s.id, 'absent')}
+                      style={{padding:'6px 12px', background:'#fdecea', border:'none', borderRadius:8, fontSize:12, color:'#e74c3c', cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight:600}}>
+                      ✗ Нет
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{fontSize:12, color:'#BDBDBD'}}>Данные ученика не найдены</div>
+              )
+            ) : (
+              groupBookings.length === 0 ? (
+                <div style={{fontSize:12, color:'#BDBDBD'}}>Нет записавшихся</div>
+              ) : groupBookings.map(b => (
+                <div key={b.id} style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 0', borderBottom:'1px solid #f8f8f8'}}>
+                  <div style={{fontSize:13, color:'#2a2a2a'}}>{getName(b.profiles)}</div>
+                  <div style={{display:'flex', gap:6}}>
+                    <button onClick={() => markGroupAttendance(b.id, b.student_id, s.id, 'present')}
+                      style={{padding:'6px 12px', background:'#eafaf1', border:'none', borderRadius:8, fontSize:12, color:'#27ae60', cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight:600}}>
+                      ✓ Был
+                    </button>
+                    <button onClick={() => markGroupAttendance(b.id, b.student_id, s.id, 'absent')}
+                      style={{padding:'6px 12px', background:'#fdecea', border:'none', borderRadius:8, fontSize:12, color:'#e74c3c', cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight:600}}>
+                      ✗ Нет
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div style={{fontFamily:'Inter,sans-serif', background:'#F8F8F8', minHeight:'100vh', width:'100%', maxWidth:480, margin:'0 auto', boxSizing:'border-box'}}>
@@ -356,23 +663,19 @@ export default function TeacherPanel({ session }) {
             <div style={{fontSize:18, fontWeight:600, color:'#fff'}}>{myName} 👋</div>
           </div>
           <div style={{display:'flex', alignItems:'center', gap:8}}>
-            {tasks.length > 0 && (
-              <div onClick={() => goTab('tasks')} style={{background:'#e74c3c', color:'#fff', borderRadius:'50%', width:22, height:22, display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:700, cursor:'pointer'}}>
-                {tasks.length}
+            {totalBadge > 0 && (
+              <div style={{background:'#e74c3c', color:'#fff', borderRadius:'50%', width:22, height:22, display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:700}}>
+                {totalBadge}
               </div>
             )}
             {hasAdminAccess && (
-              <button
-                onClick={() => navigate('/admin/dashboard')}
-                style={{padding:'6px 10px', background:'#BFD900', border:'none', borderRadius:8, fontSize:11, fontWeight:600, color:'#1f2024', cursor:'pointer', fontFamily:'Inter,sans-serif'}}
-              >
+              <button onClick={() => navigate('/admin/dashboard')}
+                style={{padding:'6px 10px', background:'#BFD900', border:'none', borderRadius:8, fontSize:11, fontWeight:600, color:'#1f2024', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
                 ← Админка
               </button>
             )}
-            <button
-              onClick={() => supabase.auth.signOut()}
-              style={{padding:'6px 10px', background:'transparent', border:'1px solid #444', borderRadius:8, fontSize:11, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}
-            >
+            <button onClick={() => supabase.auth.signOut()}
+              style={{padding:'6px 10px', background:'transparent', border:'1px solid #444', borderRadius:8, fontSize:11, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
               Выйти
             </button>
           </div>
@@ -404,9 +707,9 @@ export default function TeacherPanel({ session }) {
                 <div style={{fontSize:10, color:'#8a9900', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6}}>В этом месяце</div>
                 <div style={{fontSize:26, fontWeight:300, color:'#2a2a2a'}}>{stats.thisMonth} <span style={{fontSize:12, color:'#BFD900'}}>зан.</span></div>
               </div>
-              <div style={{background:'#fff', borderRadius:16, padding:14, border:'1px solid #f0f0f0', cursor:'pointer'}} onClick={() => goTab('tasks')}>
-                <div style={{fontSize:10, color:'#BDBDBD', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6}}>Задач активных</div>
-                <div style={{fontSize:26, fontWeight:300, color:tasks.length>0?'#e74c3c':'#2a2a2a'}}>{tasks.length}</div>
+              <div style={{background: indivPendingCount > 0 ? '#fef9e7' : '#fff', borderRadius:16, padding:14, border: indivPendingCount > 0 ? '1.5px solid #f39c12' : '1px solid #f0f0f0', cursor:'pointer'}} onClick={() => goTab('indivs')}>
+                <div style={{fontSize:10, color: indivPendingCount > 0 ? '#f39c12' : '#BDBDBD', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6}}>Запросов индивов</div>
+                <div style={{fontSize:26, fontWeight:300, color: indivPendingCount > 0 ? '#f39c12' : '#2a2a2a'}}>{indivPendingCount}</div>
               </div>
             </div>
 
@@ -415,41 +718,7 @@ export default function TeacherPanel({ session }) {
               <div style={{background:'#fff', borderRadius:14, padding:16, marginBottom:16, border:'1px solid #f0f0f0', fontSize:13, color:'#BDBDBD', textAlign:'center'}}>
                 Занятий сегодня нет 🎉
               </div>
-            ) : todaySchedule.map(s => (
-              <div key={s.id} style={{background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', padding:14, marginBottom:10}}>
-                <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start'}}>
-                  <div>
-                    <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a', marginBottom:3}}>{s.groups?.name || 'Индив'}</div>
-                    <div style={{fontSize:12, color:'#888'}}>{fmtTime(s.starts_at)} — {fmtTime(s.ends_at)} · {s.hall || '—'}</div>
-                  </div>
-                  <button onClick={() => setAttendancePanel(attendancePanel===s.id ? null : s.id)}
-                    style={{padding:'6px 12px', background:'#fafde8', border:'1px solid #BFD900', borderRadius:8, fontSize:11, fontWeight:600, color:'#6a7700', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-                    Посещаемость
-                  </button>
-                </div>
-                {attendancePanel === s.id && (
-                  <div style={{marginTop:12, paddingTop:12, borderTop:'1px solid #f0f0f0'}}>
-                    {(s.bookings||[]).filter(b=>b.status==='confirmed').length===0 ? (
-                      <div style={{fontSize:12, color:'#BDBDBD'}}>Нет записавшихся</div>
-                    ) : (s.bookings||[]).filter(b=>b.status==='confirmed').map(b => (
-                      <div key={b.id} style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 0', borderBottom:'1px solid #f8f8f8'}}>
-                        <div style={{fontSize:13, color:'#2a2a2a'}}>{getName(b.profiles)}</div>
-                        <div style={{display:'flex', gap:6}}>
-                          <button onClick={() => markAttendance(b.id, b.student_id, s.id, 'present')}
-                            style={{padding:'6px 12px', background:'#eafaf1', border:'none', borderRadius:8, fontSize:12, color:'#27ae60', cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight:600}}>
-                            ✓ Был
-                          </button>
-                          <button onClick={() => markAttendance(b.id, b.student_id, s.id, 'absent')}
-                            style={{padding:'6px 12px', background:'#fdecea', border:'none', borderRadius:8, fontSize:12, color:'#e74c3c', cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight:600}}>
-                            ✗ Нет
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
+            ) : todaySchedule.map(s => <LessonCard key={s.id} s={s} showAttendance={true} />)}
 
             {birthdays.length > 0 && (
               <>
@@ -480,25 +749,7 @@ export default function TeacherPanel({ session }) {
             {(() => {
               const list = scheduleView==='today'?todaySchedule:scheduleView==='week'?weekSchedule:schedule
               if (list.length===0) return <div style={{textAlign:'center',color:'#BDBDBD',padding:40,fontSize:13}}>Занятий нет</div>
-              return list.map(s => (
-                <div key={s.id} style={{background:'#fff',borderRadius:14,border:'1px solid #f0f0f0',padding:14,marginBottom:10}}>
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
-                    <div>
-                      <div style={{fontSize:14,fontWeight:600,color:'#2a2a2a',marginBottom:2}}>{s.groups?.name||'Индив'}</div>
-                      <div style={{fontSize:12,color:'#888'}}>
-                        {isToday(s.starts_at)?'Сегодня':isTomorrow(s.starts_at)?'Завтра':fmtDate(s.starts_at)}, {fmtTime(s.starts_at)} — {fmtTime(s.ends_at)}
-                      </div>
-                      <div style={{fontSize:11,color:'#BDBDBD',marginTop:2}}>{s.hall||'—'} · {(s.bookings||[]).filter(b=>b.status==='confirmed').length} чел.</div>
-                    </div>
-                    {isToday(s.starts_at) && (
-                      <button onClick={() => {goTab('main');setAttendancePanel(s.id)}}
-                        style={{padding:'6px 10px',background:'#fafde8',border:'1px solid #BFD900',borderRadius:8,fontSize:11,color:'#6a7700',cursor:'pointer',fontFamily:'Inter,sans-serif',fontWeight:600}}>
-                        Отметить
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))
+              return list.map(s => <LessonCard key={s.id} s={s} showAttendance={isToday(s.starts_at)} />)
             })()}
           </div>
         )}
@@ -507,128 +758,12 @@ export default function TeacherPanel({ session }) {
           <TasksSection tasks={tasks} session={session} onReload={loadAll} />
         )}
 
-        {tab === 'indivs' && (
-          <div style={{textAlign:'center',color:'#BDBDBD',padding:40,fontSize:13}}>
-            История записей на индивы — скоро
-          </div>
+        {tab === 'indivs' && profile && (
+          <IndivsSection teacherId={session.user.id} session={session} />
         )}
 
-        {tab === 'slots' && (
-          <div>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
-              <div style={{fontSize:15,fontWeight:600,color:'#2a2a2a'}}>Мои слоты для индивов</div>
-              <button onClick={() => setShowAddSlot(!showAddSlot)}
-                style={{padding:'8px 16px',background:'#BFD900',border:'none',borderRadius:8,fontSize:13,fontWeight:700,color:'#2a2a2a',cursor:'pointer',fontFamily:'Inter,sans-serif'}}>
-                + Слот
-              </button>
-            </div>
-
-            {showAddSlot && (
-              <div style={{background:'#fff',borderRadius:14,padding:16,marginBottom:16,border:'1px solid #f0f0f0'}}>
-                <div style={{fontSize:13,fontWeight:600,color:'#2a2a2a',marginBottom:12}}>Новые слоты</div>
-                <div style={{marginBottom:12}}>
-                  <div style={{fontSize:11,color:'#888',marginBottom:6}}>День недели</div>
-                  <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-                    {[1,2,3,4,5,6,0].map(d => (
-                      <button key={d} onClick={() => setNewSlot({...newSlot, day_of_week:d})}
-                        style={{padding:'8px 12px',borderRadius:8,border:'none',fontSize:13,cursor:'pointer',fontFamily:'Inter,sans-serif',
-                          fontWeight:Number(newSlot.day_of_week)===d?700:400,
-                          background:Number(newSlot.day_of_week)===d?'#BFD900':'#f5f5f5',
-                          color:Number(newSlot.day_of_week)===d?'#2a2a2a':'#888'}}>
-                        {DAYS[d]}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:12}}>
-                  <div>
-                    <div style={{fontSize:11,color:'#888',marginBottom:4}}>С какого времени</div>
-                    <input type="time" value={newSlot.start_time} onChange={e => setNewSlot({...newSlot,start_time:e.target.value})} style={inputStyle} />
-                  </div>
-                  <div>
-                    <div style={{fontSize:11,color:'#888',marginBottom:4}}>До какого времени</div>
-                    <input type="time" value={newSlot.end_time} onChange={e => setNewSlot({...newSlot,end_time:e.target.value})} style={inputStyle} />
-                  </div>
-                </div>
-                <div style={{marginBottom:14}}>
-                  <div style={{fontSize:11,color:'#888',marginBottom:6}}>Длительность слота</div>
-                  <div style={{display:'flex',gap:6}}>
-                    {[30,45,60,90].map(m => (
-                      <button key={m} onClick={() => setNewSlot({...newSlot,duration:m})}
-                        style={{flex:1,padding:'8px 0',borderRadius:8,border:'none',fontSize:13,cursor:'pointer',fontFamily:'Inter,sans-serif',
-                          fontWeight:newSlot.duration===m?700:400,
-                          background:newSlot.duration===m?'#BFD900':'#f5f5f5',
-                          color:newSlot.duration===m?'#2a2a2a':'#888'}}>
-                        {m} мин
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                {(() => {
-                  const preview = []
-                  const [sh,sm] = newSlot.start_time.split(':').map(Number)
-                  const [eh,em] = newSlot.end_time.split(':').map(Number)
-                  const dur = newSlot.duration||60
-                  let cur = sh*60+sm
-                  const end = eh*60+em
-                  while (cur+dur<=end) {
-                    const s = `${String(Math.floor(cur/60)).padStart(2,'0')}:${String(cur%60).padStart(2,'0')}`
-                    const e = `${String(Math.floor((cur+dur)/60)).padStart(2,'0')}:${String((cur+dur)%60).padStart(2,'0')}`
-                    preview.push(`${s} — ${e}`)
-                    cur+=dur
-                  }
-                  if (preview.length===0) return null
-                  return (
-                    <div style={{background:'#f9f9f9',borderRadius:10,padding:10,marginBottom:14}}>
-                      <div style={{fontSize:11,color:'#888',marginBottom:6}}>Будет создано {preview.length} слот{preview.length===1?'':preview.length<5?'а':'ов'}:</div>
-                      <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
-                        {preview.map(p => (
-                          <span key={p} style={{fontSize:12,background:'#fff',border:'1px solid #e0e0e0',borderRadius:6,padding:'3px 8px',color:'#2a2a2a'}}>{p}</span>
-                        ))}
-                      </div>
-                    </div>
-                  )
-                })()}
-                <div style={{display:'flex',gap:8}}>
-                  <button onClick={handleAddSlot}
-                    style={{flex:1,padding:'11px',background:'#BFD900',border:'none',borderRadius:10,fontSize:14,fontWeight:700,color:'#2a2a2a',cursor:'pointer',fontFamily:'Inter,sans-serif'}}>
-                    Создать слоты
-                  </button>
-                  <button onClick={() => setShowAddSlot(false)}
-                    style={{padding:'11px 16px',background:'transparent',border:'1px solid #e0e0e0',borderRadius:10,fontSize:13,color:'#888',cursor:'pointer',fontFamily:'Inter,sans-serif'}}>
-                    Отмена
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {slots.length===0 ? (
-              <div style={{textAlign:'center',color:'#BDBDBD',padding:40,fontSize:13}}>Слотов нет — добавь первый</div>
-            ) : [1,2,3,4,5,6,0].map(day => {
-              const daySlots = slots.filter(s=>s.day_of_week===day)
-              if (daySlots.length===0) return null
-              return (
-                <div key={day} style={{marginBottom:14}}>
-                  <div style={{fontSize:12,fontWeight:600,color:'#888',marginBottom:6}}>{DAYS[day]}</div>
-                  {daySlots.map(s => (
-                    <div key={s.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',background:'#fff',borderRadius:12,padding:'12px 14px',marginBottom:6,border:'1px solid #f0f0f0',opacity:s.is_active?1:0.5}}>
-                      <div style={{fontSize:14,color:'#2a2a2a'}}>{s.start_time.slice(0,5)} — {s.end_time.slice(0,5)}</div>
-                      <div style={{display:'flex',gap:10}}>
-                        <button onClick={() => handleToggleSlot(s)}
-                          style={{fontSize:12,color:s.is_active?'#27ae60':'#888',background:'none',border:'none',cursor:'pointer',fontFamily:'Inter,sans-serif',fontWeight:600}}>
-                          {s.is_active?'✓ Вкл':'Выкл'}
-                        </button>
-                        <button onClick={() => handleDeleteSlot(s.id)}
-                          style={{fontSize:12,color:'#e74c3c',background:'none',border:'none',cursor:'pointer',fontFamily:'Inter,sans-serif'}}>
-                          Удалить
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )
-            })}
-          </div>
+        {tab === 'slots' && profile && (
+          <SlotsCalendar teacherId={session.user.id} />
         )}
 
         {tab === 'profile' && (

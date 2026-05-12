@@ -71,18 +71,13 @@ function EventTab({ teachers, session }) {
   const fileRef = useRef()
   const editFileRef = useRef()
 
-  const emptyForm = {
-    name:'', type:'masterclass', description:'', image_url:'',
-    hall:'', teacher_id:'', max_participants:'', price:'',
-    is_available_online:true, age_info:'', sort_order:100,
-  }
+  const emptyForm = { name:'', type:'masterclass', description:'', image_url:'', hall:'', teacher_id:'', max_participants:'', price:'', is_available_online:true, age_info:'', sort_order:100 }
   const [form, setForm] = useState(emptyForm)
   const [imageFile, setImageFile] = useState(null)
   const [imagePreview, setImagePreview] = useState(null)
   const [editForm, setEditForm] = useState(null)
   const [editImageFile, setEditImageFile] = useState(null)
   const [editImagePreview, setEditImagePreview] = useState(null)
-
   const [tiers, setTiers] = useState([])
   const [editTiers, setEditTiers] = useState([])
   const [dates, setDates] = useState([])
@@ -94,10 +89,7 @@ function EventTab({ teachers, session }) {
 
   const load = async () => {
     setLoading(true)
-    const { data } = await supabase
-      .from('events')
-      .select('*, teacher:profiles!events_teacher_id_fkey(id, full_name)')
-      .order('sort_order')
+    const { data } = await supabase.from('events').select('*, teacher:profiles!events_teacher_id_fkey(id, full_name)').order('sort_order')
     const active = (data || []).filter(e => e.is_active !== false)
     const arch = (data || []).filter(e => e.is_active === false)
     setEvents(active)
@@ -106,13 +98,11 @@ function EventTab({ teachers, session }) {
     if (ids.length > 0) {
       const { data: tiersData } = await supabase.from('event_price_tiers').select('*').in('event_id', ids).order('position_from')
       const { data: regsData } = await supabase.from('event_registrations').select('*').in('event_id', ids).eq('status','registered')
-      const tiersMap = {}
-      const regsMap = {}
+      const tiersMap = {}; const regsMap = {}
       ids.forEach(id => { tiersMap[id] = []; regsMap[id] = 0 })
       ;(tiersData || []).forEach(t => tiersMap[t.event_id]?.push(t))
       ;(regsData || []).forEach(r => { if (regsMap[r.event_id] !== undefined) regsMap[r.event_id]++ })
-      setEventTiers(tiersMap)
-      setEventRegs(regsMap)
+      setEventTiers(tiersMap); setEventRegs(regsMap)
     }
     setLoading(false)
   }
@@ -120,104 +110,35 @@ function EventTab({ teachers, session }) {
   const handleCreate = async () => {
     if (!form.name.trim()) return
     setSaving(true)
-    const { data: ev } = await supabase.from('events').insert({
-      name: form.name.trim(), type: form.type,
-      description: form.description || null,
-      hall: form.hall || null, teacher_id: form.teacher_id || null,
-      max_participants: form.max_participants ? parseInt(form.max_participants) : null,
-      price: form.price ? parseFloat(form.price) : null,
-      is_available_online: form.is_available_online,
-      age_info: form.age_info || null,
-      sort_order: parseInt(form.sort_order) || 100,
-      allow_client_booking: form.is_available_online,
-      is_active: true,
-    }).select().single()
+    const { data: ev } = await supabase.from('events').insert({ name: form.name.trim(), type: form.type, description: form.description || null, hall: form.hall || null, teacher_id: form.teacher_id || null, max_participants: form.max_participants ? parseInt(form.max_participants) : null, price: form.price ? parseFloat(form.price) : null, is_available_online: form.is_available_online, age_info: form.age_info || null, sort_order: parseInt(form.sort_order) || 100, allow_client_booking: form.is_available_online, is_active: true }).select().single()
     if (ev) {
-      if (imageFile) {
-        const url = await uploadEventImage(imageFile, ev.id)
-        if (url) await supabase.from('events').update({ image_url: url }).eq('id', ev.id)
-      }
-      if (tiers.length > 0) {
-        await supabase.from('event_price_tiers').insert(
-          tiers.map((t, i) => ({ event_id: ev.id, position_from: parseInt(t.from), position_to: t.to ? parseInt(t.to) : null, price: parseFloat(t.price), label: t.label || null, sort_order: i + 1 }))
-        )
-      }
-      if (dates.length > 0) {
-        await supabase.from('event_dates').insert(
-          dates.map((d, i) => ({ event_id: ev.id, date_start: d.date_start, date_end: d.date_end || null, time_start: d.time_start || null, time_end: d.time_end || null, label: d.label || null, sort_order: i + 1 }))
-        )
-      }
+      if (imageFile) { const url = await uploadEventImage(imageFile, ev.id); if (url) await supabase.from('events').update({ image_url: url }).eq('id', ev.id) }
+      if (tiers.length > 0) await supabase.from('event_price_tiers').insert(tiers.map((t, i) => ({ event_id: ev.id, position_from: parseInt(t.from), position_to: t.to ? parseInt(t.to) : null, price: parseFloat(t.price), label: t.label || null, sort_order: i + 1 })))
+      if (dates.length > 0) await supabase.from('event_dates').insert(dates.map((d, i) => ({ event_id: ev.id, date_start: d.date_start, date_end: d.date_end || null, time_start: d.time_start || null, time_end: d.time_end || null, label: d.label || null, sort_order: i + 1 })))
     }
-    setSaving(false)
-    setShowForm(false)
-    setForm(emptyForm)
-    setImageFile(null); setImagePreview(null)
-    setTiers([]); setDates([])
-    load()
+    setSaving(false); setShowForm(false); setForm(emptyForm); setImageFile(null); setImagePreview(null); setTiers([]); setDates([]); load()
   }
 
   const handleUpdate = async (id) => {
     if (!editForm?.name?.trim()) return
     setSaving(true)
     let imageUrl = editForm.image_url
-    if (editImageFile) {
-      const url = await uploadEventImage(editImageFile, id)
-      if (url) imageUrl = url
-    }
-    await supabase.from('events').update({
-      name: editForm.name.trim(), type: editForm.type,
-      description: editForm.description || null,
-      image_url: imageUrl || null,
-      hall: editForm.hall || null, teacher_id: editForm.teacher_id || null,
-      max_participants: editForm.max_participants ? parseInt(editForm.max_participants) : null,
-      price: editForm.price ? parseFloat(editForm.price) : null,
-      is_available_online: editForm.is_available_online,
-      age_info: editForm.age_info || null,
-      sort_order: parseInt(editForm.sort_order) || 100,
-      allow_client_booking: editForm.is_available_online,
-    }).eq('id', id)
+    if (editImageFile) { const url = await uploadEventImage(editImageFile, id); if (url) imageUrl = url }
+    await supabase.from('events').update({ name: editForm.name.trim(), type: editForm.type, description: editForm.description || null, image_url: imageUrl || null, hall: editForm.hall || null, teacher_id: editForm.teacher_id || null, max_participants: editForm.max_participants ? parseInt(editForm.max_participants) : null, price: editForm.price ? parseFloat(editForm.price) : null, is_available_online: editForm.is_available_online, age_info: editForm.age_info || null, sort_order: parseInt(editForm.sort_order) || 100, allow_client_booking: editForm.is_available_online }).eq('id', id)
     await supabase.from('event_price_tiers').delete().eq('event_id', id)
-    if (editTiers.length > 0) {
-      await supabase.from('event_price_tiers').insert(
-        editTiers.map((t, i) => ({ event_id: id, position_from: parseInt(t.from), position_to: t.to ? parseInt(t.to) : null, price: parseFloat(t.price), label: t.label || null, sort_order: i + 1 }))
-      )
-    }
+    if (editTiers.length > 0) await supabase.from('event_price_tiers').insert(editTiers.map((t, i) => ({ event_id: id, position_from: parseInt(t.from), position_to: t.to ? parseInt(t.to) : null, price: parseFloat(t.price), label: t.label || null, sort_order: i + 1 })))
     await supabase.from('event_dates').delete().eq('event_id', id)
-    if (editDates.length > 0) {
-      await supabase.from('event_dates').insert(
-        editDates.map((d, i) => ({ event_id: id, date_start: d.date_start, date_end: d.date_end || null, time_start: d.time_start || null, time_end: d.time_end || null, label: d.label || null, sort_order: i + 1 }))
-      )
-    }
-    setSaving(false)
-    setEditingEvent(null); setEditForm(null)
-    setEditImageFile(null); setEditImagePreview(null)
-    setEditTiers([]); setEditDates([])
-    load()
+    if (editDates.length > 0) await supabase.from('event_dates').insert(editDates.map((d, i) => ({ event_id: id, date_start: d.date_start, date_end: d.date_end || null, time_start: d.time_start || null, time_end: d.time_end || null, label: d.label || null, sort_order: i + 1 })))
+    setSaving(false); setEditingEvent(null); setEditForm(null); setEditImageFile(null); setEditImagePreview(null); setEditTiers([]); setEditDates([]); load()
   }
 
-  const handleArchive = async (id) => {
-    if (!confirm('Архивировать мероприятие?')) return
-    await supabase.from('events').update({ is_active: false }).eq('id', id)
-    load()
-  }
-
-  const handleRestore = async (id) => {
-    await supabase.from('events').update({ is_active: true }).eq('id', id)
-    load()
-  }
+  const handleArchive = async (id) => { if (!confirm('Архивировать мероприятие?')) return; await supabase.from('events').update({ is_active: false }).eq('id', id); load() }
+  const handleRestore = async (id) => { await supabase.from('events').update({ is_active: true }).eq('id', id); load() }
 
   const openEdit = async (ev) => {
     setEditingEvent(ev.id)
-    setEditForm({
-      name: ev.name, type: ev.type || 'masterclass',
-      description: ev.description || '', image_url: ev.image_url || '',
-      hall: ev.hall || '', teacher_id: ev.teacher_id || '',
-      max_participants: ev.max_participants || '', price: ev.price || '',
-      is_available_online: ev.is_available_online ?? true,
-      age_info: ev.age_info || '', sort_order: ev.sort_order ?? 100,
-    })
-    setEditImagePreview(ev.image_url || null)
-    setEditImageFile(null)
+    setEditForm({ name: ev.name, type: ev.type || 'masterclass', description: ev.description || '', image_url: ev.image_url || '', hall: ev.hall || '', teacher_id: ev.teacher_id || '', max_participants: ev.max_participants || '', price: ev.price || '', is_available_online: ev.is_available_online ?? true, age_info: ev.age_info || '', sort_order: ev.sort_order ?? 100 })
+    setEditImagePreview(ev.image_url || null); setEditImageFile(null)
     const currentTiers = (eventTiers[ev.id] || []).map(t => ({ from: t.position_from, to: t.position_to || '', price: t.price, label: t.label || '' }))
     setEditTiers(currentTiers)
     const { data: datesData } = await supabase.from('event_dates').select('*').eq('event_id', ev.id).order('sort_order')
@@ -229,10 +150,7 @@ function EventTab({ teachers, session }) {
     <div style={{marginBottom:12}}>
       <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8}}>
         <label style={lblS}>Ступенчатые цены (необязательно)</label>
-        <button type="button" onClick={() => setTiers([...tiers, { from: tiers.length > 0 ? (parseInt(tiers[tiers.length-1].to)||0)+1 : 1, to: '', price: '', label: '' }])}
-          style={{padding:'4px 10px', background:'#f5f5f5', border:'none', borderRadius:6, fontSize:12, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-          + Добавить ступень
-        </button>
+        <button type="button" onClick={() => setTiers([...tiers, { from: tiers.length > 0 ? (parseInt(tiers[tiers.length-1].to)||0)+1 : 1, to: '', price: '', label: '' }])} style={{padding:'4px 10px', background:'#f5f5f5', border:'none', borderRadius:6, fontSize:12, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>+ Добавить ступень</button>
       </div>
       {tiers.length === 0 && <div style={{fontSize:12, color:'#BDBDBD', padding:'8px 0'}}>Без ступеней — единая цена выше</div>}
       {tiers.map((tier, i) => (
@@ -241,8 +159,7 @@ function EventTab({ teachers, session }) {
           <div><label style={{...lblS, marginBottom:2}}>По место</label><input type="number" value={tier.to} placeholder="∞" onChange={e => { const n=[...tiers]; n[i]={...n[i],to:e.target.value}; setTiers(n) }} style={inpS} /></div>
           <div><label style={{...lblS, marginBottom:2}}>Цена ₽</label><input type="number" value={tier.price} onChange={e => { const n=[...tiers]; n[i]={...n[i],price:e.target.value}; setTiers(n) }} style={inpS} /></div>
           <div><label style={{...lblS, marginBottom:2}}>Название</label><input value={tier.label} placeholder="Ранняя запись" onChange={e => { const n=[...tiers]; n[i]={...n[i],label:e.target.value}; setTiers(n) }} style={inpS} /></div>
-          <button type="button" onClick={() => setTiers(tiers.filter((_,j)=>j!==i))}
-            style={{padding:'8px', background:'#fdecea', border:'none', borderRadius:6, fontSize:12, color:'#e74c3c', cursor:'pointer', marginBottom:1}}>✕</button>
+          <button type="button" onClick={() => setTiers(tiers.filter((_,j)=>j!==i))} style={{padding:'8px', background:'#fdecea', border:'none', borderRadius:6, fontSize:12, color:'#e74c3c', cursor:'pointer', marginBottom:1}}>✕</button>
         </div>
       ))}
     </div>
@@ -253,11 +170,7 @@ function EventTab({ teachers, session }) {
       <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a', marginBottom:14}}>{isEdit ? '✏️ Редактировать мероприятие' : 'Новое мероприятие'}</div>
       <div style={{display:'grid', gridTemplateColumns:'2fr 1fr', gap:10, marginBottom:10}}>
         <div><label style={lblS}>Название *</label><input value={f.name} onChange={e => setF({...f,name:e.target.value})} placeholder="Акрокурс май 2026" style={inpS} /></div>
-        <div><label style={lblS}>Тип</label>
-          <select value={f.type} onChange={e => setF({...f,type:e.target.value})} style={inpS}>
-            {EVENT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-          </select>
-        </div>
+        <div><label style={lblS}>Тип</label><select value={f.type} onChange={e => setF({...f,type:e.target.value})} style={inpS}>{EVENT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}</select></div>
       </div>
       <label style={lblS}>Описание</label>
       <textarea value={f.description} onChange={e => setF({...f,description:e.target.value})} rows={2} placeholder="Для кого, программа, что включено..." style={{...inpS, marginBottom:10, resize:'vertical'}} />
@@ -269,10 +182,7 @@ function EventTab({ teachers, session }) {
       <div style={{marginBottom:10}}>
         <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6}}>
           <label style={lblS}>Даты проведения</label>
-          <button type="button" onClick={() => setDates([...dates, { date_start:'', date_end:'', label:'' }])}
-            style={{padding:'3px 10px', background:'#f5f5f5', border:'none', borderRadius:6, fontSize:12, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-            + Добавить период
-          </button>
+          <button type="button" onClick={() => setDates([...dates, { date_start:'', date_end:'', label:'' }])} style={{padding:'3px 10px', background:'#f5f5f5', border:'none', borderRadius:6, fontSize:12, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>+ Добавить период</button>
         </div>
         {dates.map((d, i) => (
           <div key={i} style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr 1fr auto', gap:6, marginBottom:6, alignItems:'end'}}>
@@ -281,26 +191,14 @@ function EventTab({ teachers, session }) {
             <div><label style={{...lblS, marginBottom:2}}>Начало</label><input type="time" value={d.time_start||''} onChange={e => { const n=[...dates]; n[i]={...n[i],time_start:e.target.value}; setDates(n) }} style={inpS} /></div>
             <div><label style={{...lblS, marginBottom:2}}>Конец</label><input type="time" value={d.time_end||''} onChange={e => { const n=[...dates]; n[i]={...n[i],time_end:e.target.value}; setDates(n) }} style={inpS} /></div>
             <div><label style={{...lblS, marginBottom:2}}>Подпись</label><input value={d.label} placeholder="День 1..." onChange={e => { const n=[...dates]; n[i]={...n[i],label:e.target.value}; setDates(n) }} style={inpS} /></div>
-            <button type="button" onClick={() => setDates(dates.filter((_,j)=>j!==i))}
-              style={{padding:'8px', background:'#fdecea', border:'none', borderRadius:6, fontSize:12, color:'#e74c3c', cursor:'pointer', marginBottom:1}}>✕</button>
+            <button type="button" onClick={() => setDates(dates.filter((_,j)=>j!==i))} style={{padding:'8px', background:'#fdecea', border:'none', borderRadius:6, fontSize:12, color:'#e74c3c', cursor:'pointer', marginBottom:1}}>✕</button>
           </div>
         ))}
         {dates.length === 0 && <div style={{fontSize:12, color:'#BDBDBD'}}>Даты не указаны</div>}
       </div>
       <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10}}>
-        <div><label style={lblS}>Зал</label>
-          <select value={f.hall} onChange={e => setF({...f,hall:e.target.value})} style={inpS}>
-            <option value=''>— Не выбран —</option>
-            <option value='Большой зал'>Большой зал</option>
-            <option value='Малый зал'>Малый зал</option>
-          </select>
-        </div>
-        <div><label style={lblS}>Преподаватель</label>
-          <select value={f.teacher_id} onChange={e => setF({...f,teacher_id:e.target.value})} style={inpS}>
-            <option value=''>— Не выбран —</option>
-            {teachers.map(t => <option key={t.id} value={t.id}>{t.full_name}</option>)}
-          </select>
-        </div>
+        <div><label style={lblS}>Зал</label><select value={f.hall} onChange={e => setF({...f,hall:e.target.value})} style={inpS}><option value=''>— Не выбран —</option><option value='Большой зал'>Большой зал</option><option value='Малый зал'>Малый зал</option></select></div>
+        <div><label style={lblS}>Преподаватель</label><select value={f.teacher_id} onChange={e => setF({...f,teacher_id:e.target.value})} style={inpS}><option value=''>— Не выбран —</option>{teachers.map(t => <option key={t.id} value={t.id}>{t.full_name}</option>)}</select></div>
       </div>
       <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, marginBottom:10}}>
         <div><label style={lblS}>Базовая цена ₽</label><input type="number" value={f.price} onChange={e => setF({...f,price:e.target.value})} placeholder="5000" style={inpS} /></div>
@@ -310,22 +208,13 @@ function EventTab({ teachers, session }) {
       <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:12}}>
         <div><label style={lblS}>Приоритет</label><input type="number" value={f.sort_order} onChange={e => setF({...f,sort_order:e.target.value})} style={inpS} /></div>
         <div style={{display:'flex', alignItems:'flex-end', paddingBottom:4}}>
-          <label style={{display:'flex', alignItems:'center', gap:6, fontSize:12, color:'#2a2a2a', cursor:'pointer'}}>
-            <input type="checkbox" checked={f.is_available_online} onChange={e => setF({...f,is_available_online:e.target.checked})} />
-            В магазине у клиента
-          </label>
+          <label style={{display:'flex', alignItems:'center', gap:6, fontSize:12, color:'#2a2a2a', cursor:'pointer'}}><input type="checkbox" checked={f.is_available_online} onChange={e => setF({...f,is_available_online:e.target.checked})} />В магазине у клиента</label>
         </div>
       </div>
       <TiersEditor tiers={trs} setTiers={setTrs} />
       <div style={{display:'flex', gap:8}}>
-        <button type="button" onClick={onSave} disabled={saving || !f.name.trim()}
-          style={{padding:'9px 20px', background:'#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif', opacity:(!f.name.trim()||saving)?0.5:1}}>
-          {saving ? 'Сохраняем...' : isEdit ? 'Сохранить' : 'Создать мероприятие'}
-        </button>
-        <button type="button" onClick={onCancel}
-          style={{padding:'9px 16px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:10, fontSize:13, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-          Отмена
-        </button>
+        <button type="button" onClick={onSave} disabled={saving || !f.name.trim()} style={{padding:'9px 20px', background:'#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif', opacity:(!f.name.trim()||saving)?0.5:1}}>{saving ? 'Сохраняем...' : isEdit ? 'Сохранить' : 'Создать мероприятие'}</button>
+        <button type="button" onClick={onCancel} style={{padding:'9px 16px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:10, fontSize:13, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>Отмена</button>
       </div>
     </div>
   )
@@ -336,30 +225,11 @@ function EventTab({ teachers, session }) {
     <div>
       <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16}}>
         <div style={{fontSize:13, color:'#888'}}>{events.length} мероприятий</div>
-        <button onClick={() => { setShowForm(!showForm); setEditingEvent(null) }}
-          style={{padding:'9px 20px', background:'#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-          {showForm ? 'Закрыть' : '+ Добавить мероприятие'}
-        </button>
+        <button onClick={() => { setShowForm(!showForm); setEditingEvent(null) }} style={{padding:'9px 20px', background:'#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>{showForm ? 'Закрыть' : '+ Добавить мероприятие'}</button>
       </div>
-
-      {showForm && (
-        <EventForm
-          f={form} setF={setForm}
-          imgPreview={imagePreview}
-          onImgChange={e => { const file=e.target.files[0]; if(!file) return; setImageFile(file); setImagePreview(URL.createObjectURL(file)) }}
-          imgRef={fileRef}
-          trs={tiers} setTrs={setTiers}
-          dates={dates} setDates={setDates}
-          onSave={handleCreate}
-          onCancel={() => { setShowForm(false); setForm(emptyForm); setImageFile(null); setImagePreview(null); setTiers([]); setDates([]) }}
-          isEdit={false}
-        />
-      )}
-
+      {showForm && <EventForm f={form} setF={setForm} imgPreview={imagePreview} onImgChange={e => { const file=e.target.files[0]; if(!file) return; setImageFile(file); setImagePreview(URL.createObjectURL(file)) }} imgRef={fileRef} trs={tiers} setTrs={setTiers} dates={dates} setDates={setDates} onSave={handleCreate} onCancel={() => { setShowForm(false); setForm(emptyForm); setImageFile(null); setImagePreview(null); setTiers([]); setDates([]) }} isEdit={false} />}
       <div style={{display:'flex', flexDirection:'column', gap:12}}>
-        {events.length === 0 && !showForm && (
-          <div style={{textAlign:'center', color:'#BDBDBD', padding:40}}>Мероприятий нет — добавьте первое</div>
-        )}
+        {events.length === 0 && !showForm && <div style={{textAlign:'center', color:'#BDBDBD', padding:40}}>Мероприятий нет — добавьте первое</div>}
         {events.map(ev => {
           const isOpen = openEvent === ev.id
           const tl = EVENT_TYPES.find(t => t.value === ev.type)?.label || 'Другое'
@@ -370,11 +240,7 @@ function EventTab({ teachers, session }) {
           return (
             <div key={ev.id} style={{background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', overflow:'hidden'}}>
               <div style={{display:'flex', gap:14, alignItems:'flex-start', padding:'14px 16px'}}>
-                {ev.image_url ? (
-                  <img src={ev.image_url} alt="" style={{width:72, height:72, borderRadius:10, objectFit:'cover', flexShrink:0}} />
-                ) : (
-                  <div style={{width:72, height:72, borderRadius:10, background:'#f5f5f5', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:28}}>🎭</div>
-                )}
+                {ev.image_url ? <img src={ev.image_url} alt="" style={{width:72, height:72, borderRadius:10, objectFit:'cover', flexShrink:0}} /> : <div style={{width:72, height:72, borderRadius:10, background:'#f5f5f5', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:28}}>🎭</div>}
                 <div style={{flex:1, minWidth:0}}>
                   <div style={{display:'flex', alignItems:'center', gap:8, flexWrap:'wrap', marginBottom:4}}>
                     <span style={{fontSize:14, fontWeight:600, color:'#2a2a2a'}}>{ev.name}</span>
@@ -387,84 +253,40 @@ function EventTab({ teachers, session }) {
                     {ev.age_info && <span>👤 {ev.age_info}</span>}
                   </div>
                   <div style={{display:'flex', gap:10, flexWrap:'wrap', alignItems:'center'}}>
-                    {tiersList.length > 0 ? (
-                      tiersList.map((t, i) => (
-                        <span key={i} style={{fontSize:11, color:'#f39c12', fontWeight:600}}>
-                          {t.label || `${t.position_from}–${t.position_to || '∞'}`}: {Number(t.price).toLocaleString('ru-RU')} ₽
-                        </span>
-                      ))
-                    ) : ev.price ? (
-                      <span style={{fontSize:13, fontWeight:600, color:'#2a2a2a'}}>{Number(ev.price).toLocaleString('ru-RU')} ₽</span>
-                    ) : null}
-                    {ev.max_participants && (
-                      <span style={{fontSize:11, color: regsCount >= ev.max_participants ? '#e74c3c' : '#888'}}>
-                        {regsCount}/{ev.max_participants} мест
-                      </span>
-                    )}
+                    {tiersList.length > 0 ? tiersList.map((t, i) => <span key={i} style={{fontSize:11, color:'#f39c12', fontWeight:600}}>{t.label || `${t.position_from}–${t.position_to || '∞'}`}: {Number(t.price).toLocaleString('ru-RU')} ₽</span>) : ev.price ? <span style={{fontSize:13, fontWeight:600, color:'#2a2a2a'}}>{Number(ev.price).toLocaleString('ru-RU')} ₽</span> : null}
+                    {ev.max_participants && <span style={{fontSize:11, color: regsCount >= ev.max_participants ? '#e74c3c' : '#888'}}>{regsCount}/{ev.max_participants} мест</span>}
                   </div>
                 </div>
                 <div style={{display:'flex', gap:6, flexShrink:0, alignItems:'center'}}>
-                  <button onClick={() => editingEvent === ev.id ? setEditingEvent(null) : openEdit(ev)}
-                    style={{padding:'5px 10px', background: editingEvent===ev.id ? '#fafde8' : '#f5f5f5', border: editingEvent===ev.id ? '1px solid #BFD900' : 'none', borderRadius:8, fontSize:12, color: editingEvent===ev.id ? '#6a7700' : '#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-                    ✎
-                  </button>
-                  <button onClick={() => setOpenEvent(isOpen ? null : ev.id)}
-                    style={{padding:'5px 10px', background:'#f5f5f5', border:'none', borderRadius:8, fontSize:13, cursor:'pointer', transform: isOpen ? 'rotate(180deg)' : 'none', transition:'transform 0.2s'}}>
-                    ⌄
-                  </button>
-                  <button onClick={() => handleArchive(ev.id)}
-                    style={{padding:'5px 10px', background:'transparent', border:'1px solid #f0f0f0', borderRadius:8, fontSize:12, color:'#e74c3c', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-                    В архив
-                  </button>
+                  <button onClick={() => editingEvent === ev.id ? setEditingEvent(null) : openEdit(ev)} style={{padding:'5px 10px', background: editingEvent===ev.id ? '#fafde8' : '#f5f5f5', border: editingEvent===ev.id ? '1px solid #BFD900' : 'none', borderRadius:8, fontSize:12, color: editingEvent===ev.id ? '#6a7700' : '#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>✎</button>
+                  <button onClick={() => setOpenEvent(isOpen ? null : ev.id)} style={{padding:'5px 10px', background:'#f5f5f5', border:'none', borderRadius:8, fontSize:13, cursor:'pointer', transform: isOpen ? 'rotate(180deg)' : 'none', transition:'transform 0.2s'}}>⌄</button>
+                  <button onClick={() => handleArchive(ev.id)} style={{padding:'5px 10px', background:'transparent', border:'1px solid #f0f0f0', borderRadius:8, fontSize:12, color:'#e74c3c', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>В архив</button>
                 </div>
               </div>
-
               {editingEvent === ev.id && editForm && (
                 <div style={{borderTop:'1px solid #f0f0f0', padding:16, background:'#fafde8'}}>
-                  <EventForm
-                    f={editForm} setF={setEditForm}
-                    imgPreview={editImagePreview}
-                    onImgChange={e => { const file=e.target.files[0]; if(!file) return; setEditImageFile(file); setEditImagePreview(URL.createObjectURL(file)) }}
-                    imgRef={editFileRef}
-                    trs={editTiers} setTrs={setEditTiers}
-                    dates={editDates} setDates={setEditDates}
-                    onSave={() => handleUpdate(ev.id)}
-                    onCancel={() => { setEditingEvent(null); setEditForm(null) }}
-                    isEdit={true}
-                  />
+                  <EventForm f={editForm} setF={setEditForm} imgPreview={editImagePreview} onImgChange={e => { const file=e.target.files[0]; if(!file) return; setEditImageFile(file); setEditImagePreview(URL.createObjectURL(file)) }} imgRef={editFileRef} trs={editTiers} setTrs={setEditTiers} dates={editDates} setDates={setEditDates} onSave={() => handleUpdate(ev.id)} onCancel={() => { setEditingEvent(null); setEditForm(null) }} isEdit={true} />
                 </div>
               )}
-
               {isOpen && (
                 <div style={{borderTop:'1px solid #f0f0f0', padding:'12px 16px'}}>
                   <div style={{fontSize:12, fontWeight:600, color:'#888', marginBottom:8}}>Записавшиеся ({regsCount})</div>
-                  {regsCount === 0 ? (
-                    <div style={{fontSize:12, color:'#BDBDBD'}}>Записей пока нет</div>
-                  ) : (
-                    <EventRegistrations eventId={ev.id} />
-                  )}
+                  {regsCount === 0 ? <div style={{fontSize:12, color:'#BDBDBD'}}>Записей пока нет</div> : <EventRegistrations eventId={ev.id} />}
                 </div>
               )}
             </div>
           )
         })}
       </div>
-
       {archived.length > 0 && (
         <div style={{marginTop:16}}>
-          <button onClick={() => setShowArchive(!showArchive)}
-            style={{display:'flex', alignItems:'center', gap:8, padding:'10px 14px', background:'#f9f9f9', border:'1px solid #f0f0f0', borderRadius:10, fontSize:13, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif', width:'100%'}}>
-            🗄 Архив — {archived.length} {showArchive ? '▲' : '▼'}
-          </button>
+          <button onClick={() => setShowArchive(!showArchive)} style={{display:'flex', alignItems:'center', gap:8, padding:'10px 14px', background:'#f9f9f9', border:'1px solid #f0f0f0', borderRadius:10, fontSize:13, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif', width:'100%'}}>🗄 Архив — {archived.length} {showArchive ? '▲' : '▼'}</button>
           {showArchive && (
             <div style={{marginTop:8, display:'flex', flexDirection:'column', gap:8}}>
               {archived.map(ev => (
                 <div key={ev.id} style={{background:'#f9f9f9', borderRadius:12, border:'1px solid #f0f0f0', padding:'12px 16px', display:'flex', alignItems:'center', gap:12, opacity:0.7}}>
                   <span style={{flex:1, fontSize:13, fontWeight:600, color:'#888'}}>{ev.name}</span>
-                  <button onClick={() => handleRestore(ev.id)}
-                    style={{padding:'5px 12px', background:'#eafaf1', border:'1px solid #a9dfbf', borderRadius:8, fontSize:12, color:'#27ae60', cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight:600}}>
-                    ↩ Восстановить
-                  </button>
+                  <button onClick={() => handleRestore(ev.id)} style={{padding:'5px 12px', background:'#eafaf1', border:'1px solid #a9dfbf', borderRadius:8, fontSize:12, color:'#27ae60', cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight:600}}>↩ Восстановить</button>
                 </div>
               ))}
             </div>
@@ -478,23 +300,14 @@ function EventTab({ teachers, session }) {
 function EventRegistrations({ eventId }) {
   const [regs, setRegs] = useState([])
   const [loading, setLoading] = useState(true)
-
   useEffect(() => {
     const load = async () => {
-      const { data } = await supabase
-        .from('event_registrations')
-        .select('*, client:profiles!event_registrations_client_id_fkey(full_name, phone)')
-        .eq('event_id', eventId)
-        .eq('status','registered')
-        .order('created_at')
-      setRegs(data || [])
-      setLoading(false)
+      const { data } = await supabase.from('event_registrations').select('*, client:profiles!event_registrations_client_id_fkey(full_name, phone)').eq('event_id', eventId).eq('status','registered').order('created_at')
+      setRegs(data || []); setLoading(false)
     }
     load()
   }, [eventId])
-
   if (loading) return <div style={{fontSize:12, color:'#BDBDBD'}}>Загрузка...</div>
-
   return (
     <div style={{display:'flex', flexDirection:'column', gap:6}}>
       {regs.map((r, i) => (
@@ -511,29 +324,14 @@ function EventRegistrations({ eventId }) {
 
 // ─── Вкладка Мерч ─────────────────────────────────────────────────────────────
 function VariantEditForm({ variant, colorName, onSave, onClose }) {
-  const [form, setForm] = useState({
-    price: variant.price || '',
-    coins_price: variant.coins_price || '',
-    stock_count: variant.stock_count ?? 0,
-    is_active: variant.is_active ?? true,
-    size: variant.size || '',
-  })
+  const [form, setForm] = useState({ price: variant.price || '', coins_price: variant.coins_price || '', stock_count: variant.stock_count ?? 0, is_active: variant.is_active ?? true, size: variant.size || '' })
   const [saving, setSaving] = useState(false)
   const label = `${colorName}${variant.size ? ' / ' + variant.size : ''}`
-
   const handleSave = async () => {
     setSaving(true)
-    await supabase.from('merch_variants').update({
-      price: parseFloat(form.price) || 0,
-      coins_price: form.coins_price ? parseInt(form.coins_price) : null,
-      stock_count: parseInt(form.stock_count) || 0,
-      is_active: form.is_active,
-      size: form.size || null,
-    }).eq('id', variant.id)
-    setSaving(false)
-    onSave()
+    await supabase.from('merch_variants').update({ price: parseFloat(form.price) || 0, coins_price: form.coins_price ? parseInt(form.coins_price) : null, stock_count: parseInt(form.stock_count) || 0, is_active: form.is_active, size: form.size || null }).eq('id', variant.id)
+    setSaving(false); onSave()
   }
-
   return (
     <div style={{padding:14, border:'1.5px solid #BFD900', borderRadius:10, background:'#fafde8', marginTop:8}}>
       <div style={{fontSize:13, fontWeight:600, color:'#2a2a2a', marginBottom:12}}>Редактировать: {label}</div>
@@ -544,22 +342,11 @@ function VariantEditForm({ variant, colorName, onSave, onClose }) {
       </div>
       <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:12}}>
         <div><label style={lblS}>Остаток (шт)</label><input type="number" min="0" value={form.stock_count} onChange={e => setForm({...form, stock_count:e.target.value})} style={inpS} /></div>
-        <div style={{display:'flex', alignItems:'flex-end', paddingBottom:4}}>
-          <label style={{display:'flex', alignItems:'center', gap:8, fontSize:13, color:'#2a2a2a', cursor:'pointer'}}>
-            <input type="checkbox" checked={form.is_active} onChange={e => setForm({...form, is_active:e.target.checked})} />
-            Активен (продаётся)
-          </label>
-        </div>
+        <div style={{display:'flex', alignItems:'flex-end', paddingBottom:4}}><label style={{display:'flex', alignItems:'center', gap:8, fontSize:13, color:'#2a2a2a', cursor:'pointer'}}><input type="checkbox" checked={form.is_active} onChange={e => setForm({...form, is_active:e.target.checked})} />Активен (продаётся)</label></div>
       </div>
       <div style={{display:'flex', gap:8}}>
-        <button onClick={handleSave} disabled={saving}
-          style={{padding:'8px 16px', background:'#BFD900', border:'none', borderRadius:8, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-          {saving ? 'Сохраняем...' : 'Сохранить'}
-        </button>
-        <button onClick={onClose}
-          style={{padding:'8px 14px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:8, fontSize:12, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-          Отмена
-        </button>
+        <button onClick={handleSave} disabled={saving} style={{padding:'8px 16px', background:'#BFD900', border:'none', borderRadius:8, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>{saving ? 'Сохраняем...' : 'Сохранить'}</button>
+        <button onClick={onClose} style={{padding:'8px 14px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:8, fontSize:12, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>Отмена</button>
       </div>
     </div>
   )
@@ -577,7 +364,6 @@ function MerchTab({ session }) {
   const [saving, setSaving] = useState(false)
   const fileRef = useRef()
   const editFileRef = useRef()
-
   const [form, setForm] = useState({ name:'', description:'', category:'clothing', is_available_online:true, sort_order:100, allow_preorder:false, low_stock_threshold:3, badge_text:'', badge_color:'#BFD900', image_url:'' })
   const [imageFile, setImageFile] = useState(null)
   const [imagePreview, setImagePreview] = useState(null)
@@ -591,9 +377,7 @@ function MerchTab({ session }) {
   const openEdit = (product) => {
     setEditingProduct(product.id)
     setEditForm({ name: product.name||'', description: product.description||'', category: product.category||'clothing', is_available_online: product.is_available_online??true, sort_order: product.sort_order??100, allow_preorder: product.allow_preorder??false, low_stock_threshold: product.low_stock_threshold??3, badge_text: product.badge_text||'', badge_color: product.badge_color||'#BFD900', image_url: product.image_url||'' })
-    setEditImageFile(null)
-    setEditImagePreview(product.image_url || null)
-    setOpenProduct(product.id)
+    setEditImageFile(null); setEditImagePreview(product.image_url || null); setOpenProduct(product.id)
   }
 
   const handleUpdate = async (productId) => {
@@ -606,13 +390,10 @@ function MerchTab({ session }) {
   }
 
   useEffect(() => { load() }, [])
-
   const load = async () => {
     setLoading(true)
     const { data } = await supabase.from('merch_products').select('*, merch_variants(*), merch_images(*), merch_preorders(id)').order('sort_order')
-    setProducts((data || []).filter(p => p.is_active))
-    setArchived((data || []).filter(p => !p.is_active))
-    setLoading(false)
+    setProducts((data || []).filter(p => p.is_active)); setArchived((data || []).filter(p => !p.is_active)); setLoading(false)
   }
 
   const handleCreate = async () => {
@@ -620,9 +401,7 @@ function MerchTab({ session }) {
     setSaving(true)
     const { data: product } = await supabase.from('merch_products').insert({ name: form.name.trim(), description: form.description||null, category: form.category, is_available_online: form.is_available_online, sort_order: parseInt(form.sort_order)||100, allow_preorder: form.allow_preorder, low_stock_threshold: parseInt(form.low_stock_threshold)||3, badge_text: form.badge_text||null, badge_color: form.badge_color||null, is_active: true, created_by: session.user.id }).select().single()
     if (product && imageFile) { const url = await uploadMerchImage(imageFile, product.id); if (url) { await supabase.from('merch_products').update({ image_url: url }).eq('id', product.id); await supabase.from('merch_images').insert({ product_id: product.id, url, sort_order: 1 }) } }
-    setSaving(false); setShowForm(false)
-    setForm({ name:'', description:'', category:'clothing', is_available_online:true, sort_order:100, allow_preorder:false, low_stock_threshold:3, badge_text:'', badge_color:'#BFD900', image_url:'' })
-    setImageFile(null); setImagePreview(null); load()
+    setSaving(false); setShowForm(false); setForm({ name:'', description:'', category:'clothing', is_available_online:true, sort_order:100, allow_preorder:false, low_stock_threshold:3, badge_text:'', badge_color:'#BFD900', image_url:'' }); setImageFile(null); setImagePreview(null); load()
   }
 
   const handleArchive = async (id) => { if (!confirm('Архивировать товар?')) return; await supabase.from('merch_products').update({ is_active: false }).eq('id', id); load() }
@@ -648,11 +427,8 @@ function MerchTab({ session }) {
     <div>
       <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16}}>
         <div style={{fontSize:13, color:'#888'}}>{products.length} товаров · {products.reduce((s,p)=>s+(p.merch_variants||[]).length,0)} вариантов</div>
-        <button onClick={() => setShowForm(!showForm)} style={{padding:'9px 20px', background:'#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-          {showForm ? 'Закрыть' : '+ Добавить товар'}
-        </button>
+        <button onClick={() => setShowForm(!showForm)} style={{padding:'9px 20px', background:'#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>{showForm ? 'Закрыть' : '+ Добавить товар'}</button>
       </div>
-
       {showForm && (
         <div style={{background:'#fff', borderRadius:14, border:'1.5px solid #BFD900', padding:20, marginBottom:16}}>
           <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a', marginBottom:14}}>Новый товар</div>
@@ -686,7 +462,6 @@ function MerchTab({ session }) {
           </div>
         </div>
       )}
-
       <div style={{display:'flex',flexDirection:'column',gap:12}}>
         {products.length===0&&!showForm&&<div style={{textAlign:'center',color:'#BDBDBD',padding:40}}>Мерча нет — добавьте первый товар</div>}
         {products.map(product => {
@@ -720,7 +495,6 @@ function MerchTab({ session }) {
                   <button onClick={()=>handleArchive(product.id)} style={{padding:'5px 10px',background:'transparent',border:'1px solid #f0f0f0',borderRadius:8,fontSize:12,color:'#e74c3c',cursor:'pointer',fontFamily:'Inter,sans-serif'}}>В архив</button>
                 </div>
               </div>
-
               {editingProduct===product.id&&editForm&&(
                 <div style={{borderTop:'1px solid #f0f0f0',padding:'16px',background:'#fafde8'}}>
                   <div style={{fontSize:13,fontWeight:600,color:'#2a2a2a',marginBottom:12}}>✏️ Редактировать товар</div>
@@ -754,12 +528,10 @@ function MerchTab({ session }) {
                   </div>
                 </div>
               )}
-
               {isOpen&&(
                 <div style={{borderTop:'1px solid #f0f0f0',padding:'12px 16px'}}>
                   {Object.entries(colorMap).map(([color,{hex,variants}])=>{
-                    const colorKey=`${product.id}-${color}`
-                    const isColorOpen=openColor[colorKey]
+                    const colorKey=`${product.id}-${color}`; const isColorOpen=openColor[colorKey]
                     const colorTotal=variants.reduce((s,v)=>s+(v.stock_count||0),0)
                     const colorLow=variants.filter(v=>v.stock_count>0&&v.stock_count<=product.low_stock_threshold).length
                     const colorOut=variants.filter(v=>v.stock_count===0).length
@@ -846,7 +618,6 @@ function MerchTab({ session }) {
           )
         })}
       </div>
-
       {archived.length>0&&(
         <div style={{marginTop:16}}>
           <button onClick={()=>setShowArchive(!showArchive)} style={{display:'flex',alignItems:'center',gap:8,padding:'10px 14px',background:'#f9f9f9',border:'1px solid #f0f0f0',borderRadius:10,fontSize:13,color:'#888',cursor:'pointer',fontFamily:'Inter,sans-serif',width:'100%'}}>🗄 Архив — {archived.length} товара {showArchive?'▲':'▼'}</button>
@@ -867,6 +638,160 @@ function MerchTab({ session }) {
 }
 
 // ─── Вкладка Индивы ────────────────────────────────────────────────────────────
+const DAYS = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб']
+
+function SlotsSection({ teacherId }) {
+  const DAYS_SHORT = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб']
+  const MONTHS = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек']
+
+  const [slots, setSlots] = useState([])
+  const [selectedDate, setSelectedDate] = useState(null)
+  const [showAdd, setShowAdd] = useState(false)
+  const [newStart, setNewStart] = useState('10:00')
+  const [duration, setDuration] = useState(60)
+  const [saving, setSaving] = useState(false)
+
+  const days = Array.from({ length: 30 }, (_, i) => {
+    const d = new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate() + i)
+    return d
+  })
+
+  const toDateStr = (d) => d.toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' })
+
+  useEffect(() => { loadSlots() }, [teacherId])
+
+  const loadSlots = async () => {
+    const from = toDateStr(days[0])
+    const to = toDateStr(days[days.length - 1])
+    const { data } = await supabase
+      .from('teacher_slot_dates')
+      .select('*')
+      .eq('teacher_id', teacherId)
+      .gte('date', from)
+      .lte('date', to)
+      .order('date').order('start_time')
+    setSlots(data || [])
+  }
+
+  const slotsForDate = (dateStr) => slots.filter(s => s.date === dateStr)
+
+  const handleAdd = async () => {
+    if (!selectedDate || !newStart) return
+    setSaving(true)
+    const [h, m] = newStart.split(':').map(Number)
+    const totalMins = h * 60 + m + duration
+    const endH = String(Math.floor(totalMins / 60)).padStart(2, '0')
+    const endM = String(totalMins % 60).padStart(2, '0')
+    await supabase.from('teacher_slot_dates').insert({
+      teacher_id: teacherId,
+      date: toDateStr(selectedDate),
+      start_time: newStart + ':00',
+      end_time: `${endH}:${endM}:00`,
+      is_active: true,
+    })
+    setShowAdd(false); setSaving(false); loadSlots()
+  }
+
+  const handleDelete = async (id) => {
+    await supabase.from('teacher_slot_dates').delete().eq('id', id)
+    loadSlots()
+  }
+
+  const handleToggle = async (slot) => {
+    await supabase.from('teacher_slot_dates').update({ is_active: !slot.is_active }).eq('id', slot.id)
+    loadSlots()
+  }
+
+  const inp = { padding:'7px 10px', border:'1px solid #e8e8e8', borderRadius:8, fontSize:12, fontFamily:'Inter,sans-serif', boxSizing:'border-box' }
+  const selectedDateStr = selectedDate ? toDateStr(selectedDate) : null
+
+  return (
+    <div style={{ marginTop: 12, borderTop: '1px solid #f0f0f0', paddingTop: 12 }}>
+      <div style={{ fontSize: 12, fontWeight: 600, color: '#888', marginBottom: 10 }}>📅 Слоты расписания — 30 дней</div>
+
+      {/* Горизонтальный скролл календаря */}
+      <div style={{ overflowX: 'auto', scrollbarWidth: 'none', marginBottom: 12 }}>
+        <div style={{ display: 'flex', gap: 6, paddingBottom: 4 }}>
+          {days.map(d => {
+            const ds = toDateStr(d)
+            const count = slotsForDate(ds).length
+            const isSelected = selectedDateStr === ds
+            const isToday = ds === toDateStr(new Date())
+            return (
+              <div key={ds} onClick={() => { setSelectedDate(d); setShowAdd(false) }}
+                style={{
+                  flexShrink: 0, width: 52, textAlign: 'center', padding: '8px 4px',
+                  borderRadius: 10, cursor: 'pointer',
+                  background: isSelected ? '#BFD900' : isToday ? '#fafde8' : '#f9f9f9',
+                  border: isSelected ? 'none' : isToday ? '1px solid #BFD900' : '1px solid #f0f0f0',
+                }}>
+                <div style={{ fontSize: 10, color: isSelected ? '#2a2a2a' : '#888', marginBottom: 2 }}>{DAYS_SHORT[d.getDay()]}</div>
+                <div style={{ fontSize: 15, fontWeight: 600, color: '#2a2a2a' }}>{d.getDate()}</div>
+                <div style={{ fontSize: 10, color: isSelected ? '#2a2a2a' : '#BDBDBD' }}>{MONTHS[d.getMonth()]}</div>
+                {count > 0 && <div style={{ marginTop: 4, fontSize: 10, fontWeight: 700, color: isSelected ? '#2a2a2a' : '#27ae60' }}>{count} сл.</div>}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Слоты выбранной даты */}
+      {selectedDate ? (
+        <div style={{ background: '#f9f9f9', borderRadius: 10, padding: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#2a2a2a' }}>
+              {DAYS_SHORT[selectedDate.getDay()]}, {selectedDate.getDate()} {MONTHS[selectedDate.getMonth()]}
+            </div>
+            <button onClick={() => setShowAdd(!showAdd)}
+              style={{ padding: '4px 12px', background: '#BFD900', border: 'none', borderRadius: 7, fontSize: 11, fontWeight: 700, color: '#2a2a2a', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+              + Слот
+            </button>
+          </div>
+          {showAdd && (
+            <div style={{ background: '#fff', borderRadius: 8, padding: 10, marginBottom: 10, border: '1px solid #e0e0e0' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                <div>
+                  <div style={{ fontSize: 11, color: '#888', marginBottom: 3 }}>Начало</div>
+                  <input type="time" value={newStart} onChange={e => setNewStart(e.target.value)} style={{ ...inp, width: '100%' }} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: '#888', marginBottom: 3 }}>Длительность</div>
+                  <select value={duration} onChange={e => setDuration(Number(e.target.value))} style={{ ...inp, width: '100%' }}>
+                    {[30, 45, 60, 90].map(m => <option key={m} value={m}>{m} мин</option>)}
+                  </select>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button onClick={handleAdd} disabled={saving} style={{ flex: 1, padding: '6px', background: '#BFD900', border: 'none', borderRadius: 7, fontSize: 12, fontWeight: 700, color: '#2a2a2a', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+                  {saving ? 'Создаём...' : 'Добавить'}
+                </button>
+                <button onClick={() => setShowAdd(false)} style={{ padding: '6px 12px', background: 'transparent', border: '1px solid #e0e0e0', borderRadius: 7, fontSize: 11, color: '#888', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+                  Отмена
+                </button>
+              </div>
+            </div>
+          )}
+          {slotsForDate(selectedDateStr).length === 0 ? (
+            <div style={{ fontSize: 12, color: '#BDBDBD', textAlign: 'center', padding: '12px 0' }}>Слотов нет — добавьте первый</div>
+          ) : (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {slotsForDate(selectedDateStr).map(s => (
+                <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', background: s.is_active ? '#fff' : '#f5f5f5', borderRadius: 8, border: '1px solid #e0e0e0', opacity: s.is_active ? 1 : 0.5 }}>
+                  <span style={{ fontSize: 12, color: '#2a2a2a' }}>{s.start_time.slice(0,5)}–{s.end_time.slice(0,5)}</span>
+                  <button onClick={() => handleToggle(s)} style={{ fontSize: 11, color: s.is_active ? '#27ae60' : '#888', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>{s.is_active ? '●' : '○'}</button>
+                  <button onClick={() => handleDelete(s.id)} style={{ fontSize: 11, color: '#e74c3c', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div style={{ fontSize: 12, color: '#BDBDBD', textAlign: 'center', padding: '8px 0' }}>Выберите дату в календаре</div>
+      )}
+    </div>
+  )
+}
+
 function IndivTab({ teachers }) {
   const [packages, setPackages] = useState([])
   const [loading, setLoading] = useState(true)
@@ -908,7 +833,7 @@ function IndivTab({ teachers }) {
   if (loading) return <div style={{textAlign:'center',color:'#BDBDBD',padding:40}}>Загрузка...</div>
 
   return (
-    <div style={{display:'flex',flexDirection:'column',gap:10}}>
+    <div style={{display:'flex',flexDirection:'column',gap:10,maxWidth:860}}>
       {packages.map(({teacher,packages:pkgs})=>{
         const isOpen=openTeacher===teacher?.id
         const minPrice=Math.min(...pkgs.map(p=>Number(p.price)))
@@ -948,7 +873,7 @@ function IndivTab({ teachers }) {
                         </div>
                         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:12}}>
                           <div><label style={lblS}>Цена (₽)</label><input type="number" min="0" value={editingPkg.price} onChange={e=>setEditingPkg({...editingPkg,price:e.target.value})} style={inpS} /></div>
-                          <div><label style={lblS}>Приоритет (меньше = выше)</label><input type="number" min="1" value={editingPkg.sort_order} onChange={e=>setEditingPkg({...editingPkg,sort_order:e.target.value})} style={inpS} /></div>
+                          <div><label style={lblS}>Приоритет</label><input type="number" min="1" value={editingPkg.sort_order} onChange={e=>setEditingPkg({...editingPkg,sort_order:e.target.value})} style={inpS} /></div>
                         </div>
                         <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
                           <button onClick={handleUpdate} disabled={saving} style={{padding:'8px 16px',background:'#BFD900',border:'none',borderRadius:8,fontSize:13,fontWeight:700,color:'#2a2a2a',cursor:'pointer',fontFamily:'Inter,sans-serif'}}>{saving?'Сохраняем...':'Сохранить'}</button>
@@ -980,6 +905,7 @@ function IndivTab({ teachers }) {
                     </div>
                   </div>
                 )}
+                <SlotsSection teacherId={teacher?.id} />
               </div>
             )}
           </div>
@@ -992,13 +918,7 @@ function IndivTab({ teachers }) {
 
 function ProductForm({ type, teachers, groups, onSave, onCancel, initial = null }) {
   const isEdit = !!initial
-  const [form, setForm] = useState({
-    name: initial?.name || '', description: initial?.description || '',
-    price: initial?.price || '', is_available_online: initial?.is_available_online ?? true,
-    is_active: initial?.is_active ?? true, sort_order: initial?.sort_order ?? 100,
-    is_featured: initial?.is_featured ?? false, badge_text: initial?.badge_text || 'Популярный',
-    badge_color: initial?.badge_color || '#BFD900',
-  })
+  const [form, setForm] = useState({ name: initial?.name || '', description: initial?.description || '', price: initial?.price || '', is_available_online: initial?.is_available_online ?? true, is_active: initial?.is_active ?? true, sort_order: initial?.sort_order ?? 100, is_featured: initial?.is_featured ?? false, badge_text: initial?.badge_text || 'Популярный', badge_color: initial?.badge_color || '#BFD900' })
   const ps = initial?.product_subscriptions?.[0]
   const [subForm, setSubForm] = useState({ sub_type: ps?.sub_type || 'unlimited', visits_count: ps?.visits_count || '', duration_days: ps?.duration_days || '', available_from_day: ps?.available_from_day || '', available_to_day: ps?.available_to_day || '' })
   const [selectedGroups, setSelectedGroups] = useState([])
@@ -1078,10 +998,7 @@ function ProductForm({ type, teachers, groups, onSave, onCancel, initial = null 
               {showEmoji && (
                 <div style={{position:'absolute', top:'100%', right:0, zIndex:100, background:'#fff', border:'1px solid #e0e0e0', borderRadius:12, padding:10, width:260, display:'flex', flexWrap:'wrap', gap:4, boxShadow:'0 4px 16px rgba(0,0,0,0.12)', marginTop:4}}>
                   {BADGE_EMOJIS.map(e => (
-                    <button key={e} type="button" onClick={() => { setForm(f => ({...f, badge_text: f.badge_text + e})); setShowEmoji(false) }}
-                      style={{padding:'4px 6px', background:'none', border:'none', fontSize:18, cursor:'pointer', borderRadius:6}}
-                      onMouseEnter={ev => ev.currentTarget.style.background='#f5f5f5'}
-                      onMouseLeave={ev => ev.currentTarget.style.background='none'}>{e}</button>
+                    <button key={e} type="button" onClick={() => { setForm(f => ({...f, badge_text: f.badge_text + e})); setShowEmoji(false) }} style={{padding:'4px 6px', background:'none', border:'none', fontSize:18, cursor:'pointer', borderRadius:6}} onMouseEnter={ev => ev.currentTarget.style.background='#f5f5f5'} onMouseLeave={ev => ev.currentTarget.style.background='none'}>{e}</button>
                   ))}
                 </div>
               )}
@@ -1089,22 +1006,15 @@ function ProductForm({ type, teachers, groups, onSave, onCancel, initial = null 
           </div>
           <label style={labelStyle}>Цвет плашки</label>
           <div style={{display:'flex', gap:8, flexWrap:'wrap', marginBottom:8}}>
-            {BADGE_COLORS.map(color => (
-              <div key={color} onClick={() => setForm({...form, badge_color:color})}
-                style={{width:28, height:28, borderRadius:'50%', background:color, cursor:'pointer', border: form.badge_color === color ? '3px solid #2a2a2a' : '2px solid transparent'}} />
-            ))}
+            {BADGE_COLORS.map(color => <div key={color} onClick={() => setForm({...form, badge_color:color})} style={{width:28, height:28, borderRadius:'50%', background:color, cursor:'pointer', border: form.badge_color === color ? '3px solid #2a2a2a' : '2px solid transparent'}} />)}
           </div>
-          <div style={{fontSize:11, color:'#888', marginTop:4}}>
-            Предпросмотр: <span style={{background:form.badge_color, color:textColor(form.badge_color), padding:'2px 10px', borderRadius:6, fontSize:11, fontWeight:700}}>{form.badge_text}</span>
-          </div>
+          <div style={{fontSize:11, color:'#888', marginTop:4}}>Предпросмотр: <span style={{background:form.badge_color, color:textColor(form.badge_color), padding:'2px 10px', borderRadius:6, fontSize:11, fontWeight:700}}>{form.badge_text}</span></div>
         </div>
       )}
       {type === 'subscription' && (
         <div>
           <label style={labelStyle}>Тип абонемента</label>
-          <select value={subForm.sub_type} onChange={e => setSubForm({...subForm, sub_type:e.target.value})} style={inputStyle}>
-            {Object.entries(SUB_TYPES).map(([k,v]) => <option key={k} value={k}>{v}</option>)}
-          </select>
+          <select value={subForm.sub_type} onChange={e => setSubForm({...subForm, sub_type:e.target.value})} style={inputStyle}>{Object.entries(SUB_TYPES).map(([k,v]) => <option key={k} value={k}>{v}</option>)}</select>
           {subForm.sub_type === 'count' && (<><label style={labelStyle}>Количество занятий</label><input value={subForm.visits_count} onChange={e => setSubForm({...subForm, visits_count:e.target.value})} placeholder="Например: 4" type="number" style={inputStyle} /></>)}
           <label style={labelStyle}>Срок действия (дней)</label>
           <input value={subForm.duration_days} onChange={e => setSubForm({...subForm, duration_days:e.target.value})} placeholder="Например: 30" type="number" style={inputStyle} />
@@ -1121,13 +1031,13 @@ function ProductForm({ type, teachers, groups, onSave, onCancel, initial = null 
           <div style={{marginBottom:12}}>
             <div style={labelStyle}>Доступные группы</div>
             <div style={{display:'flex', flexWrap:'wrap', gap:6}}>
-              {groups.map(g => (<label key={g.id} style={{display:'flex', alignItems:'center', gap:6, padding:'5px 10px', background: selectedGroups.includes(g.id) ? '#fafde8' : '#f5f5f5', border: selectedGroups.includes(g.id) ? '1px solid #BFD900' : '1px solid #e0e0e0', borderRadius:8, fontSize:12, cursor:'pointer'}}><input type="checkbox" checked={selectedGroups.includes(g.id)} onChange={() => toggleGroup(g.id)} />{g.name}</label>))}
+              {groups.map(g => <label key={g.id} style={{display:'flex', alignItems:'center', gap:6, padding:'5px 10px', background: selectedGroups.includes(g.id) ? '#fafde8' : '#f5f5f5', border: selectedGroups.includes(g.id) ? '1px solid #BFD900' : '1px solid #e0e0e0', borderRadius:8, fontSize:12, cursor:'pointer'}}><input type="checkbox" checked={selectedGroups.includes(g.id)} onChange={() => toggleGroup(g.id)} />{g.name}</label>)}
             </div>
           </div>
           <div style={{marginBottom:12}}>
             <div style={labelStyle}>Доступные преподаватели</div>
             <div style={{display:'flex', flexWrap:'wrap', gap:6}}>
-              {teachers.map(t => (<label key={t.id} style={{display:'flex', alignItems:'center', gap:6, padding:'5px 10px', background: selectedTeachers.includes(t.id) ? '#fafde8' : '#f5f5f5', border: selectedTeachers.includes(t.id) ? '1px solid #BFD900' : '1px solid #e0e0e0', borderRadius:8, fontSize:12, cursor:'pointer'}}><input type="checkbox" checked={selectedTeachers.includes(t.id)} onChange={() => toggleTeacher(t.id)} />{t.full_name || t.email}</label>))}
+              {teachers.map(t => <label key={t.id} style={{display:'flex', alignItems:'center', gap:6, padding:'5px 10px', background: selectedTeachers.includes(t.id) ? '#fafde8' : '#f5f5f5', border: selectedTeachers.includes(t.id) ? '1px solid #BFD900' : '1px solid #e0e0e0', borderRadius:8, fontSize:12, cursor:'pointer'}}><input type="checkbox" checked={selectedTeachers.includes(t.id)} onChange={() => toggleTeacher(t.id)} />{t.full_name || t.email}</label>)}
             </div>
           </div>
         </div>
@@ -1156,18 +1066,13 @@ export default function AdminCatalog() {
   const [editingProduct, setEditingProduct] = useState(null)
   const [session, setSession] = useState(null)
 
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSession(data.session))
-  }, [])
-
+  useEffect(() => { supabase.auth.getSession().then(({ data }) => setSession(data.session)) }, [])
   useEffect(() => { loadAll() }, [tab])
 
   const loadAll = async () => {
     setLoading(true)
     if (tab !== 'indiv' && tab !== 'merch' && tab !== 'event') {
-      const { data: p } = await supabase.from('products')
-        .select(`*, product_subscriptions(*)`)
-        .eq('type', tab).order('sort_order', { ascending: true })
+      const { data: p } = await supabase.from('products').select(`*, product_subscriptions(*)`).eq('type', tab).order('sort_order', { ascending: true })
       setProducts(p || [])
     }
     const { data: allStaff } = await supabase.from('profiles').select('id, full_name').in('role', ['teacher','owner','manager','admin'])
@@ -1179,13 +1084,8 @@ export default function AdminCatalog() {
     setLoading(false)
   }
 
-  const handleArchive = async (id) => {
-    if (!confirm('Архивировать продукт?')) return
-    await supabase.from('products').update({ is_active: false }).eq('id', id); loadAll()
-  }
-  const handleRestore = async (id) => {
-    await supabase.from('products').update({ is_active: true }).eq('id', id); loadAll()
-  }
+  const handleArchive = async (id) => { if (!confirm('Архивировать продукт?')) return; await supabase.from('products').update({ is_active: false }).eq('id', id); loadAll() }
+  const handleRestore = async (id) => { await supabase.from('products').update({ is_active: true }).eq('id', id); loadAll() }
   const handleEdit = (product) => { setEditingProduct(product); setShowForm(false); window.scrollTo({ top: 0, behavior: 'smooth' }) }
   const handleCloseForm = () => { setShowForm(false); setEditingProduct(null) }
 
@@ -1198,28 +1098,17 @@ export default function AdminCatalog() {
       <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:24}}>
         <h1 style={{fontSize:24, fontWeight:600, color:'#1f2024', margin:0}}>Каталог</h1>
         {tab !== 'indiv' && tab !== 'merch' && tab !== 'event' && (
-          <button onClick={() => { setShowForm(!showForm); setEditingProduct(null) }}
-            style={{padding:'9px 20px', background:'#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-            {showForm ? 'Закрыть' : '+ Добавить'}
-          </button>
+          <button onClick={() => { setShowForm(!showForm); setEditingProduct(null) }} style={{padding:'9px 20px', background:'#BFD900', border:'none', borderRadius:10, fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>{showForm ? 'Закрыть' : '+ Добавить'}</button>
         )}
       </div>
-
       <div style={{display:'flex', gap:4, marginBottom:20, borderBottom:'1px solid #f0f0f0'}}>
         {TABS.map(t => (
-          <div key={t} onClick={() => { setTab(t); setShowForm(false); setEditingProduct(null) }} style={{
-            padding:'10px 16px', fontSize:13, cursor:'pointer',
-            color: tab === t ? '#2a2a2a' : '#BDBDBD',
-            borderBottom: tab === t ? '2px solid #BFD900' : '2px solid transparent',
-            fontWeight: tab === t ? 600 : 400, marginBottom:-1
-          }}>{TAB_LABELS[t]}</div>
+          <div key={t} onClick={() => { setTab(t); setShowForm(false); setEditingProduct(null) }} style={{ padding:'10px 16px', fontSize:13, cursor:'pointer', color: tab === t ? '#2a2a2a' : '#BDBDBD', borderBottom: tab === t ? '2px solid #BFD900' : '2px solid transparent', fontWeight: tab === t ? 600 : 400, marginBottom:-1 }}>{TAB_LABELS[t]}</div>
         ))}
       </div>
-
       {tab === 'indiv' && <IndivTab teachers={teachers} />}
       {tab === 'merch' && session && <MerchTab session={session} />}
       {tab === 'event' && session && <EventTab teachers={teachers} session={session} />}
-
       {tab !== 'indiv' && tab !== 'merch' && tab !== 'event' && (
         <>
           {showForm && !editingProduct && <ProductForm type={tab} teachers={teachers} groups={groups} onSave={() => { setShowForm(false); loadAll() }} onCancel={handleCloseForm} />}
@@ -1237,9 +1126,7 @@ export default function AdminCatalog() {
                       <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a', marginBottom:4}}>{p.name}</div>
                       {p.is_featured && <span style={{background:p.badge_color||'#BFD900', color:textColor(p.badge_color||'#BFD900'), padding:'2px 8px', borderRadius:6, fontSize:10, fontWeight:700}}>{p.badge_text || 'Популярный'}</span>}
                     </div>
-                    <span style={{background: p.is_available_online ? '#fafde8' : '#f5f5f5', color: p.is_available_online ? '#6a7700' : '#BDBDBD', padding:'2px 8px', borderRadius:6, fontSize:11, fontWeight:600, flexShrink:0, marginLeft:8}}>
-                      {p.is_available_online ? '🌐' : 'Офлайн'}
-                    </span>
+                    <span style={{background: p.is_available_online ? '#fafde8' : '#f5f5f5', color: p.is_available_online ? '#6a7700' : '#BDBDBD', padding:'2px 8px', borderRadius:6, fontSize:11, fontWeight:600, flexShrink:0, marginLeft:8}}>{p.is_available_online ? '🌐' : 'Офлайн'}</span>
                   </div>
                   {p.description && <div style={{fontSize:12, color:'#888', marginBottom:8}}>{p.description}</div>}
                   <div style={{fontSize:11, color:'#BDBDBD', marginBottom:4}}>Приоритет: {p.sort_order}</div>
