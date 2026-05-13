@@ -10,45 +10,24 @@ export default function Home({ session, onNewsAll, onBonus }) {
   const [nextLesson, setNextLesson] = useState(null)
 
   useEffect(() => {
+    let cancelled = false
     const load = async () => {
-      const { data: profileData } = await supabase
-        .from('profiles').select('*').eq('id', session.user.id).single()
-      setProfile(profileData)
-
-      const { data: tagsData } = await supabase.from('news_tags').select('*').order('created_at')
-      setTags(tagsData || [])
-
-      const { data: newsData } = await supabase
-        .from('news').select('*').eq('is_active', true)
-        .lte('published_at', new Date().toISOString())
-        .order('is_pinned', { ascending: false })
-        .order('published_at', { ascending: false })
-        .limit(5)
-      setNews(newsData || [])
-
-      const now = new Date()
-      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
-
-      const { data: allAttendance } = await supabase
-        .from('attendance')
-        .select('created_at, schedule:schedule_id(starts_at, ends_at)')
-        .eq('student_id', session.user.id)
-        .eq('status', 'present')
-
-      const thisMonthCount = (allAttendance || []).filter(a => a.created_at >= monthStart).length
-      const totalMinutes = (allAttendance || []).reduce((sum, a) => {
-        if (a.schedule?.starts_at && a.schedule?.ends_at)
-          return sum + (new Date(a.schedule.ends_at) - new Date(a.schedule.starts_at)) / 60000
-        return sum + 90
-      }, 0)
-      setStats({ thisMonth: thisMonthCount, totalHours: Math.round(totalMinutes / 60) })
-
-      // Следующее занятие — берём из bookings (группа/мероприятие) И из schedule
-      // напрямую (для индивов: bookings туда не пишутся, занятие связано через
-      // schedule.indiv_student_id).
+      // Все четыре запроса страницы параллельно — раньше шли последовательно
+      // с накопительным RTT.
       const nowIso = new Date().toISOString()
       const sel = 'id, title, starts_at, ends_at, hall, lesson_type, is_cancelled, groups(name), teacher:profiles!schedule_teacher_id_fkey(full_name)'
-      const [bookingsRes, indivRes] = await Promise.all([
+      const [profileRes, tagsRes, newsRes, attRes, bookingsRes, indivRes] = await Promise.all([
+        supabase.from('profiles').select('*').eq('id', session.user.id).single(),
+        supabase.from('news_tags').select('*').order('created_at'),
+        supabase.from('news').select('*').eq('is_active', true)
+          .lte('published_at', new Date().toISOString())
+          .order('is_pinned', { ascending: false })
+          .order('published_at', { ascending: false })
+          .limit(5),
+        supabase.from('attendance')
+          .select('created_at, schedule:schedule_id(starts_at, ends_at)')
+          .eq('student_id', session.user.id)
+          .eq('status', 'present'),
         supabase.from('bookings')
           .select(`schedule:schedule_id(${sel})`)
           .eq('student_id', session.user.id)
@@ -59,6 +38,26 @@ export default function Home({ session, onNewsAll, onBonus }) {
           .eq('is_cancelled', false)
           .gte('starts_at', nowIso),
       ])
+      if (cancelled) return
+
+      setProfile(profileRes.data)
+      setTags(tagsRes.data || [])
+      setNews(newsRes.data || [])
+
+      const now = new Date()
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+      const allAttendance = attRes.data || []
+      const thisMonthCount = allAttendance.filter(a => a.created_at >= monthStart).length
+      const totalMinutes = allAttendance.reduce((sum, a) => {
+        if (a.schedule?.starts_at && a.schedule?.ends_at)
+          return sum + (new Date(a.schedule.ends_at) - new Date(a.schedule.starts_at)) / 60000
+        return sum + 90
+      }, 0)
+      setStats({ thisMonth: thisMonthCount, totalHours: Math.round(totalMinutes / 60) })
+
+      // Следующее занятие — bookings (группа/мероприятие) + schedule напрямую
+      // (для индивов: bookings туда не пишутся, занятие связано через
+      // schedule.indiv_student_id).
       const fromBookings = (bookingsRes.data || [])
         .map(b => b.schedule)
         .filter(s => s && !s.is_cancelled && new Date(s.starts_at) >= new Date())
@@ -69,6 +68,7 @@ export default function Home({ session, onNewsAll, onBonus }) {
       if (next) setNextLesson(next)
     }
     load()
+    return () => { cancelled = true }
   }, [session])
 
   const name = profile?.first_name || profile?.full_name?.split(' ')[0] || session.user.email

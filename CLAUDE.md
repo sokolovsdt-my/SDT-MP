@@ -390,13 +390,7 @@ if (!data?.ok) {
 - **Глубокие ссылки клиента не работают** ([App.jsx:55](src/App.jsx:55)): `*` ловит всё кроме `/admin` и `/teacher`, редиректит на `/`. Поделиться ссылкой на `/profile` нельзя, кнопка «Назад» браузера ломает навигацию. Перевод клиента на react-router — заметная работа.
 
 **State и производительность:**
-- **Двойной `RequireRole` + `useUserRole`** на каждом `/admin/*` ([App.jsx:96](src/App.jsx:96)) → 3-4 параллельных запроса к `profiles` на каждом переходе. Завести `RoleContext` в `AdminLayout`.
-- **Отсутствие cancel-флага в useEffect** — массово в `pages/*` и нескольких местах в `admin/*`. При быстрой смене сессии setState на размонтированном компоненте.
-- **Три `setInterval(..., 30000)` + focus listener** в [AdminLayout.jsx:48](src/admin/AdminLayout.jsx:48) — переоформить в один полл.
-- **`DAYS = getDays(30)` при загрузке модуля** ([Schedule.jsx:18](src/pages/Schedule.jsx:18)). PWA, открытое сутками, не обновит «Сегодня».
-- **`attendance.select(...)` без фильтра по дате** для статистики профиля ([Profile.jsx:319](src/pages/Profile.jsx:319)) — тянет всю историю клиента.
-- **`upsert` в цикле для тегов новостей** ([News.jsx:31](src/pages/News.jsx:31)) — N HTTP-запросов вместо одного `upsert([...])`.
-- **`loadAll` в `AdminSchedule` последовательный** ([AdminSchedule.jsx:423](src/admin/AdminSchedule.jsx:423)) — 6+ `await` без `Promise.all`.
+- **Отсутствие cancel-флага в useEffect** в большинстве `pages/*` (Profile, Schedule, Shop, Team, Bonus и др.) и в нескольких местах в `admin/*`. Home, AdminLayout и useUserRole уже исправлены. Остальные — низкий риск (setState на размонтированном даёт warning, не падает), массивная работа.
 
 **Инфра и UX:**
 - **Hardcoded Firebase ключи в SW** ([firebase-messaging-sw.js](public/firebase-messaging-sw.js)) при том что в [firebase.js](src/firebase.js) они в env — двойной источник истины. Firebase apiKey по факту публичный, но при ротации сломается SW.

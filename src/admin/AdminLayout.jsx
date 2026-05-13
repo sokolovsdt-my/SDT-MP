@@ -1,7 +1,8 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { supabase } from '../supabase'
 import { useUserRole } from '../hooks/useUserRole'
-import { useState, useEffect } from 'react'
+import { AdminRoleContext } from '../contexts/AdminRoleContext'
+import { useState, useEffect, useMemo } from 'react'
 
 const ROLE_LABELS = {
   teacher: 'Преподаватель',
@@ -13,15 +14,21 @@ const ROLE_LABELS = {
 const ACTIVE_STATUSES = ['new', 'in_progress', 'postponed', 'problem']
 
 export default function AdminLayout({ session }) {
-  const { role } = useUserRole(session)
+  const roleState = useUserRole(session)
+  const { role } = roleState
   const navigate = useNavigate()
   const [tasksCount, setTasksCount] = useState(0)
   const [prizesCount, setPrizesCount] = useState(0)
   const [indivCount, setIndivCount] = useState(0)
   const [isAlsoTeacher, setIsAlsoTeacher] = useState(false)
 
+  // Стабильное значение для провайдера контекста — не пересоздаём при
+  // каждом рендере, дочерние подписчики не дёргаются впустую.
+  const adminRoleValue = useMemo(() => roleState, [roleState.role, roleState.loading, roleState.error])  // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (!session?.user?.id || role === 'teacher') return
+    let cancelled = false
     const checkTeacherRole = async () => {
       const { data } = await supabase
         .from('staff_roles')
@@ -29,49 +36,39 @@ export default function AdminLayout({ session }) {
         .eq('staff_id', session.user.id)
         .eq('role', 'teacher')
         .maybeSingle()
-      setIsAlsoTeacher(!!data)
+      if (!cancelled) setIsAlsoTeacher(!!data)
     }
     checkTeacherRole()
+    return () => { cancelled = true }
   }, [session, role])
 
+  // Один общий полл вместо трёх независимых интервалов: реже сетевых
+  // запросов, согласованный refetch при возврате фокуса.
   useEffect(() => {
     if (!session?.user?.id) return
-    const fetchCount = async () => {
-      const { data } = await supabase
-        .from('task_assignees')
-        .select('task_id, tasks!inner(status)')
-        .eq('user_id', session.user.id)
-        .in('tasks.status', ACTIVE_STATUSES)
-      setTasksCount(data?.length || 0)
+    let cancelled = false
+    const fetchAll = async () => {
+      const [tasksRes, prizesRes, indivRes] = await Promise.all([
+        supabase.from('task_assignees')
+          .select('task_id, tasks!inner(status)')
+          .eq('user_id', session.user.id)
+          .in('tasks.status', ACTIVE_STATUSES),
+        supabase.from('prize_requests').select('*', { count:'exact', head:true }).eq('status','pending'),
+        supabase.from('indiv_requests').select('*', { count:'exact', head:true }).eq('status','pending'),
+      ])
+      if (cancelled) return
+      setTasksCount(tasksRes.data?.length || 0)
+      setPrizesCount(prizesRes.count || 0)
+      setIndivCount(indivRes.count || 0)
     }
-    fetchCount()
-    const interval = setInterval(fetchCount, 30000)
-    window.addEventListener('focus', fetchCount)
-    return () => { clearInterval(interval); window.removeEventListener('focus', fetchCount) }
-  }, [session])
-
-  useEffect(() => {
-    if (!session?.user?.id) return
-    const fetchPrizes = async () => {
-      const { count } = await supabase.from('prize_requests').select('*', { count:'exact', head:true }).eq('status','pending')
-      setPrizesCount(count || 0)
+    fetchAll()
+    const interval = setInterval(fetchAll, 30000)
+    window.addEventListener('focus', fetchAll)
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+      window.removeEventListener('focus', fetchAll)
     }
-    fetchPrizes()
-    const interval = setInterval(fetchPrizes, 30000)
-    window.addEventListener('focus', fetchPrizes)
-    return () => { clearInterval(interval); window.removeEventListener('focus', fetchPrizes) }
-  }, [session])
-
-  useEffect(() => {
-    if (!session?.user?.id) return
-    const fetchIndivs = async () => {
-      const { count } = await supabase.from('indiv_requests').select('*', { count:'exact', head:true }).eq('status','pending')
-      setIndivCount(count || 0)
-    }
-    fetchIndivs()
-    const interval = setInterval(fetchIndivs, 30000)
-    window.addEventListener('focus', fetchIndivs)
-    return () => { clearInterval(interval); window.removeEventListener('focus', fetchIndivs) }
   }, [session])
 
   const handleLogout = async () => {
@@ -96,6 +93,7 @@ export default function AdminLayout({ session }) {
   ].filter(item => role && item.roles.includes(role))
 
   return (
+    <AdminRoleContext.Provider value={adminRoleValue}>
     <div style={{display:'flex', minHeight:'100vh', fontFamily:'Inter,sans-serif', background:'#F8F8F8'}}>
       <aside style={{width:240, background:'#1f2024', color:'#fff', padding:'24px 0', display:'flex', flexDirection:'column'}}>
         <div style={{padding:'0 24px 24px', borderBottom:'1px solid #2a2b30'}}>
@@ -166,5 +164,6 @@ export default function AdminLayout({ session }) {
         </main>
       </div>
     </div>
+    </AdminRoleContext.Provider>
   )
 }

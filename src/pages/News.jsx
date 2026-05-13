@@ -30,12 +30,12 @@ export default function News({ session, onBack }) {
     const { data } = await query
     setNews(data || [])
     if (session && data?.length > 0) {
-      for (const item of data) {
-        await supabase.from('news_views').upsert(
-          { news_id: item.id, user_id: session.user.id },
-          { onConflict: 'news_id,user_id', ignoreDuplicates: true }
-        )
-      }
+      // Один upsert с массивом вместо N запросов — экономим (data.length-1)
+      // round-trip'ов к Supabase.
+      await supabase.from('news_views').upsert(
+        data.map(item => ({ news_id: item.id, user_id: session.user.id })),
+        { onConflict: 'news_id,user_id', ignoreDuplicates: true }
+      )
     }
     setLoading(false)
   }

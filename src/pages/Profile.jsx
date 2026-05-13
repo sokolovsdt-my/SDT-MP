@@ -316,10 +316,16 @@ function MyStats({ session, onBack }) {
 
   const load = async () => {
     setLoading(true)
+    // Ограничиваем выборку 24 месяцами — раньше тянулась вся история, что
+    // у активного клиента превращалось в сотни строк. Все расчёты UI
+    // (streak/thisMonth/чарт «6 мес» и «Всё время») укладываются в этот окно.
+    const cutoff = new Date()
+    cutoff.setFullYear(cutoff.getFullYear() - 2)
     const { data: att } = await supabase
       .from('attendance')
       .select('status, created_at, schedule:schedule_id(starts_at, ends_at)')
       .eq('student_id', session.user.id)
+      .gte('created_at', cutoff.toISOString())
 
     // Сортируем по дате занятия (schedule.starts_at), а не по времени отметки
     // (created_at) — иначе админ, отметивший занятие задним числом, ломает streak

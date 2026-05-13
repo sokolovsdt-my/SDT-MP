@@ -26,6 +26,7 @@ import AdminNews from './admin/AdminNews'
 import AdminPrizes from './admin/AdminPrizes'
 import TeacherPanel from './admin/TeacherPanel'
 import { RequireRole } from './components/RequireRole'
+import { RequireSubRole } from './components/RequireSubRole'
 import { useUserRole } from './hooks/useUserRole'
 import { edgeUrl } from './utils/supabaseEdge'
 
@@ -123,19 +124,19 @@ function App() {
           </RequireRole>
         }>
           <Route path="dashboard" element={<AdminDashboard session={session} />} />
-          <Route path="clients" element={<RequireRole session={session} allow={['admin','manager','owner']}><AdminClients /></RequireRole>} />
-          <Route path="clients/:id" element={<RequireRole session={session} allow={['admin','manager','owner']}><AdminClientCard session={session} /></RequireRole>} />
+          <Route path="clients" element={<RequireSubRole allow={['admin','manager','owner']}><AdminClients /></RequireSubRole>} />
+          <Route path="clients/:id" element={<RequireSubRole allow={['admin','manager','owner']}><AdminClientCard session={session} /></RequireSubRole>} />
           <Route path="tasks" element={<AdminTasks session={session} />} />
-          <Route path="catalog" element={<RequireRole session={session} allow={['admin','manager','owner']}><AdminCatalog /></RequireRole>} />
+          <Route path="catalog" element={<RequireSubRole allow={['admin','manager','owner']}><AdminCatalog /></RequireSubRole>} />
           <Route path="schedule" element={<AdminSchedule session={session} />} />
-          <Route path="staff" element={<RequireRole session={session} allow={['admin','manager','owner']}><AdminStaff /></RequireRole>} />
-          <Route path="staff/:id" element={<RequireRole session={session} allow={['admin','manager','owner']}><AdminStaffCard session={session} /></RequireRole>} />
-          <Route path="finance" element={<RequireRole session={session} allow={['owner']}><AdminFinance session={session} /></RequireRole>} />
-          <Route path="cashbox" element={<RequireRole session={session} allow={['admin','manager','owner']}><AdminCashbox session={session} /></RequireRole>} />
-          <Route path="groups" element={<RequireRole session={session} allow={['admin','manager','owner']}><AdminGroups session={session} /></RequireRole>} />
-          <Route path="broadcasts" element={<RequireRole session={session} allow={['admin','manager','owner']}><AdminBroadcasts session={session} /></RequireRole>} />
-          <Route path="news" element={<RequireRole session={session} allow={['admin','manager','owner']}><AdminNews session={session} /></RequireRole>} />
-          <Route path="prizes" element={<RequireRole session={session} allow={['admin','manager','owner']}><AdminPrizes session={session} /></RequireRole>} />
+          <Route path="staff" element={<RequireSubRole allow={['admin','manager','owner']}><AdminStaff /></RequireSubRole>} />
+          <Route path="staff/:id" element={<RequireSubRole allow={['admin','manager','owner']}><AdminStaffCard session={session} /></RequireSubRole>} />
+          <Route path="finance" element={<RequireSubRole allow={['owner']}><AdminFinance session={session} /></RequireSubRole>} />
+          <Route path="cashbox" element={<RequireSubRole allow={['admin','manager','owner']}><AdminCashbox session={session} /></RequireSubRole>} />
+          <Route path="groups" element={<RequireSubRole allow={['admin','manager','owner']}><AdminGroups session={session} /></RequireSubRole>} />
+          <Route path="broadcasts" element={<RequireSubRole allow={['admin','manager','owner']}><AdminBroadcasts session={session} /></RequireSubRole>} />
+          <Route path="news" element={<RequireSubRole allow={['admin','manager','owner']}><AdminNews session={session} /></RequireSubRole>} />
+          <Route path="prizes" element={<RequireSubRole allow={['admin','manager','owner']}><AdminPrizes session={session} /></RequireSubRole>} />
         </Route>
         <Route path="/teacher" element={
           <RequireRole session={session} allow={['teacher','admin','manager','owner']}>

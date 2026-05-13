@@ -420,29 +420,33 @@ export default function AdminSchedule({ session }) {
     }
     const fromMsk = toMskDateStr(fromDate)
     const toMsk   = toMskDateStr(toDate)
-    const { data: ev } = await supabase.from('schedule')
-      .select('*, groups(name), teacher:profiles!schedule_teacher_id_fkey(full_name), student:profiles!schedule_indiv_student_id_fkey(full_name)')
-      .gte('starts_at', mskDayStartUtc(fromMsk))
-      .lte('starts_at', mskDayEndUtc(toMsk))
-      .order('starts_at')
-    setEvents(ev || [])
 
-    const { data: allStaff } = await supabase.from('profiles').select('id, full_name, email').in('role', ['teacher','owner','manager','admin'])
-    const { data: teacherRoles } = await supabase.from('staff_roles').select('staff_id').eq('role', 'teacher')
-    const teacherIds = new Set((teacherRoles || []).map(r => r.staff_id))
-    setTeachers((allStaff || []).filter(p => teacherIds.has(p.id)))
+    // 7 независимых запросов параллельно вместо последовательных await —
+    // экономим ~6x RTT при загрузке расписания.
+    const [evRes, allStaffRes, teacherRolesRes, sRes, eventsDataRes, edDataRes, gRes] = await Promise.all([
+      supabase.from('schedule')
+        .select('*, groups(name), teacher:profiles!schedule_teacher_id_fkey(full_name), student:profiles!schedule_indiv_student_id_fkey(full_name)')
+        .gte('starts_at', mskDayStartUtc(fromMsk))
+        .lte('starts_at', mskDayEndUtc(toMsk))
+        .order('starts_at'),
+      supabase.from('profiles').select('id, full_name, email').in('role', ['teacher','owner','manager','admin']),
+      supabase.from('staff_roles').select('staff_id').eq('role', 'teacher'),
+      supabase.from('profiles').select('id, full_name, email').eq('role', 'client'),
+      supabase.from('events').select('*').eq('is_active', true).order('name'),
+      supabase.from('event_dates')
+        .select('*, event:events!event_dates_event_id_fkey(id, name, hall, teacher_id, teacher:profiles!events_teacher_id_fkey(full_name))')
+        .lte('date_start', toMsk)
+        .gte('date_end', fromMsk),
+      supabase.from('groups').select('id, name, color'),
+    ])
 
-    const { data: s } = await supabase.from('profiles').select('id, full_name, email').eq('role', 'client')
-    const { data: eventsData } = await supabase.from('events').select('*').eq('is_active', true).order('name')
-    setEventsList(eventsData || [])
-    const { data: edData } = await supabase
-      .from('event_dates')
-      .select('*, event:events!event_dates_event_id_fkey(id, name, hall, teacher_id, teacher:profiles!events_teacher_id_fkey(full_name))')
-      .lte('date_start', toMsk)
-      .gte('date_end', fromMsk)
-    setEventDates((edData || []).filter(d => d.event))
-    setStudents(s || [])
-    const { data: g } = await supabase.from('groups').select('id, name, color')
+    setEvents(evRes.data || [])
+    const teacherIds = new Set((teacherRolesRes.data || []).map(r => r.staff_id))
+    setTeachers((allStaffRes.data || []).filter(p => teacherIds.has(p.id)))
+    setEventsList(eventsDataRes.data || [])
+    setEventDates((edDataRes.data || []).filter(d => d.event))
+    setStudents(sRes.data || [])
+    const g = gRes.data
     setGroups(g || [])
 
     const colorMap = {}

@@ -15,9 +15,24 @@ function getDays(count = 30) {
   return days
 }
 
-const DAYS = getDays(30)
-
 export default function Schedule({ session, onShop }) {
+  // DAYS — реактивное состояние с пересчётом по смене календарной даты.
+  // Раньше массив фиксировался при загрузке модуля; PWA, открытое сутками,
+  // показывал устаревший «Сегодня».
+  const [DAYS, setDAYS] = useState(() => getDays(30))
+  useEffect(() => {
+    const tick = () => setDAYS(getDays(30))
+    // Считаем мс до начала следующего дня в МСК
+    const now = new Date()
+    const nextMidnightMsk = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Moscow' }))
+    nextMidnightMsk.setHours(24, 0, 10, 0)  // через 10 секунд после полуночи МСК
+    const delay = Math.max(60_000, nextMidnightMsk.getTime() - new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Moscow' })).getTime())
+    const timer = setTimeout(tick, delay)
+    // Дополнительно обновляем при возврате фокуса в окно
+    window.addEventListener('focus', tick)
+    return () => { clearTimeout(timer); window.removeEventListener('focus', tick) }
+  }, [])
+
   const [activeDay, setActiveDay] = useState(() => {
     const saved = parseInt(localStorage.getItem('schedule_day') || '0')
     return saved < DAYS.length ? saved : 0
