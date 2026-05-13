@@ -71,23 +71,32 @@ src/
 │   └── TeacherPanel.jsx          # отдельный UI для роли teacher (/teacher)
 │
 ├── components/
-│   ├── BottomNav.jsx     # нижняя навигация клиента (6 пунктов)
-│   ├── RequireRole.jsx   # гард по роли
+│   ├── BottomNav.jsx     # нижняя навигация клиента (6 пунктов, семантичные <button>)
+│   ├── RequireRole.jsx   # внешний гард для /admin и /teacher (делает useUserRole)
+│   ├── RequireSubRole.jsx # внутренний гард — читает роль из AdminRoleContext
 │   └── AvatarUpload.jsx  # загрузка в bucket `avatars`
+│
+├── contexts/
+│   └── AdminRoleContext.jsx  # роль на всё /admin/*: один useUserRole, дочерние не дёргают
 │
 ├── hooks/
 │   └── useUserRole.js    # роль из profiles.role + флаг error
 │
 ├── utils/
 │   ├── tz.js             # todayMsk / toMskDateStr / mskDayStart/EndUtc для МСК-границ
-│   └── safeHtml.js       # обёртка над DOMPurify для dangerouslySetInnerHTML
+│   ├── safeHtml.js       # обёртка над DOMPurify для dangerouslySetInnerHTML
+│   ├── supabaseEdge.js   # edgeUrl(fn) — URL для Supabase Edge Functions из env
+│   └── plural.js         # plural(n, ['день','дня','дней']) — русские склонения
 │
 └── assets/               # hero.png и др. статика
 
 public/
 ├── manifest.json                  # PWA, theme_color #BFD900
-├── firebase-messaging-sw.js       # SW для фоновых пушей FCM
+├── firebase-messaging-sw.js       # SW для фоновых пушей FCM (регистрируется явно в main.jsx)
 ├── icon-192.png, icon-512.png, favicon.svg, icons.svg
+
+.env.example                       # шаблон для VITE_* переменных
+                                   # для git worktree: cp /path/to/main/.env.local ./.env.local
 ```
 
 ---
