@@ -223,7 +223,7 @@ public/
 
 - **telegram-login** — выдача кода, поллинг подтверждения, выдача `hashed_token` для `verifyOtp`.
 - **create-staff** — создание `auth.users` + строки в `profiles` от имени админа (используется и для добавления клиента в [AdminDashboard.jsx:134](src/admin/AdminDashboard.jsx:134)).
-- **send-broadcast** — отправка рассылки. Принимает `{broadcast_id}`. Атомарно клеймит `broadcasts.status='sending'`, читает получателей + `profiles.push_token/email`, шлёт FCM HTTP v1 (требуется env `FCM_SERVICE_ACCOUNT_JSON`) и/или Resend (`RESEND_API_KEY`, `RESEND_FROM`). Обновляет `broadcast_recipients.delivered_at`/`failed_at`/`error` и `broadcasts.status='sent', sent_at=now()`. Возврат `{ok, sent_push, sent_email, failed}`. Вызывается из клиента при немедленной отправке и из pg_cron job для `status='scheduled' AND scheduled_at <= now()`.
+- **send-broadcast** — отправка рассылки. Принимает `{broadcast_id}`. CORS preflight обрабатывает (иначе `supabase.functions.invoke()` с Vercel падает «Failed to send a request»). Атомарно клеймит `broadcasts.status='sending'`, читает получателей + `profiles.push_token/email`, шлёт FCM HTTP v1 (требуется env `FCM_SERVICE_ACCOUNT_JSON`) и/или Resend (`RESEND_API_KEY`, `RESEND_FROM`). Обновляет `broadcast_recipients.delivered_at`/`failed_at`/`error` и `broadcasts.status='sent', sent_at=now()`. Возврат `{ok, sent_push, sent_email, failed}`. Вызывается из клиента при немедленной отправке и из pg_cron job для `status='scheduled' AND scheduled_at <= now()`. **Исходник в git**: [supabase/functions/send-broadcast/index.ts](supabase/functions/send-broadcast/index.ts). Workflow деплоя — в [supabase/README.md](supabase/README.md).
 
 ### pg_cron
 
