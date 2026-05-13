@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../supabase'
 import { safeHtml } from '../utils/safeHtml'
-import { nowMskNaive } from '../utils/tz'
+import { nowMskNaive, parseMskNaive } from '../utils/tz'
 
 export default function Home({ session, onNewsAll, onBonus }) {
   const [profile, setProfile] = useState(null)
@@ -62,7 +62,7 @@ export default function Home({ session, onNewsAll, onBonus }) {
       // schedule.indiv_student_id).
       const fromBookings = (bookingsRes.data || [])
         .map(b => b.schedule)
-        .filter(s => s && !s.is_cancelled && new Date(s.starts_at) >= new Date())
+        .filter(s => s && !s.is_cancelled && parseMskNaive(s.starts_at) >= new Date())
       const fromIndiv = indivRes.data || []
       const next = [...fromBookings, ...fromIndiv]
         .sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at))[0]
@@ -74,9 +74,12 @@ export default function Home({ session, onNewsAll, onBonus }) {
   }, [session])
 
   const name = profile?.first_name || profile?.full_name?.split(' ')[0] || session.user.email
-  const formatDate = (d) => new Date(d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
-  const formatTime = (d) => new Date(d).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
-  const isToday = (d) => { const n = new Date(), dd = new Date(d); return dd.getDate()===n.getDate() && dd.getMonth()===n.getMonth() && dd.getFullYear()===n.getFullYear() }
+  const formatDate = (d) => parseMskNaive(d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', timeZone: 'Europe/Moscow' })
+  const formatTime = (d) => parseMskNaive(d).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' })
+  const isToday = (d) => {
+    const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' })
+    return parseMskNaive(d).toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' }) === today
+  }
   const stripHtml = (html) => html?.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&') || ''
   const tagLabel = (tag) => tags.find(t => t.value === tag)?.label || tag
 

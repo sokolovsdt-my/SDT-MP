@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
 import { requestPermission } from '../firebase'
+import { parseMskNaive, mskDayStartNaive, mskDayEndNaive } from '../utils/tz'
 
 const DAYS_RU = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб']
 
@@ -63,8 +64,9 @@ export default function Schedule({ session, onShop }) {
   useEffect(() => {
     const getClasses = async () => {
       setLoading(true)
-      const from = DAYS[activeDay].date + 'T00:00:00+03'
-      const to = DAYS[activeDay].date + 'T23:59:59+03'
+      // schedule.starts_at — MSK naive, фильтр границ дня тоже MSK naive (без TZ-маркера).
+      const from = mskDayStartNaive(DAYS[activeDay].date)
+      const to   = mskDayEndNaive(DAYS[activeDay].date)
       const { data } = await supabase
         .from('schedule')
         .select(`
@@ -98,7 +100,7 @@ export default function Schedule({ session, onShop }) {
     getEvents()
   }, [activeDay])
 
-  const formatTime = (dt) => new Date(dt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' })
+  const formatTime = (dt) => parseMskNaive(dt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' })
 
   const handleBook = async (cls) => {
     if (booked.includes(cls.id)) return

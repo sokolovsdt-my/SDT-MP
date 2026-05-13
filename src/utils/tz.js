@@ -42,3 +42,28 @@ export const toMskNaive = (d) => {
   const s = new Date(d).toLocaleString('sv-SE', { timeZone: 'Europe/Moscow' })
   return s.replace(' ', 'T')
 }
+
+// MSK-naive timestamp ("2026-05-13T18:00:00") → Date с корректным UTC instant.
+// Если в строке уже есть TZ-маркер (Z или ±HH:MM) — не трогаем.
+// Используется при ЧТЕНИИ schedule.starts_at/ends_at, чтобы парсинг не зависел
+// от TZ браузера (иначе у админа не из МСК время съезжает).
+export const parseMskNaive = (s) => {
+  if (s == null) return null
+  if (s instanceof Date) return s
+  if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(s)) return new Date(s)
+  return new Date(s + '+03:00')
+}
+
+// Поля даты/времени в МСК независимо от TZ браузера. Возвращает
+// { y, m, d, h, mi } где m — 1..12. Нужно когда требуются ИМЕННО МСК-цифры
+// для расчётов (например, позиция блока в календарной сетке).
+export const mskParts = (s) => {
+  const d = parseMskNaive(s)
+  if (!d) return null
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/Moscow', year: 'numeric', month: '2-digit',
+    day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(d)
+  const get = (t) => +parts.find(p => p.type === t).value
+  return { y: get('year'), m: get('month'), d: get('day'), h: get('hour'), mi: get('minute') }
+}

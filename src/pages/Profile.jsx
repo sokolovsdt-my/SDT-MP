@@ -3,7 +3,7 @@ import { supabase } from '../supabase'
 import AvatarUpload from '../components/AvatarUpload'
 import { requestPermission } from '../firebase'
 import { plural } from '../utils/plural'
-import { nowMskNaive } from '../utils/tz'
+import { nowMskNaive, parseMskNaive } from '../utils/tz'
 
 // ─── ЗАМЕНИ функцию MyLessons в Profile.jsx ───────────────────────────────────
 // Найди: function MyLessons({ session, onBack }) {
@@ -96,8 +96,8 @@ function MyLessons({ session, onBack }) {
     }
 
     const indivLessons = (indivReqs || []).map(r => {
-      const startDt = new Date(`${r.slot_date}T${r.start_time}`)
-      const endDt = new Date(`${r.slot_date}T${r.end_time}`)
+      const startDt = parseMskNaive(`${r.slot_date}T${r.start_time}`)
+      const endDt   = parseMskNaive(`${r.slot_date}T${r.end_time}`)
       return {
         id: `indiv-${r.id}`,
         type: 'indiv',
@@ -154,11 +154,11 @@ function MyLessons({ session, onBack }) {
     const all = [...regularLessons, ...indivLessons, ...pastIndivLessons]
 
     setUpcoming(
-      all.filter(l => new Date(l.starts_at) >= now && !l.is_cancelled)
+      all.filter(l => parseMskNaive(l.starts_at) >= now && !l.is_cancelled)
         .sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at))
     )
     setHistory(
-      all.filter(l => new Date(l.starts_at) < now)
+      all.filter(l => parseMskNaive(l.starts_at) < now)
         .sort((a, b) => new Date(b.starts_at) - new Date(a.starts_at))
         .slice(0, 30)
     )
@@ -200,9 +200,12 @@ function MyLessons({ session, onBack }) {
     load()
   }
 
-  const fmtDate = (d) => new Date(d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
-  const fmtTime = (d) => new Date(d).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
-  const isToday = (d) => { const n = new Date(), dd = new Date(d); return dd.getDate() === n.getDate() && dd.getMonth() === n.getMonth() && dd.getFullYear() === n.getFullYear() }
+  const fmtDate = (d) => parseMskNaive(d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', timeZone: 'Europe/Moscow' })
+  const fmtTime = (d) => parseMskNaive(d).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' })
+  const isToday = (d) => {
+    const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' })
+    return parseMskNaive(d).toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' }) === today
+  }
 
   const BASIS = { subscription: 'Абонемент', single: 'Разовое', trial: 'Пробное', indiv: 'Индив', none: '⚠️ Нет основания' }
 
@@ -528,8 +531,8 @@ function MyIndivs({ session, onBack }) {
     return `Показать ещё (${Math.min(5, total - cur)})`
   }
 
-  const fmtDate = (d) => new Date(d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
-  const fmtTime = (d) => new Date(d).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' })
+  const fmtDate = (d) => parseMskNaive(d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', timeZone: 'Europe/Moscow' })
+  const fmtTime = (d) => parseMskNaive(d).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' })
 
   return (
     <div style={{ fontFamily: 'Inter,sans-serif', maxWidth: 480, margin: '0 auto' }}>

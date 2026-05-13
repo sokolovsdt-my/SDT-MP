@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../supabase'
+import { parseMskNaive } from '../utils/tz'
 
 const STATUS_OPTIONS = [
   { value: 'none',        label: 'Не отмечен',  color: '#BDBDBD', bg: '#f5f5f5' },
@@ -247,9 +248,9 @@ export default function AttendancePanel({ lesson, session, onClose, teachers, on
   const [showChangeTeacher, setShowChangeTeacher] = useState(false)
   const [newTeacherId, setNewTeacherId] = useState(lesson.teacher_id || '')
   const [showReschedule, setShowReschedule] = useState(false)
-  const [newDate, setNewDate] = useState(lesson.starts_at ? new Date(lesson.starts_at).toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' }) : '')
-  const [newTimeFrom, setNewTimeFrom] = useState(lesson.starts_at ? new Date(lesson.starts_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '')
-  const [newTimeTo, setNewTimeTo] = useState(lesson.ends_at ? new Date(lesson.ends_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '')
+  const [newDate, setNewDate] = useState(lesson.starts_at ? parseMskNaive(lesson.starts_at).toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' }) : '')
+  const [newTimeFrom, setNewTimeFrom] = useState(lesson.starts_at ? parseMskNaive(lesson.starts_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' }) : '')
+  const [newTimeTo, setNewTimeTo] = useState(lesson.ends_at ? parseMskNaive(lesson.ends_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' }) : '')
   const [saving, setSaving] = useState(false)
 
   const isIndivLesson = lesson.lesson_type === 'indiv'
@@ -517,9 +518,9 @@ export default function AttendancePanel({ lesson, session, onClose, teachers, on
   }
 
   const formatHeader = () => {
-    const date = new Date(lesson.starts_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
-    const timeFrom = new Date(lesson.starts_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
-    const timeTo = new Date(lesson.ends_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+    const date = parseMskNaive(lesson.starts_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Moscow' })
+    const timeFrom = parseMskNaive(lesson.starts_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' })
+    const timeTo = parseMskNaive(lesson.ends_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' })
     const title = isIndivLesson
       ? (lesson.title || `Индив: ${bookings[0]?.profiles?.full_name || ''}`)
       : (lesson.groups?.name || lesson.title || 'Занятие')
@@ -529,7 +530,7 @@ export default function AttendancePanel({ lesson, session, onClose, teachers, on
   const { date, time, title } = formatHeader()
   const presentCount = bookings.filter(b => b.attendance_status === 'present').length
   const absentCount = bookings.filter(b => b.attendance_status === 'absent').length
-  const isPast = new Date(lesson.ends_at) < new Date()
+  const isPast = parseMskNaive(lesson.ends_at) < new Date()
   const inputStyle = { width: '100%', padding: '8px 12px', border: '1px solid #e8e8e8', borderRadius: 8, fontSize: 13, boxSizing: 'border-box', fontFamily: 'Inter,sans-serif' }
 
   return (
@@ -586,7 +587,7 @@ export default function AttendancePanel({ lesson, session, onClose, teachers, on
           ) : bookings.length === 0 ? (
             <div style={{ textAlign: 'center', color: '#BDBDBD', padding: 40 }}>Никто не записан</div>
           ) : bookings.map(b => (
-            <StudentRow key={b.id} booking={b} onStatusChange={handleStatusChange} lessonStarted={Date.now() >= new Date(lesson.starts_at + '+03:00').getTime()} />
+            <StudentRow key={b.id} booking={b} onStatusChange={handleStatusChange} lessonStarted={Date.now() >= parseMskNaive(lesson.starts_at).getTime()} />
           ))}
         </div>
 

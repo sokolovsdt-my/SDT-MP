@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import AvatarUpload from '../components/AvatarUpload'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabase'
+import { parseMskNaive } from '../utils/tz'
 
 const ROLE_LABELS = {
   owner: { label: 'Владелец', color: '#6a7700', bg: '#fafde8' },
@@ -711,7 +712,7 @@ function SubsTab({ staff }) {
           <div style={{fontSize:14, fontWeight:600, marginBottom:10}}>Заменял других</div>
           {substituted.map(s => (
             <div key={s.id} style={{padding:'8px 0', borderBottom:'1px solid #f8f8f8', fontSize:13}}>
-              {s.schedule?.groups?.name || s.schedule?.title} · {new Date(s.schedule?.starts_at).toLocaleDateString('ru-RU')}
+              {s.schedule?.groups?.name || s.schedule?.title} · {parseMskNaive(s.schedule?.starts_at).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' })}
               {s.reason && <div style={{fontSize:11, color:'#888'}}>{s.reason}</div>}
             </div>
           ))}
@@ -722,7 +723,7 @@ function SubsTab({ staff }) {
           <div style={{fontSize:14, fontWeight:600, marginBottom:10}}>Его заменяли</div>
           {wasSubstituted.map(s => (
             <div key={s.id} style={{padding:'8px 0', borderBottom:'1px solid #f8f8f8', fontSize:13}}>
-              {s.schedule?.groups?.name || s.schedule?.title} · {new Date(s.schedule?.starts_at).toLocaleDateString('ru-RU')}
+              {s.schedule?.groups?.name || s.schedule?.title} · {parseMskNaive(s.schedule?.starts_at).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' })}
               {s.reason && <div style={{fontSize:11, color:'#888'}}>{s.reason}</div>}
             </div>
           ))}

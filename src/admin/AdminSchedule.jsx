@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabase'
 import AttendancePanel from './AttendancePanel'
-import { toMskDateStr, mskDayStartNaive, mskDayEndNaive } from '../utils/tz'
+import { toMskDateStr, mskDayStartNaive, mskDayEndNaive, parseMskNaive, mskParts } from '../utils/tz'
 
 const GROUP_COLORS = [
   { bg:'#FFEBEE', border:'#D32F2F', text:'#B71C1C' },
@@ -55,13 +55,21 @@ function getMonthDays(date) {
 }
 
 function formatTime(dt) {
-  return new Date(dt).toLocaleTimeString('ru-RU', { hour:'2-digit', minute:'2-digit' })
+  return parseMskNaive(dt).toLocaleTimeString('ru-RU', { hour:'2-digit', minute:'2-digit', timeZone:'Europe/Moscow' })
 }
 function formatDate(dt) {
-  return new Date(dt).toLocaleDateString('ru-RU', { day:'numeric', month:'short' })
+  return parseMskNaive(dt).toLocaleDateString('ru-RU', { day:'numeric', month:'short', timeZone:'Europe/Moscow' })
 }
 function isSameDay(a, b) {
   return a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate()
+}
+// Сравнение МСК-даты события (MSK naive строка) с локальным Date — корректно
+// в любом TZ браузера. Берём MSK-части события и сравниваем с локальными
+// частями целевой даты (которая всегда строится из new Date(year, month, day) в TZ браузера,
+// что эквивалентно её локальной дате — без TZ-конверсий).
+function isSameMskDay(eventStartsAt, targetDate) {
+  const p = mskParts(eventStartsAt)
+  return p.y === targetDate.getFullYear() && p.m === targetDate.getMonth() + 1 && p.d === targetDate.getDate()
 }
 
 const EVENT_COLOR = { bg:'#F3E5F5', border:'#7B1FA2', text:'#4A148C' }
@@ -76,10 +84,13 @@ function getEventColor(ev, groupColorMap, groupNameMap) {
 }
 
 function getEventStyle(ev) {
-  const start = new Date(ev.starts_at)
-  const end = new Date(ev.ends_at)
-  const startMins = (start.getHours() - START_HOUR) * 60 + start.getMinutes()
-  const durationMins = (end - start) / 60000
+  // starts_at/ends_at — MSK naive. Берём именно МСК-часы/минуты, иначе
+  // у админа не из МСК блок съедет по высоте.
+  const startP = mskParts(ev.starts_at)
+  const endP   = mskParts(ev.ends_at)
+  const startMins = (startP.h - START_HOUR) * 60 + startP.mi
+  const endMins   = (endP.h   - START_HOUR) * 60 + endP.mi
+  const durationMins = endMins - startMins
   const top = (startMins / 60) * HOUR_HEIGHT
   const height = Math.max((durationMins / 60) * HOUR_HEIGHT - 4, 20)
   return { top, height }
@@ -153,7 +164,7 @@ function ScheduleForm({ session, teachers, students, groups, events, onSave, onC
     title: initial?.title || '',
     teacher_id: initial?.teacher_id || '',
     hall: initial?.hall || '',
-    date: initialDate ? initialDate.toISOString().split('T')[0] : (initial?.starts_at ? new Date(initial.starts_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]),
+    date: initialDate ? toMskDateStr(initialDate) : (initial?.starts_at ? toMskDateStr(parseMskNaive(initial.starts_at)) : toMskDateStr(new Date())),
     time_from: initial?.starts_at ? formatTime(initial.starts_at) : '18:00',
     time_to: initial?.ends_at ? formatTime(initial.ends_at) : '19:00',
     group_id: initial?.group_id || '',
@@ -469,7 +480,7 @@ export default function AdminSchedule({ session }) {
     return true
   })
 
-  const eventsForDay = (date) => filteredEvents.filter(ev => isSameDay(new Date(ev.starts_at), date))
+  const eventsForDay = (date) => filteredEvents.filter(ev => isSameMskDay(ev.starts_at, date))
 
   const eventDatesForDay = (date) => {
     const dateStr = date.toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' })

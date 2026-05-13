@@ -1,30 +1,24 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabase'
-import { nowMskNaive, toMskNaive } from '../utils/tz'
+import { nowMskNaive, toMskNaive, parseMskNaive, mskParts } from '../utils/tz'
 
 const DAYS = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб']
 const MONTHS = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек']
 const MONTHS_FULL = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря']
 
-const toMoscow = (d) => new Date(new Date(d).toLocaleString('en-US', { timeZone: 'Europe/Moscow' }))
-const fmtTime = (d) => new Date(d).toLocaleTimeString('ru-RU', { hour:'2-digit', minute:'2-digit', timeZone:'Europe/Moscow' })
-const fmtDate = (d) => { const dt = toMoscow(d); return `${dt.getDate()} ${MONTHS[dt.getMonth()]}` }
-const fmtDateFull = (d) => { const dt = new Date(d); return `${dt.getDate()} ${MONTHS_FULL[dt.getMonth()]}` }
-const fmtDT = (d) => { if (!d) return '—'; return new Date(d).toLocaleString('ru-RU', { timeZone:'Europe/Moscow', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' }) }
+// d может быть schedule.starts_at (MSK naive) или Date — parseMskNaive
+// корректно обрабатывает оба случая (если уже Date — игнорирует).
+const fmtTime = (d) => parseMskNaive(d).toLocaleTimeString('ru-RU', { hour:'2-digit', minute:'2-digit', timeZone:'Europe/Moscow' })
+const fmtDate = (d) => { const p = mskParts(d); return `${p.d} ${MONTHS[p.m - 1]}` }
+const fmtDateFull = (d) => { const p = mskParts(d); return `${p.d} ${MONTHS_FULL[p.m - 1]}` }
+const fmtDT = (d) => { if (!d) return '—'; return parseMskNaive(d).toLocaleString('ru-RU', { timeZone:'Europe/Moscow', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' }) }
 const toDateStr = (d) => d.toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' })
 
-const isToday = (d) => {
-  const now = toMoscow(new Date())
-  const dt = toMoscow(d)
-  return dt.getDate()===now.getDate() && dt.getMonth()===now.getMonth() && dt.getFullYear()===now.getFullYear()
-}
-const isTomorrow = (d) => {
-  const now = toMoscow(new Date())
-  const tomorrow = new Date(now); tomorrow.setDate(now.getDate()+1)
-  const dt = toMoscow(d)
-  return dt.getDate()===tomorrow.getDate() && dt.getMonth()===tomorrow.getMonth() && dt.getFullYear()===tomorrow.getFullYear()
-}
+// MSK-дата ('YYYY-MM-DD') для произвольного входа (string MSK naive или Date).
+const mskDateStr = (d) => parseMskNaive(d).toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' })
+const isToday    = (d) => mskDateStr(d) === mskDateStr(new Date())
+const isTomorrow = (d) => mskDateStr(d) === mskDateStr(new Date(Date.now() + 24*60*60*1000))
 
 const TASK_STATUSES = [
   { value:'new', label:'Новая', color:'#2980b9', bg:'#e8f4fd' },
@@ -599,9 +593,9 @@ export default function TeacherPanel({ session }) {
   const myName = profile?.first_name || profile?.full_name?.split(' ')?.[0] || '—'
   const todaySchedule = schedule.filter(s => isToday(s.starts_at))
   const weekSchedule = schedule.filter(s => {
-    const d = new Date(s.starts_at)
+    const d = parseMskNaive(s.starts_at)
     const now = new Date()
-    const weekEnd = new Date(); weekEnd.setDate(now.getDate() + 7)
+    const weekEnd = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
     return d >= now && d <= weekEnd
   })
 
