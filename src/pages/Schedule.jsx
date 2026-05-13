@@ -119,7 +119,11 @@ export default function Schedule({ session, onShop }) {
 
     if (!error) {
       setBooked(prev => [...prev, cls.id])
-      setShowPushBanner(true)
+      // Баннер показываем только если push-разрешение ещё не дано/не запрошено
+      // и пользователь ранее не нажимал «Не сейчас».
+      const dismissed = localStorage.getItem('push_banner_dismissed') === '1'
+      const perm = typeof Notification !== 'undefined' ? Notification.permission : 'denied'
+      if (!dismissed && perm === 'default') setShowPushBanner(true)
       // Перезагружаем bookings чтобы получить id для отмены
       loadBooked()
     }
@@ -277,7 +281,8 @@ export default function Schedule({ session, onShop }) {
             }} style={{ flex: 1, padding: '10px', background: '#BFD900', border: 'none', borderRadius: 12, fontSize: 13, fontWeight: 700, color: '#2a2a2a', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
               Включить
             </button>
-            <button onClick={() => setShowPushBanner(false)} style={{ padding: '10px 16px', background: 'transparent', border: '1px solid #e0e0e0', borderRadius: 12, fontSize: 13, color: '#BDBDBD', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+            <button onClick={() => { localStorage.setItem('push_banner_dismissed', '1'); setShowPushBanner(false) }}
+              style={{ padding: '10px 16px', background: 'transparent', border: '1px solid #e0e0e0', borderRadius: 12, fontSize: 13, color: '#BDBDBD', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
               Не сейчас
             </button>
           </div>

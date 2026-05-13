@@ -171,7 +171,7 @@ function MyLessons({ session, onBack }) {
 
   const fmtDate = (d) => new Date(d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
   const fmtTime = (d) => new Date(d).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
-  const isToday = (d) => { const n = new Date(), dd = new Date(d); return dd.getDate() === n.getDate() && dd.getMonth() === n.getMonth() }
+  const isToday = (d) => { const n = new Date(), dd = new Date(d); return dd.getDate() === n.getDate() && dd.getMonth() === n.getMonth() && dd.getFullYear() === n.getFullYear() }
 
   const BASIS = { subscription: 'Абонемент', single: 'Разовое', trial: 'Пробное', indiv: 'Индив', none: '⚠️ Нет основания' }
 
@@ -320,9 +320,12 @@ function MyStats({ session, onBack }) {
       .from('attendance')
       .select('status, created_at, schedule:schedule_id(starts_at, ends_at)')
       .eq('student_id', session.user.id)
-      .order('created_at', { ascending: false })
 
-    const all = att || []
+    // Сортируем по дате занятия (schedule.starts_at), а не по времени отметки
+    // (created_at) — иначе админ, отметивший занятие задним числом, ломает streak
+    // и распределение по месяцам.
+    const lessonDate = (a) => a.schedule?.starts_at || a.created_at
+    const all = (att || []).slice().sort((a, b) => new Date(lessonDate(b)) - new Date(lessonDate(a)))
     const present = all.filter(a => a.status === 'present')
     setTotalLessons(present.length)
 
@@ -335,7 +338,7 @@ function MyStats({ session, onBack }) {
 
     const now = new Date()
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
-    setThisMonth(present.filter(a => new Date(a.created_at) >= monthStart).length)
+    setThisMonth(present.filter(a => new Date(lessonDate(a)) >= monthStart).length)
 
     let s = 0
     for (const a of all) { if (a.status === 'present') s++; else break }
@@ -343,7 +346,7 @@ function MyStats({ session, onBack }) {
 
     const byMonth = {}
     present.forEach(a => {
-      const d = new Date(a.created_at)
+      const d = new Date(lessonDate(a))
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
       byMonth[key] = (byMonth[key] || 0) + 1
     })

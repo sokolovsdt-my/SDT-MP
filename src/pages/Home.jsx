@@ -43,16 +43,27 @@ export default function Home({ session, onNewsAll, onBonus }) {
       }, 0)
       setStats({ thisMonth: thisMonthCount, totalHours: Math.round(totalMinutes / 60) })
 
+      // Следующее занятие — берём из bookings (группа/мероприятие) И из schedule
+      // напрямую (для индивов: bookings туда не пишутся, занятие связано через
+      // schedule.indiv_student_id).
       const nowIso = new Date().toISOString()
-      const { data: bookings } = await supabase
-        .from('bookings')
-        .select('schedule:schedule_id(id, title, starts_at, ends_at, hall, groups(name), teacher:profiles!schedule_teacher_id_fkey(full_name))')
-        .eq('student_id', session.user.id)
-        .eq('status', 'booked')
-
-      const next = (bookings || [])
+      const sel = 'id, title, starts_at, ends_at, hall, lesson_type, is_cancelled, groups(name), teacher:profiles!schedule_teacher_id_fkey(full_name)'
+      const [bookingsRes, indivRes] = await Promise.all([
+        supabase.from('bookings')
+          .select(`schedule:schedule_id(${sel})`)
+          .eq('student_id', session.user.id)
+          .eq('status', 'booked'),
+        supabase.from('schedule')
+          .select(sel)
+          .eq('indiv_student_id', session.user.id)
+          .eq('is_cancelled', false)
+          .gte('starts_at', nowIso),
+      ])
+      const fromBookings = (bookingsRes.data || [])
         .map(b => b.schedule)
-        .filter(s => s && new Date(s.starts_at) >= new Date())
+        .filter(s => s && !s.is_cancelled && new Date(s.starts_at) >= new Date())
+      const fromIndiv = indivRes.data || []
+      const next = [...fromBookings, ...fromIndiv]
         .sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at))[0]
 
       if (next) setNextLesson(next)
@@ -63,7 +74,7 @@ export default function Home({ session, onNewsAll, onBonus }) {
   const name = profile?.first_name || profile?.full_name?.split(' ')[0] || session.user.email
   const formatDate = (d) => new Date(d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
   const formatTime = (d) => new Date(d).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
-  const isToday = (d) => { const n = new Date(), dd = new Date(d); return dd.getDate()===n.getDate() && dd.getMonth()===n.getMonth() }
+  const isToday = (d) => { const n = new Date(), dd = new Date(d); return dd.getDate()===n.getDate() && dd.getMonth()===n.getMonth() && dd.getFullYear()===n.getFullYear() }
   const stripHtml = (html) => html?.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&') || ''
   const tagLabel = (tag) => tags.find(t => t.value === tag)?.label || tag
 
@@ -94,7 +105,7 @@ export default function Home({ session, onNewsAll, onBonus }) {
             <div style={{fontSize:15, color:'#fff', marginBottom:5}}>{nextLesson.groups?.name || nextLesson.title || 'Занятие'}</div>
             <div style={{fontSize:12, color:'#888', display:'flex', gap:12}}>
               <span>{isToday(nextLesson.starts_at) ? 'Сегодня' : formatDate(nextLesson.starts_at)}, {formatTime(nextLesson.starts_at)}</span>
-              {nextLesson.profiles?.full_name && <span>{nextLesson.profiles.full_name}</span>}
+              {nextLesson.teacher?.full_name && <span>{nextLesson.teacher.full_name}</span>}
             </div>
           </>
         ) : (

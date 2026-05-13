@@ -74,7 +74,9 @@ export default function Team({ session }) {
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle()
-      setClientPackage(pkg && pkg.visits_used < pkg.visits_total ? pkg : null)
+      // Безлимит-пакет: visits_total = null. Не сравниваем — NaN-comparisons дают false.
+      const isValid = pkg && (pkg.visits_total === null || pkg.visits_used < pkg.visits_total)
+      setClientPackage(isValid ? pkg : null)
     }
 
     setLoading(false)

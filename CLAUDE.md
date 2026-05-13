@@ -385,12 +385,6 @@ if (!data?.ok) {
 ### 🟡 Средние
 
 **Логика клиентской мобилки:**
-- **Безлимит-индив-пакеты ломаются на NaN.** [Shop.jsx:165](src/pages/Shop.jsx:165), [Team.jsx:77](src/pages/Team.jsx:77): `pkg.visits_used < pkg.visits_total` при `visits_total=null` даёт `false`, и безлимит-пакет помечается «нет пакета». Нужно отдельно обработать `visits_total === null` как «бесконечно».
-- **`isToday` не сверяет год** ([Home.jsx:65](src/pages/Home.jsx:65), [Profile.jsx:174](src/pages/Profile.jsx:174)) — через 365 дней показывает «Сегодня» для прошлогодней даты.
-- **«Следующее занятие» в Home игнорирует индивы и события** ([Home.jsx:46](src/pages/Home.jsx:46)) — смотрит только `bookings`. У клиента с ближайшим индивом — «Нет занятий».
-- **Учитель не отображается в «Следующее занятие».** [Home.jsx:96](src/pages/Home.jsx:96): рендерится `nextLesson.profiles?.full_name`, а в селекте поле названо `teacher:profiles!...` — нужно `nextLesson.teacher?.full_name`. Однострочный фикс.
-- **Streak по `attendance.created_at`** ([Profile.jsx:340](src/pages/Profile.jsx:340)). Это время отметки админом, не дата занятия. Поздняя отметка ломает серию. Считать через `schedule.starts_at`.
-- **Push-баннер всплывает каждый раз** после записи ([Schedule.jsx:269](src/pages/Schedule.jsx:269)) — нет сохранения отказа в `localStorage`, не проверяет `Notification.permission === 'granted'`.
 - **Глубокие ссылки клиента не работают** ([App.jsx:55](src/App.jsx:55)): `*` ловит всё кроме `/admin` и `/teacher`, редиректит на `/`. Поделиться ссылкой на `/profile` нельзя, кнопка «Назад» браузера ломает навигацию. Перевод клиента на react-router — заметная работа.
 
 **Аналитика owner:**
