@@ -472,6 +472,7 @@ export default function TeacherPanel({ session }) {
         .select(`*, groups(name, color),
           bookings(id, student_id, status, profiles:student_id(full_name, first_name, last_name)),
           indiv_student:profiles!schedule_indiv_student_id_fkey(id, full_name, first_name, last_name),
+          attendance(student_id, status),
           substitution:teacher_substitutions!teacher_substitutions_schedule_id_fkey(substitute_teacher_id)`)
         .eq('teacher_id', uid)
         .gte('starts_at', now)
@@ -481,7 +482,8 @@ export default function TeacherPanel({ session }) {
         .select(`schedule:schedule!teacher_substitutions_schedule_id_fkey!inner(
           *, groups(name, color),
           bookings(id, student_id, status, profiles:student_id(full_name, first_name, last_name)),
-          indiv_student:profiles!schedule_indiv_student_id_fkey(id, full_name, first_name, last_name)
+          indiv_student:profiles!schedule_indiv_student_id_fkey(id, full_name, first_name, last_name),
+          attendance(student_id, status)
         )`)
         .eq('substitute_teacher_id', uid)
         .gte('schedule.starts_at', now)
@@ -547,31 +549,48 @@ export default function TeacherPanel({ session }) {
     setLoading(false)
   }
 
+  const attStatusFor = (lesson, studentId) =>
+    (lesson?.attendance || []).find(a => a.student_id === studentId)?.status || null
+
   const markAtt = async (scheduleId, studentId, status) => {
     const key = `${scheduleId}:${studentId}`
     if (markingKey) return
+    const lesson = schedule.find(s => s.id === scheduleId)
+    const prevStatus = attStatusFor(lesson, studentId)
+    if (prevStatus === status) return // идемпотентность на клиенте
     setMarkingKey(key)
+    // Оптимистично обновляем локальный массив attendance этого занятия
+    setSchedule(prev => prev.map(s => {
+      if (s.id !== scheduleId) return s
+      const att = [...(s.attendance || [])]
+      const idx = att.findIndex(a => a.student_id === studentId)
+      if (idx >= 0) att[idx] = { ...att[idx], status }
+      else att.push({ student_id: studentId, status })
+      return { ...s, attendance: att }
+    }))
     const { data, error } = await supabase.rpc('mark_attendance', {
       p_schedule_id: scheduleId,
       p_student_id:  studentId,
       p_new_status:  status,
     })
     setMarkingKey(null)
-    if (error) { alert('Ошибка сети: ' + error.message); return }
-    if (!data?.ok) {
-      const msg = {
-        not_authenticated: 'Сессия истекла, войдите заново',
-        forbidden:         'Недостаточно прав',
-        invalid_status:    'Недопустимый статус',
-        lesson_not_found:  'Занятие не найдено',
-        lesson_cancelled:  'Занятие отменено — отметка невозможна',
-        not_your_lesson:   'Можно отмечать только свои занятия',
-        out_of_visits:     `На абонементе нет свободных визитов (${data.visits_used ?? '?'} из ${data.visits_total ?? '?'})`,
-      }[data?.error] || `Не удалось сохранить отметку: ${data?.error || 'неизвестная ошибка'}`
+    if (error || !data?.ok) {
+      // Откат локального состояния — перезагрузим всё, чтобы взять достоверные данные
+      loadAll()
+      const msg = error
+        ? 'Ошибка сети: ' + error.message
+        : ({
+            not_authenticated: 'Сессия истекла, войдите заново',
+            forbidden:         'Недостаточно прав',
+            invalid_status:    'Недопустимый статус',
+            lesson_not_found:  'Занятие не найдено',
+            lesson_cancelled:  'Занятие отменено — отметка невозможна',
+            not_your_lesson:   'Можно отмечать только свои занятия',
+            out_of_visits:     `На абонементе нет свободных визитов (${data.visits_used ?? '?'} из ${data.visits_total ?? '?'})`,
+          }[data?.error] || `Не удалось сохранить отметку: ${data?.error || 'неизвестная ошибка'}`)
       alert(msg)
-      return
     }
-    loadAll()
+    // Успех — оптимистичный апдейт уже применён, тяжёлый loadAll не нужен.
   }
 
   const getName = (p) => p?.full_name || `${p?.first_name || ''} ${p?.last_name || ''}`.trim() || '—'
@@ -607,6 +626,34 @@ export default function TeacherPanel({ session }) {
     ['slots','🕐 Слоты'],
     ['profile','👤 Профиль'],
   ]
+
+  const AttButtons = ({ status, busy, onPresent, onAbsent }) => {
+    const isPresent = status === 'present'
+    const isAbsent  = status === 'absent'
+    const baseBtn = {
+      padding:'6px 12px', borderRadius:8, fontSize:12,
+      fontFamily:'Inter,sans-serif', fontWeight:600,
+      cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.5 : 1,
+    }
+    return (
+      <div style={{display:'flex', gap:6}}>
+        <button onClick={onPresent} disabled={busy}
+          style={{...baseBtn,
+            background: isPresent ? '#27ae60' : '#eafaf1',
+            color:      isPresent ? '#fff'    : '#27ae60',
+            border:     isPresent ? '1px solid #27ae60' : '1px solid transparent',
+            fontWeight: isPresent ? 700 : 600,
+          }}>✓ Был</button>
+        <button onClick={onAbsent} disabled={busy}
+          style={{...baseBtn,
+            background: isAbsent ? '#e74c3c' : '#fdecea',
+            color:      isAbsent ? '#fff'    : '#e74c3c',
+            border:     isAbsent ? '1px solid #e74c3c' : '1px solid transparent',
+            fontWeight: isAbsent ? 700 : 600,
+          }}>✗ Нет</button>
+      </div>
+    )
+  }
 
   const LessonCard = ({ s, showAttendance = false }) => {
     const isIndiv = s.lesson_type === 'indiv'
@@ -651,22 +698,16 @@ export default function TeacherPanel({ session }) {
             {isIndiv ? (
               indivStudent ? (() => {
                 const busy = markingKey === `${s.id}:${indivStudent.id}`
+                const status = attStatusFor(s, indivStudent.id)
                 return (
                   <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 0'}}>
                     <div>
                       <div style={{fontSize:13, color:'#2a2a2a', fontWeight:500}}>{getName(indivStudent)}</div>
                       <div style={{fontSize:11, color:'#BDBDBD'}}>Индивидуальное занятие</div>
                     </div>
-                    <div style={{display:'flex', gap:6}}>
-                      <button onClick={() => markAtt(s.id, indivStudent.id, 'present')} disabled={busy}
-                        style={{padding:'6px 12px', background:'#eafaf1', border:'none', borderRadius:8, fontSize:12, color:'#27ae60', cursor: busy ? 'default' : 'pointer', fontFamily:'Inter,sans-serif', fontWeight:600, opacity: busy ? 0.5 : 1}}>
-                        ✓ Был
-                      </button>
-                      <button onClick={() => markAtt(s.id, indivStudent.id, 'absent')} disabled={busy}
-                        style={{padding:'6px 12px', background:'#fdecea', border:'none', borderRadius:8, fontSize:12, color:'#e74c3c', cursor: busy ? 'default' : 'pointer', fontFamily:'Inter,sans-serif', fontWeight:600, opacity: busy ? 0.5 : 1}}>
-                        ✗ Нет
-                      </button>
-                    </div>
+                    <AttButtons status={status} busy={busy}
+                      onPresent={() => markAtt(s.id, indivStudent.id, 'present')}
+                      onAbsent={() => markAtt(s.id, indivStudent.id, 'absent')} />
                   </div>
                 )
               })() : (
@@ -677,19 +718,13 @@ export default function TeacherPanel({ session }) {
                 <div style={{fontSize:12, color:'#BDBDBD'}}>Нет записавшихся</div>
               ) : groupBookings.map(b => {
                 const busy = markingKey === `${s.id}:${b.student_id}`
+                const status = attStatusFor(s, b.student_id)
                 return (
                   <div key={b.id} style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 0', borderBottom:'1px solid #f8f8f8'}}>
                     <div style={{fontSize:13, color:'#2a2a2a'}}>{getName(b.profiles)}</div>
-                    <div style={{display:'flex', gap:6}}>
-                      <button onClick={() => markAtt(s.id, b.student_id, 'present')} disabled={busy}
-                        style={{padding:'6px 12px', background:'#eafaf1', border:'none', borderRadius:8, fontSize:12, color:'#27ae60', cursor: busy ? 'default' : 'pointer', fontFamily:'Inter,sans-serif', fontWeight:600, opacity: busy ? 0.5 : 1}}>
-                        ✓ Был
-                      </button>
-                      <button onClick={() => markAtt(s.id, b.student_id, 'absent')} disabled={busy}
-                        style={{padding:'6px 12px', background:'#fdecea', border:'none', borderRadius:8, fontSize:12, color:'#e74c3c', cursor: busy ? 'default' : 'pointer', fontFamily:'Inter,sans-serif', fontWeight:600, opacity: busy ? 0.5 : 1}}>
-                        ✗ Нет
-                      </button>
-                    </div>
+                    <AttButtons status={status} busy={busy}
+                      onPresent={() => markAtt(s.id, b.student_id, 'present')}
+                      onAbsent={() => markAtt(s.id, b.student_id, 'absent')} />
                   </div>
                 )
               })
