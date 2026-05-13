@@ -223,6 +223,11 @@ public/
 
 - **telegram-login** — выдача кода, поллинг подтверждения, выдача `hashed_token` для `verifyOtp`.
 - **create-staff** — создание `auth.users` + строки в `profiles` от имени админа (используется и для добавления клиента в [AdminDashboard.jsx:134](src/admin/AdminDashboard.jsx:134)).
+- **send-broadcast** — отправка рассылки. Принимает `{broadcast_id}`. Атомарно клеймит `broadcasts.status='sending'`, читает получателей + `profiles.push_token/email`, шлёт FCM HTTP v1 (требуется env `FCM_SERVICE_ACCOUNT_JSON`) и/или Resend (`RESEND_API_KEY`, `RESEND_FROM`). Обновляет `broadcast_recipients.delivered_at`/`failed_at`/`error` и `broadcasts.status='sent', sent_at=now()`. Возврат `{ok, sent_push, sent_email, failed}`. Вызывается из клиента при немедленной отправке и из pg_cron job для `status='scheduled' AND scheduled_at <= now()`.
+
+### pg_cron
+
+- **process-scheduled-broadcasts** (каждую минуту) — выбирает все `broadcasts` со `status='scheduled' AND scheduled_at <= now()` (до 50 за тик) и через `net.http_post` дёргает edge-функцию `send-broadcast` с заголовком `Authorization: Bearer <service_role_key из vault>`. Защищён `pg_try_advisory_lock` от наложения тиков. Service role key должен быть в `vault.decrypted_secrets` под именем `service_role_key` — иначе job логирует warning и пропускает: `select vault.create_secret('<SERVICE_ROLE_KEY>', 'service_role_key');`.
 
 ### RPC-функции (Postgres `SECURITY DEFINER`)
 
