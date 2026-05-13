@@ -162,6 +162,7 @@ function SaleModal({ client, session, onClose, onSuccess }) {
         client_not_found:         'Клиент не найден',
         insufficient_bonus_rubles: `На балансе только ${data.balance ?? 0} ₽, нужно ${data.required ?? bonusRublesUsed} ₽`,
         discount_exceeds_subtotal: `Скидка + бонусы (${(data.discount ?? 0) + (data.bonus ?? 0)} ₽) больше суммы чека (${data.subtotal ?? 0} ₽)`,
+        groups_required:          'Для абонемента/услуги нужно выбрать хотя бы одну группу',
       }[data?.error] || `Не удалось оформить продажу: ${data?.error || 'неизвестная ошибка'}`
       alert(msg)
       setSaving(false); return
@@ -219,7 +220,9 @@ function SaleModal({ client, session, onClose, onSuccess }) {
         </div>
         {hasSubItems && (
           <div style={{marginBottom:16}}>
-            <div style={{fontSize:12,color:'#888',fontWeight:600,marginBottom:8}}>Доступные группы</div>
+            <div style={{fontSize:12,color:'#888',fontWeight:600,marginBottom:8}}>
+              Доступные группы <span style={{color:'#e74c3c'}}>*</span>
+            </div>
             <div style={{display:'flex',flexDirection:'column',gap:6}}>
               {groups.map(g => (
                 <label key={g.id} style={{display:'flex',alignItems:'center',gap:8,padding:'7px 10px',borderRadius:10,background:selectedGroupIds.includes(g.id)?'#fafde8':'#f9f9f9',border:selectedGroupIds.includes(g.id)?'1px solid #BFD900':'1px solid #f0f0f0',cursor:'pointer',fontSize:13}}>
@@ -228,6 +231,11 @@ function SaleModal({ client, session, onClose, onSuccess }) {
                 </label>
               ))}
             </div>
+            {selectedGroupIds.length === 0 && (
+              <div style={{marginTop:8,fontSize:11,color:'#e74c3c',background:'#fdecea',borderRadius:6,padding:'6px 10px'}}>
+                ⚠️ Выберите хотя бы одну группу — без этого продажа не оформится
+              </div>
+            )}
           </div>
         )}
         {items.length > 0 && (
@@ -302,9 +310,17 @@ function SaleModal({ client, session, onClose, onSuccess }) {
               <span>К оплате:</span><span>{fmtMoney(afterDiscount)}</span>
             </div>
             <input value={comment} onChange={e => setComment(e.target.value)} placeholder="Комментарий к продаже..." style={{...iStyle,marginTop:12}} />
-            <button onClick={handleSubmit} disabled={saving} style={{width:'100%',padding:'11px',background:saving?'#e8e8e8':'#BFD900',border:'none',borderRadius:10,fontSize:14,fontWeight:700,color:saving?'#BDBDBD':'#2a2a2a',cursor:saving?'not-allowed':'pointer',fontFamily:'Inter,sans-serif',marginTop:10}}>
-              {saving ? 'Оформляем...' : '✅ Пробить продажу'}
-            </button>
+            {(() => {
+              const groupsMissing = hasSubItems && selectedGroupIds.length === 0
+              const btnDisabled = saving || groupsMissing
+              return (
+                <button onClick={handleSubmit} disabled={btnDisabled}
+                  style={{width:'100%',padding:'11px',background:btnDisabled?'#e8e8e8':'#BFD900',border:'none',borderRadius:10,fontSize:14,fontWeight:700,color:btnDisabled?'#BDBDBD':'#2a2a2a',cursor:btnDisabled?'not-allowed':'pointer',fontFamily:'Inter,sans-serif',marginTop:10}}
+                  title={groupsMissing ? 'Сначала выберите доступную группу' : ''}>
+                  {saving ? 'Оформляем...' : groupsMissing ? 'Выберите группу для абонемента' : '✅ Пробить продажу'}
+                </button>
+              )
+            })()}
           </div>
         )}
       </div>

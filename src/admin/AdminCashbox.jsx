@@ -296,6 +296,7 @@ export default function AdminCashbox({ session }) {
         client_not_found:         'Клиент не найден',
         insufficient_bonus_rubles: `На балансе только ${data.balance ?? 0} ₽, нужно ${data.required ?? bonusRublesUsed} ₽`,
         discount_exceeds_subtotal: `Скидка + бонусы (${(data.discount ?? 0) + (data.bonus ?? 0)} ₽) больше суммы чека (${data.subtotal ?? 0} ₽)`,
+        groups_required:          'Для абонемента/услуги нужно выбрать хотя бы одну группу',
       }[data?.error] || `Не удалось оформить продажу: ${data?.error || 'неизвестная ошибка'}`
       alert(msg)
       setSaving(false); return
@@ -378,10 +379,12 @@ export default function AdminCashbox({ session }) {
           {/* 2.5 Доступные группы (только если в чеке есть абонемент/услуга) */}
           {client && hasSubItems && (
             <div style={cardStyle}>
-              <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a', marginBottom:4}}>2.5. Доступные группы</div>
+              <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a', marginBottom:4}}>
+                2.5. Доступные группы <span style={{color:'#e74c3c'}}>*</span>
+              </div>
               <div style={{fontSize:12, color:'#888', marginBottom:12}}>
-                Отметь группы, которые клиент может посещать по этому абонементу.
-                Закрытые группы (🔒) не отмечены по умолчанию.
+                Отметь хотя бы одну группу, которую клиент сможет посещать по этому абонементу.
+                Без выбранной группы продажу пробить нельзя. Закрытые (🔒) не отмечены по умолчанию.
               </div>
               <div style={{display:'flex', flexDirection:'column', gap:8}}>
                 {groups.map(g => {
@@ -401,7 +404,7 @@ export default function AdminCashbox({ session }) {
               </div>
               {selectedGroupIds.length === 0 && (
                 <div style={{marginTop:10, fontSize:12, color:'#e74c3c', background:'#fdecea', borderRadius:8, padding:'8px 12px'}}>
-                  ⚠️ Не выбрана ни одна группа — клиент не сможет посещать занятия
+                  ⚠️ Выберите хотя бы одну группу — без этого продажа не оформится
                 </div>
               )}
             </div>
@@ -496,9 +499,17 @@ export default function AdminCashbox({ session }) {
               )}
               <input value={comment} onChange={e => setComment(e.target.value)} placeholder="Комментарий к продаже (необязательно)"
                 style={{...inputStyle, marginTop:16, background:'#3a3a3a', border:'1px solid #4a4a4a', color:'#fff'}} />
-              <button onClick={handleSubmit} disabled={saving} style={{...primaryBtn, width:'100%', marginTop:12, fontSize:15, padding:'14px', opacity: saving ? 0.7 : 1}}>
-                {saving ? 'Оформляем...' : '✅ Пробить продажу'}
-              </button>
+              {(() => {
+                const groupsMissing = hasSubItems && selectedGroupIds.length === 0
+                const btnDisabled = saving || groupsMissing
+                return (
+                  <button onClick={handleSubmit} disabled={btnDisabled}
+                    style={{...primaryBtn, width:'100%', marginTop:12, fontSize:15, padding:'14px', opacity: btnDisabled ? 0.5 : 1, cursor: btnDisabled ? 'not-allowed' : 'pointer'}}
+                    title={groupsMissing ? 'Сначала выберите доступные группы в шаге 2.5' : ''}>
+                    {saving ? 'Оформляем...' : groupsMissing ? 'Выберите группу для абонемента' : '✅ Пробить продажу'}
+                  </button>
+                )
+              })()}
             </div>
           )}
         </div>
