@@ -275,10 +275,18 @@ export default function AdminNews({ session }) {
   if (!localStr) return null
   return new Date(localStr).toISOString()
 }
+// published_at = now() сбивает сортировку: архивные новости при активации
+// уезжают в самый верх ленты. Ставим now только если новость реально
+// активна и не имеет запланированной даты публикации.
+const computedPublishedAt = form.scheduled_at
+  ? toUTC(form.scheduled_at)
+  : form.is_active
+    ? new Date().toISOString()
+    : null
 const payload = {
       ...form,
       scheduled_at: toUTC(form.scheduled_at),
-      published_at: form.scheduled_at ? toUTC(form.scheduled_at) : new Date().toISOString(),
+      published_at: computedPublishedAt,
       updated_at: new Date().toISOString(),
       updated_by: session.user.id,
     }

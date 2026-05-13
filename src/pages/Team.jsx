@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
+import { plural } from '../utils/plural'
 
 const DAYS_SHORT = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб']
 const MONTHS = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек']
@@ -194,7 +195,7 @@ export default function Team({ session }) {
               <div key={p.id} style={{background:'#fff', borderRadius:16, border:'1px solid #f0f0f0', padding:16, marginBottom:12}}>
                 <div style={{fontSize:15, fontWeight:600, color:'#2a2a2a', marginBottom:4}}>{p.name}</div>
                 <div style={{fontSize:11, color:'#BDBDBD', marginBottom:12}}>
-                  {p.visits_count} {p.visits_count === 1 ? 'занятие' : p.visits_count < 5 ? 'занятия' : 'занятий'} · {p.duration_days} дней
+                  {p.visits_count} {plural(p.visits_count, ['занятие','занятия','занятий'])} · {p.duration_days} {plural(p.duration_days, ['день','дня','дней'])}
                 </div>
                 <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
                   <div style={{fontSize:20, color:'#2a2a2a', fontWeight:300}}>{Number(p.price).toLocaleString('ru-RU')} <span style={{fontSize:12, color:'#BDBDBD'}}>₽</span></div>

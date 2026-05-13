@@ -370,7 +370,9 @@ function FinanceSales({ session }) {
 
   const total = filtered.reduce((s, x) => s + Number(x.amount_paid), 0)
   const totalNet = filtered.reduce((s, x) => s + Number(x.total_net), 0)
-  const avgCheck = filtered.length > 0 ? Math.round(total / filtered.length) : 0
+  // Без Math.round: fmtMoney форматирует numeric с двумя дробными если нужно,
+  // и копейки не теряются в среднем чеке.
+  const avgCheck = filtered.length > 0 ? total / filtered.length : 0
 
   // Топ-5 клиентов
   const byClient = {}
@@ -440,7 +442,9 @@ function FinanceSales({ session }) {
               { label:'Продаж', value: filtered.length, money: false },
               { label:'Оплачено', value: total, money: true },
               { label:'Чистая выручка', value: totalNet, money: true },
-              { label:'Средний чек', value: avgCheck, money: true },
+              // Средний чек показываем с двумя знаками после запятой —
+              // округление до рубля скрывало реальный разброс по чекам.
+              { label:'Средний чек', value: avgCheck.toLocaleString('ru-RU', { maximumFractionDigits: 2 }) + ' ₽', money: false },
             ].map(({ label, value, money }) => (
               <div key={label} style={{background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', padding:16}}>
                 <div style={{fontSize:11, color:'#888', marginBottom:6, fontWeight:600}}>{label}</div>

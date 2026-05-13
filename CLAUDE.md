@@ -400,15 +400,7 @@ if (!data?.ok) {
 
 ### 🟢 Низкие
 
-- **Склонения** «день/дня/дней», «занятие/занятия/занятий» для 11–14 и 21 ([Profile.jsx:584](src/pages/Profile.jsx:584), [Shop.jsx:357](src/pages/Shop.jsx:357), [Team.jsx:195](src/pages/Team.jsx:195)). Сделать общую утилиту `plural(n, ['день','дня','дней'])`.
-- **Округление среднего чека до рубля** ([AdminFinance.jsx:357](src/admin/AdminFinance.jsx:357)).
-- **Возраст по `getFullYear()`** без учёта прошёл ли ДР в этом году ([AttendancePanel.jsx:84](src/admin/AttendancePanel.jsx:84)).
-- **`Math.min(...)` от пустого массива** → `Infinity` в карточке преподавателя без активных пакетов ([AdminCatalog.jsx:802](src/admin/AdminCatalog.jsx:802)). UI покажет «∞ ₽».
-- **`file.name.split('.').pop()` для расширений** ([AvatarUpload.jsx:12](src/components/AvatarUpload.jsx:12), [AdminCatalog.jsx:44](src/admin/AdminCatalog.jsx:44)). Лучше из MIME + whitelist.
-- **ФИО без `trim()`** ([Profile.jsx:543](src/pages/Profile.jsx:543)) — пробелы по краям летят в БД.
-- **Cache-busting `?t=${Date.now()}` в URL аватара** ([AvatarUpload.jsx:18](src/components/AvatarUpload.jsx:18)) сохраняется в БД — мусор в `profiles.avatar_url` накапливается.
-- **`published_at = now` даже при `is_active=false`** ([AdminNews.jsx:280](src/admin/AdminNews.jsx:280)) — архивная новость сбивает сортировку при активации.
-- **Overlay аватара только по `onMouseEnter`** ([AvatarUpload.jsx:37](src/components/AvatarUpload.jsx:37)) — на тач-устройствах никогда не показывается.
+Все закрыты — см. `git log` по префиксу `fix(low)`. Добавляй сюда новые точечные мелочи по мере находок.
 
 ### Как пополнять список
 

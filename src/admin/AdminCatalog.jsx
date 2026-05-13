@@ -40,23 +40,27 @@ const MERCH_CATEGORIES = [
   { id:'other', label:'Другое' },
 ]
 
-async function uploadMerchImage(file, productId) {
-  const ext = file.name.split('.').pop()
-  const path = `${productId}/${Date.now()}.${ext}`
-  const { error } = await supabase.storage.from('merch').upload(path, file)
+// Whitelist MIME → расширение. Раньше расширение бралось из user-controlled
+// file.name через split('.').pop() — теоретически источник для подделки.
+const IMG_MIME_TO_EXT = {
+  'image/jpeg': 'jpg',
+  'image/png':  'png',
+  'image/webp': 'webp',
+  'image/gif':  'gif',
+}
+
+async function uploadImage(bucket, file, ownerId) {
+  const ext = IMG_MIME_TO_EXT[file.type]
+  if (!ext) { alert('Неподдерживаемый формат — JPEG, PNG, WebP или GIF'); return null }
+  const path = `${ownerId}/${Date.now()}.${ext}`
+  const { error } = await supabase.storage.from(bucket).upload(path, file, { contentType: file.type })
   if (error) return null
-  const { data } = supabase.storage.from('merch').getPublicUrl(path)
+  const { data } = supabase.storage.from(bucket).getPublicUrl(path)
   return data.publicUrl
 }
 
-async function uploadEventImage(file, eventId) {
-  const ext = file.name.split('.').pop()
-  const path = `${eventId}/${Date.now()}.${ext}`
-  const { error } = await supabase.storage.from('events').upload(path, file)
-  if (error) return null
-  const { data } = supabase.storage.from('events').getPublicUrl(path)
-  return data.publicUrl
-}
+const uploadMerchImage = (file, productId) => uploadImage('merch',  file, productId)
+const uploadEventImage = (file, eventId)   => uploadImage('events', file, eventId)
 
 // ─── Вкладка Мероприятия ──────────────────────────────────────────────────────
 function EventTab({ teachers, session }) {
@@ -836,7 +840,10 @@ function IndivTab({ teachers }) {
     <div style={{display:'flex',flexDirection:'column',gap:10,maxWidth:860}}>
       {packages.map(({teacher,packages:pkgs})=>{
         const isOpen=openTeacher===teacher?.id
-        const minPrice=Math.min(...pkgs.map(p=>Number(p.price)))
+        // Math.min от пустого массива возвращает Infinity → UI рисовал «∞ ₽»
+        // у преподавателей без активных пакетов.
+        const prices = pkgs.map(p=>Number(p.price)).filter(n=>!Number.isNaN(n))
+        const minPrice = prices.length > 0 ? Math.min(...prices) : 0
         const activePkgs=pkgs.filter(p=>p.is_active).length
         return (
           <div key={teacher?.id} style={{background:'#fff',borderRadius:14,border:'1px solid #f0f0f0',overflow:'hidden'}}>

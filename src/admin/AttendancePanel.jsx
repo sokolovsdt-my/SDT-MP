@@ -110,11 +110,16 @@ function StudentRow({ booking, onStatusChange, lessonStarted }) {
           <span style={{ fontSize: 13, fontWeight: 600, color: '#2a2a2a' }}>
             {booking.profiles?.full_name || booking.profiles?.email || '—'}
           </span>
-          {booking.profiles?.birth_date && (
-            <span style={{ fontSize: 11, color: '#BDBDBD' }}>
-              {new Date().getFullYear() - new Date(booking.profiles.birth_date).getFullYear()} лет
-            </span>
-          )}
+          {booking.profiles?.birth_date && (() => {
+            // Возраст с поправкой «прошёл ли ДР в этом году».
+            const bd = new Date(booking.profiles.birth_date)
+            const now = new Date()
+            let age = now.getFullYear() - bd.getFullYear()
+            const beforeBd = now.getMonth() < bd.getMonth() ||
+              (now.getMonth() === bd.getMonth() && now.getDate() < bd.getDate())
+            if (beforeBd) age -= 1
+            return <span style={{ fontSize: 11, color: '#BDBDBD' }}>{age} лет</span>
+          })()}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           <span style={{

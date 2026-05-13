@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../supabase'
+import { plural } from '../utils/plural'
 
 const TYPE_TO_CAT = {
   subscription: 'subscriptions',
@@ -356,7 +357,7 @@ export default function Shop({ session }) {
         : indivProducts.map(p => (
           <div key={p.id} style={{background:'#fff', borderRadius:16, border:'1px solid #f0f0f0', padding:16, marginBottom:12}}>
             <div style={{fontSize:15, fontWeight:600, color:'#2a2a2a', marginBottom:4}}>{p.name}</div>
-            <div style={{fontSize:11, color:'#BDBDBD', marginBottom:8}}>{p.visits_count} {p.visits_count===1?'занятие':p.visits_count<5?'занятия':'занятий'} · {p.duration_days} дней</div>
+            <div style={{fontSize:11, color:'#BDBDBD', marginBottom:8}}>{p.visits_count} {plural(p.visits_count, ['занятие','занятия','занятий'])} · {p.duration_days} {plural(p.duration_days, ['день','дня','дней'])}</div>
             <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
               <div style={{fontSize:20, color:'#2a2a2a', fontWeight:300}}>{Number(p.price).toLocaleString()} <span style={{fontSize:12, color:'#BDBDBD'}}>₽</span></div>
               <button onClick={() => alert('Оплата скоро будет доступна!')} style={{background:'#BFD900', border:'none', borderRadius:12, padding:'9px 20px', fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>Купить</button>

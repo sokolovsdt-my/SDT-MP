@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
 import AvatarUpload from '../components/AvatarUpload'
 import { requestPermission } from '../firebase'
+import { plural } from '../utils/plural'
 
 // ─── ЗАМЕНИ функцию MyLessons в Profile.jsx ───────────────────────────────────
 // Найди: function MyLessons({ session, onBack }) {
@@ -509,13 +510,22 @@ export default function Profile({ session }) {
 
   const handleSave = async () => {
     setSaving(true)
-    const full_name = [form.last_name, form.first_name, form.patronymic].filter(Boolean).join(' ')
+    // trim() убирает случайные пробелы по краям из всех частей ФИО, иначе они
+    // утекают в БД и потом ломают поиск/сравнения.
+    const last  = form.last_name?.trim()  || null
+    const first = form.first_name?.trim() || null
+    const patro = form.patronymic?.trim() || null
+    const full_name = [last, first, patro].filter(Boolean).join(' ') || null
     const { error } = await supabase.from('profiles').update({
-      full_name: full_name || null, last_name: form.last_name || null,
-      first_name: form.first_name || null, patronymic: form.patronymic || null,
-      phone: form.phone || null, birth_date: form.birth_date || null, email: form.email || null
+      full_name, last_name: last, first_name: first, patronymic: patro,
+      phone: form.phone?.trim() || null,
+      birth_date: form.birth_date || null,
+      email: form.email?.trim() || null,
     }).eq('id', session.user.id)
-    if (!error) { setProfile(p => ({ ...p, ...form, full_name })); setSaved(true); setTimeout(() => { setSaved(false); goScreen(null) }, 1500) }
+    if (!error) {
+      setProfile(p => ({ ...p, last_name: last, first_name: first, patronymic: patro, full_name }))
+      setSaved(true); setTimeout(() => { setSaved(false); goScreen(null) }, 1500)
+    }
     setSaving(false)
   }
 
@@ -590,7 +600,7 @@ export default function Profile({ session }) {
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#BDBDBD' }}>
                   {subDaysLeft !== null
-                    ? <><span>Осталось {subDaysLeft} {subDaysLeft === 1 ? 'день' : subDaysLeft < 5 ? 'дня' : 'дней'}</span><span>до {subExpDate}</span></>
+                    ? <><span>Осталось {subDaysLeft} {plural(subDaysLeft, ['день', 'дня', 'дней'])}</span><span>до {subExpDate}</span></>
                     : <span>Бессрочный</span>
                   }
                 </div>
