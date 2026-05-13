@@ -399,18 +399,10 @@ if (!data?.ok) {
 - **`loadAll` в `AdminSchedule` последовательный** ([AdminSchedule.jsx:423](src/admin/AdminSchedule.jsx:423)) — 6+ `await` без `Promise.all`.
 
 **Инфра и UX:**
-- **`vercel.json` rewrite `/(.*) → /index.html`** ловит всё, включая `/firebase-messaging-sw.js`. Поведение Vercel сейчас выдаёт реальный файл первым, но неявно. Стоит явно исключить SW и manifest.
-- **Service Worker регистрируется неявно** через Firebase SDK при `getToken` — зависит от того, что файл доступен по корню (см. предыдущий пункт).
-- **Hardcoded Firebase ключи в SW** ([firebase-messaging-sw.js](public/firebase-messaging-sw.js)) при том что в [firebase.js](src/firebase.js) они в env — двойной источник истины.
-- **Нет `.env.example`** в корне — новый разработчик не знает, какие `VITE_*` обязательны.
-- **ESLint flat config** не включает `react-hooks/exhaustive-deps` уровнем `error`. Куча `useEffect` с устаревшими зависимостями проходит молча.
-- **`handleLogout` в AdminLayout** делает `navigate('/')` после `signOut` ([AdminLayout.jsx:77](src/admin/AdminLayout.jsx:77)) — мёртвый код, Router размонтируется раньше.
-- **`min="31" max="31"`** для `available_to_day` ([AdminCatalog.jsx:1027](src/admin/AdminCatalog.jsx:1027)) — можно ввести только `31`. Должно быть `min="1" max="31"`.
-- **Форма быстрого добавления клиента в кассе без кнопки сохранения** ([AdminCashbox.jsx:78](src/admin/AdminCashbox.jsx:78)) — мёртвый UI.
-- **«Получателей» в истории рассылок всегда «—»** ([AdminBroadcasts.jsx:609](src/admin/AdminBroadcasts.jsx:609)) — статистика отправок не выводится, хотя данные в `broadcast_recipients` есть.
+- **Hardcoded Firebase ключи в SW** ([firebase-messaging-sw.js](public/firebase-messaging-sw.js)) при том что в [firebase.js](src/firebase.js) они в env — двойной источник истины. Firebase apiKey по факту публичный, но при ротации сломается SW.
+- **ESLint flat config** не включает `react-hooks/exhaustive-deps` уровнем `error`. Куча `useEffect` с устаревшими зависимостями проходит молча. Включение даст десятки новых ошибок — нужен отдельный refactoring-блок.
 - **`alert/confirm` непоследовательны** — часть критичных действий (отмена занятия в Schedule.jsx клиента) без подтверждения, часть с нативным confirm.
-- **Кликабельные `<div>` вместо `<button>`** — `BottomNav`, карточки списков, аватарка с overlay по hover. Accessibility (фокус с клавиатуры, скринридер) не работает.
-- **`<html lang="en">`** при русском интерфейсе ([index.html:2](index.html:2)).
+- **Кликабельные `<div>` вместо `<button>`** в карточках списков (новости, продажи, расписание), аватарка с overlay по hover. `BottomNav` уже переведён на `<button>` (a11y win), остальные места — массивная работа.
 
 ### 🟢 Низкие
 

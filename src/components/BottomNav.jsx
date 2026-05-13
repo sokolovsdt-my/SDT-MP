@@ -41,14 +41,21 @@ export default function BottomNav({ active, onChange }) {
   ]
 
   return (
-    <div style={{position:'fixed', bottom:0, left:'50%', transform:'translateX(-50%)', width:'100%', maxWidth:480, background:'#fff', borderTop:'1px solid #f0f0f0', display:'flex', justifyContent:'space-around', padding:'10px 6px 20px', fontFamily:'Inter,sans-serif', zIndex:100}}>
-      {items.map(item => (
-        <div key={item.id} onClick={() => onChange(item.id)}
-          style={{display:'flex', flexDirection:'column', alignItems:'center', gap:3, cursor:'pointer', color:active===item.id?'#6a7700':'#BDBDBD'}}>
-          {item.icon}
-          <span style={{fontSize:8, letterSpacing:'0.04em', textTransform:'uppercase'}}>{item.label}</span>
-        </div>
-      ))}
-    </div>
+    <nav aria-label="Основная навигация"
+      style={{position:'fixed', bottom:0, left:'50%', transform:'translateX(-50%)', width:'100%', maxWidth:480, background:'#fff', borderTop:'1px solid #f0f0f0', display:'flex', justifyContent:'space-around', padding:'10px 6px 20px', fontFamily:'Inter,sans-serif', zIndex:100}}>
+      {items.map(item => {
+        const isActive = active === item.id
+        return (
+          <button key={item.id} onClick={() => onChange(item.id)}
+            type="button"
+            aria-label={item.label}
+            aria-current={isActive ? 'page' : undefined}
+            style={{display:'flex', flexDirection:'column', alignItems:'center', gap:3, cursor:'pointer', color: isActive ? '#6a7700' : '#BDBDBD', background:'none', border:'none', padding:0, fontFamily:'inherit'}}>
+            {item.icon}
+            <span style={{fontSize:8, letterSpacing:'0.04em', textTransform:'uppercase'}}>{item.label}</span>
+          </button>
+        )
+      })}
+    </nav>
   )
 }

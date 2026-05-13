@@ -75,8 +75,9 @@ export default function AdminLayout({ session }) {
   }, [session])
 
   const handleLogout = async () => {
+    // navigate('/') здесь излишен: signOut вызывает onAuthStateChange в App.jsx,
+    // session становится null и весь Router размонтируется в пользу Login.
     await supabase.auth.signOut()
-    navigate('/')
   }
 
   const menu = [

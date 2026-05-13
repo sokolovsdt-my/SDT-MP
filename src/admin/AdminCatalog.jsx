@@ -1024,7 +1024,7 @@ function ProductForm({ type, teachers, groups, onSave, onCancel, initial = null 
               <span style={{fontSize:13, color:'#888'}}>с</span>
               <input value={subForm.available_from_day} onChange={e => setSubForm({...subForm, available_from_day:e.target.value})} type="number" min="1" max="31" placeholder="1" style={{...inputStyle, width:70, marginBottom:0}} />
               <span style={{fontSize:13, color:'#888'}}>по</span>
-              <input value={subForm.available_to_day} onChange={e => setSubForm({...subForm, available_to_day:e.target.value})} type="number" min="31" max="31" placeholder="31" style={{...inputStyle, width:70, marginBottom:0}} />
+              <input value={subForm.available_to_day} onChange={e => setSubForm({...subForm, available_to_day:e.target.value})} type="number" min="1" max="31" placeholder="31" style={{...inputStyle, width:70, marginBottom:0}} />
               <span style={{fontSize:13, color:'#888'}}>число</span>
             </div>
           </div>

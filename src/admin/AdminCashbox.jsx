@@ -36,8 +36,6 @@ const toLocalDateStr = (d) => {
 function ClientSearch({ onSelect }) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
-  const [showNewForm, setShowNewForm] = useState(false)
-  const [newClient, setNewClient] = useState({ full_name:'', phone:'' })
 
   const handleSearch = async (val) => {
     setQuery(val)
@@ -71,18 +69,10 @@ function ClientSearch({ onSelect }) {
           </div>
         )}
       </div>
-      <button onClick={() => setShowNewForm(!showNewForm)}
-        style={{marginTop:8, background:'none', border:'none', color:'#2980b9', fontSize:12, cursor:'pointer', fontFamily:'Inter,sans-serif', padding:0}}>
-        + Новый клиент (нет в базе)
-      </button>
-      {showNewForm && (
-        <div style={{background:'#f9f9f9', borderRadius:10, padding:14, marginTop:10}}>
-          <div style={{fontSize:12, fontWeight:600, color:'#2a2a2a', marginBottom:8}}>Быстрое добавление клиента</div>
-          <input value={newClient.full_name} onChange={e => setNewClient({...newClient, full_name:e.target.value})} placeholder="ФИО *" style={{...inputStyle, marginBottom:8}} />
-          <input value={newClient.phone} onChange={e => setNewClient({...newClient, phone:e.target.value})} placeholder="Телефон" style={{...inputStyle, marginBottom:8}} />
-          <div style={{fontSize:11, color:'#888'}}>После создания найдите клиента через поиск выше.</div>
-        </div>
-      )}
+      <a href="/admin/dashboard"
+        style={{marginTop:8, display:'inline-block', color:'#2980b9', fontSize:12, fontFamily:'Inter,sans-serif', textDecoration:'none'}}>
+        + Нет в базе? Добавить клиента на дашборде →
+      </a>
     </div>
   )
 }

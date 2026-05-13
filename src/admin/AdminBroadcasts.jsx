@@ -289,8 +289,15 @@ export default function AdminBroadcasts({ session }) {
   }
 
   const loadBroadcasts = async () => {
-    const { data } = await supabase.from('broadcasts').select('*, profiles:created_by(full_name)').order('created_at', { ascending: false })
-    setBroadcasts(data || [])
+    // recipients_count подтягиваем агрегатом через PostgREST: broadcast_recipients(count)
+    const { data } = await supabase
+      .from('broadcasts')
+      .select('*, profiles:created_by(full_name), recipients:broadcast_recipients(count)')
+      .order('created_at', { ascending: false })
+    setBroadcasts((data || []).map(b => ({
+      ...b,
+      recipients_count: b.recipients?.[0]?.count ?? 0,
+    })))
   }
 
   const loadRecipients = async () => {
@@ -607,7 +614,7 @@ export default function AdminBroadcasts({ session }) {
                           {STATUS_LABELS[b.status]}
                         </span>
                       </td>
-                      <td style={{padding:'12px 16px', fontSize:12, color:'#888'}}>—</td>
+                      <td style={{padding:'12px 16px', fontSize:12, color:'#888'}}>{b.recipients_count || 0}</td>
                       <td style={{padding:'12px 16px', fontSize:12, color:'#888', whiteSpace:'nowrap'}}>
                         {new Date(b.created_at).toLocaleDateString('ru-RU', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})}
                       </td>

@@ -1,5 +1,8 @@
 {
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+    {
+      "source": "/((?!firebase-messaging-sw\\.js|manifest\\.json|favicon\\.svg|icons\\.svg|icon-[0-9]+\\.png|assets/).*)",
+      "destination": "/index.html"
+    }
   ]
 }
