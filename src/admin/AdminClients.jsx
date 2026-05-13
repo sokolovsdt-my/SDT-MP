@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabase'
+import { edgeUrl } from '../utils/supabaseEdge'
 
 const LOYALTY = {
   adept:  { label: '👑 Адепт',      color: '#8e44ad' },
@@ -63,7 +64,7 @@ export default function AdminClients() {
     setAddingSaving(true)
     const full_name = [newClient.last_name, newClient.first_name, newClient.patronymic].filter(Boolean).join(' ')
     const { data: { session } } = await supabase.auth.getSession()
-    const res = await fetch('https://momqnoeogfjjexwcwlpu.supabase.co/functions/v1/create-staff', {
+    const res = await fetch(edgeUrl('create-staff'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
       body: JSON.stringify({ ...newClient, full_name, role: 'client' })

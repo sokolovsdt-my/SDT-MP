@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabase'
+import { edgeUrl } from '../utils/supabaseEdge'
 
 const ROLE_LABELS = {
   owner: { label: 'Владелец', color: '#6a7700', bg: '#fafde8' },
@@ -46,7 +47,7 @@ export default function AdminStaff() {
     setSaving(true); setSaveResult(null)
     try {
       const { data: { session } } = await supabase.auth.getSession()
-      const res = await fetch('https://momqnoeogfjjexwcwlpu.supabase.co/functions/v1/create-staff', {
+      const res = await fetch(edgeUrl('create-staff'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

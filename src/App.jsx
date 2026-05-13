@@ -27,8 +27,9 @@ import AdminPrizes from './admin/AdminPrizes'
 import TeacherPanel from './admin/TeacherPanel'
 import { RequireRole } from './components/RequireRole'
 import { useUserRole } from './hooks/useUserRole'
+import { edgeUrl } from './utils/supabaseEdge'
 
-const TG_LOGIN_URL = 'https://momqnoeogfjjexwcwlpu.supabase.co/functions/v1/telegram-login'
+const TG_LOGIN_URL = edgeUrl('telegram-login')
 
 function ClientApp({ session }) {
   const [page, setPage] = useState(() => localStorage.getItem('activePage') || 'home')

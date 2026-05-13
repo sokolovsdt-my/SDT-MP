@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../supabase'
 import { todayMsk, toMskDateStr, mskDayStartUtc, mskDayEndUtc } from '../utils/tz'
+import { edgeUrl } from '../utils/supabaseEdge'
 
 const cardStyle = { background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', padding:20, marginBottom:16 }
 const fmtMoney = (n) => (Number(n) || 0).toLocaleString('ru-RU') + ' ₽'
@@ -125,7 +126,7 @@ export default function AdminDashboard({ session }) {
     setAddingSaving(true)
     const full_name = [newClient.last_name, newClient.first_name, newClient.patronymic].filter(Boolean).join(' ')
     const { data: { session } } = await supabase.auth.getSession()
-    const res = await fetch('https://momqnoeogfjjexwcwlpu.supabase.co/functions/v1/create-staff', {
+    const res = await fetch(edgeUrl('create-staff'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
       body: JSON.stringify({ ...newClient, full_name, role: 'client' })
