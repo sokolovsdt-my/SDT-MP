@@ -467,37 +467,169 @@ function AutoBirthdaySettings({ auto, onClose, onSaved, session }) {
   )
 }
 
+// Один день расписания авторассылки. kind:
+//   'past'   — вчера: показываем факт (доставлено / упало / должны были но cron не сработал)
+//   'today'  — сегодня: микс факта (если cron уже отработал) и плана (если ещё нет)
+//   'future' — завтра: только план
+function ScheduleDay({ label, day, kind, isActive }) {
+  if (!day) return null
+  const fmtDate = (d) => d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
+
+  const statusBadge = (item) => {
+    if (item.run) {
+      if (item.run.channels_sent && !item.run.error) {
+        return <span style={{fontSize:10, fontWeight:700, color:'#27ae60', background:'#eafaf1', padding:'1px 6px', borderRadius:4}}>✓ {item.run.channels_sent}</span>
+      }
+      if (item.run.error === 'no_contact_channels') {
+        return <span style={{fontSize:10, fontWeight:700, color:'#888', background:'#f5f5f5', padding:'1px 6px', borderRadius:4}}>📭 нет каналов</span>
+      }
+      return <span style={{fontSize:10, fontWeight:700, color:'#e74c3c', background:'#fdecea', padding:'1px 6px', borderRadius:4}} title={item.run.error || ''}>✗ ошибка</span>
+    }
+    if (kind === 'past') {
+      return <span style={{fontSize:10, fontWeight:700, color:'#f39c12', background:'#fef9e7', padding:'1px 6px', borderRadius:4}} title="cron не сработал или авторассылка была выключена">⌛ пропущено</span>
+    }
+    if (kind === 'today' || kind === 'future') {
+      return <span style={{fontSize:10, fontWeight:700, color:'#2980b9', background:'#e8f4fd', padding:'1px 6px', borderRadius:4}}>📋 запланировано</span>
+    }
+    return null
+  }
+
+  const headerColor = kind === 'today' ? '#6a7700' : '#888'
+  const headerBg    = kind === 'today' ? '#fafde8' : '#fff'
+
+  return (
+    <div style={{marginBottom:10}}>
+      <div style={{display:'flex', alignItems:'center', gap:8, padding:'6px 10px', background: headerBg, borderRadius:8, marginBottom:4}}>
+        <span style={{fontSize:12, fontWeight:700, color: headerColor}}>{label}</span>
+        <span style={{fontSize:11, color:'#BDBDBD'}}>{fmtDate(day.date)}</span>
+        <span style={{fontSize:11, color:'#888', marginLeft:'auto'}}>
+          {day.items.length === 0 ? 'никого' : `${day.items.length} чел.`}
+        </span>
+      </div>
+      {day.items.length > 0 && (
+        <div style={{paddingLeft:8}}>
+          {day.items.map((it, idx) => (
+            <div key={it.client.id} style={{display:'flex', alignItems:'center', gap:8, padding:'4px 6px', borderBottom: idx < day.items.length - 1 ? '1px solid #f0f0f0' : 'none', fontSize:12}}>
+              <span style={{flex:1, color:'#2a2a2a'}}>{it.client.full_name || it.client.email || '—'}</span>
+              <span style={{fontSize:11, color:'#BDBDBD', display:'flex', gap:4}}>
+                <span title={it.client.email ? `email: ${it.client.email}` : 'нет email'} style={{opacity: it.client.email ? 1 : 0.3}}>📧</span>
+                <span title={it.client.push_token ? 'есть push' : 'нет push'} style={{opacity: it.client.push_token ? 1 : 0.3}}>📱</span>
+              </span>
+              {isActive ? statusBadge(it) : (
+                <span style={{fontSize:10, fontWeight:700, color:'#888', background:'#f5f5f5', padding:'1px 6px', borderRadius:4}}>выключено</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function AutoTab({ session }) {
   const [autos, setAutos] = useState([])
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState(null)
-  const [todayCount, setTodayCount] = useState(null)
+  // schedules[autoId] = { yesterday: [...], today: [...], tomorrow: [...] }
+  // Каждый элемент: { client: {id, full_name, email, push_token, birth_date},
+  //                   run: { channels_sent, error } | null,  // null = ещё не было / в будущем
+  //                   day: 'yesterday'|'today'|'tomorrow' }
+  const [schedules, setSchedules] = useState({})
   const [togglingId, setTogglingId] = useState(null)
 
   useEffect(() => { load() }, [])
 
   const load = async () => {
     setLoading(true)
-    const { data } = await supabase.from('auto_broadcasts').select('*').order('type')
-    setAutos(data || [])
+    const { data: autosList } = await supabase.from('auto_broadcasts').select('*').order('type')
+    setAutos(autosList || [])
     setLoading(false)
-    // Превью «сколько именинников сегодня». Дёргаем ту же логику что edge,
-    // но в SQL: считаем клиентов у которых to_char(birth_date,'MM-DD') == today (МСК).
-    const { data: birthdays } = await supabase.from('profiles')
-      .select('id, birth_date').eq('role','client').not('birth_date','is',null)
-    const todayMd = new Date().toLocaleString('en-US', { timeZone: 'Europe/Moscow', month: '2-digit', day: '2-digit' })
-    // toLocaleString('en-US', {month:'2-digit',day:'2-digit'}) → "MM/DD/YYYY"-ish? Реально вернёт "MM/DD".
-    // Чтобы надёжно — соберём руками.
+
+    // Грузим всех клиентов с ДР + runs за вчера/сегодня/завтра одним заходом
+    const { data: clients } = await supabase.from('profiles')
+      .select('id, full_name, email, push_token, birth_date')
+      .eq('role','client').not('birth_date','is',null)
+
+    const sch = {}
+    for (const a of autosList || []) {
+      if (a.type !== 'birthday') continue
+      sch[a.id] = await buildBirthdaySchedule(a, clients || [])
+    }
+    setSchedules(sch)
+  }
+
+  // Считаем ключ MM-DD для произвольной даты
+  const mdKey = (date) => {
+    const m = String(date.getMonth() + 1).padStart(2, '0')
+    const d = String(date.getDate()).padStart(2, '0')
+    return `${m}-${d}`
+  }
+  const isLeap = (y) => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0
+
+  const matchBirthday = (birthDateStr, target) => {
+    const bd = new Date(birthDateStr)
+    const bdKey = mdKey(bd)
+    const targetKey = mdKey(target)
+    if (bdKey === targetKey) return true
+    // 29 февраля → 28 февраля в невисокосный год
+    if (bdKey === '02-29' && targetKey === '02-28' && !isLeap(target.getFullYear())) return true
+    return false
+  }
+
+  const buildBirthdaySchedule = async (auto, clients) => {
+    // День отправки = run_date. День ДР клиента = run_date + days_before.
     const nowMsk = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Moscow' }))
-    const mm = String(nowMsk.getMonth() + 1).padStart(2,'0')
-    const dd = String(nowMsk.getDate()).padStart(2,'0')
-    const todayKey = `${mm}-${dd}`
-    const cnt = (birthdays || []).filter(p => {
-      const bd = new Date(p.birth_date)
-      const k = `${String(bd.getMonth()+1).padStart(2,'0')}-${String(bd.getDate()).padStart(2,'0')}`
-      return k === todayKey
-    }).length
-    setTodayCount(cnt)
+    const mkDay  = (offset) => {
+      const d = new Date(nowMsk); d.setDate(d.getDate() + offset); d.setHours(0,0,0,0); return d
+    }
+    const yesterday = mkDay(-1)
+    const today     = mkDay(0)
+    const tomorrow  = mkDay(1)
+
+    // Кандидаты на каждый день: клиенты у кого ДР приходится на runDate + days_before
+    const candidatesFor = (runDate) => {
+      const targetBday = new Date(runDate)
+      targetBday.setDate(targetBday.getDate() + (auto.days_before || 0))
+      return clients.filter(c => matchBirthday(c.birth_date, targetBday))
+    }
+
+    // Реальные runs (для вчера/сегодня)
+    const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+    const { data: runs } = await supabase.from('auto_broadcast_runs')
+      .select('recipient_id, channels_sent, error, run_date')
+      .eq('auto_id', auto.id)
+      .gte('run_date', fmt(yesterday))
+      .lte('run_date', fmt(tomorrow))
+
+    const runByDay = { yesterday: {}, today: {}, tomorrow: {} }
+    ;(runs || []).forEach(r => {
+      const key = r.run_date === fmt(yesterday) ? 'yesterday' :
+                  r.run_date === fmt(today)     ? 'today'     :
+                  r.run_date === fmt(tomorrow)  ? 'tomorrow'  : null
+      if (key) runByDay[key][r.recipient_id] = r
+    })
+
+    // Объединяем: кандидаты + те кто реально получил (могли получить даже не из кандидатов
+    // если ДР клиента поменяли после запуска)
+    const buildDay = (runDate, dayKey) => {
+      const cands = candidatesFor(runDate)
+      const result = cands.map(c => ({ client: c, run: runByDay[dayKey][c.id] || null, day: dayKey }))
+      // Если в runs есть кто-то кого нет в текущих кандидатах — добавим
+      const candIds = new Set(cands.map(c => c.id))
+      Object.values(runByDay[dayKey]).forEach(r => {
+        if (!candIds.has(r.recipient_id)) {
+          const cl = clients.find(c => c.id === r.recipient_id)
+          if (cl) result.push({ client: cl, run: r, day: dayKey })
+        }
+      })
+      return result.sort((a, b) => (a.client.full_name || '').localeCompare(b.client.full_name || ''))
+    }
+
+    return {
+      yesterday: { date: yesterday, items: buildDay(yesterday, 'yesterday') },
+      today:     { date: today,     items: buildDay(today,     'today') },
+      tomorrow:  { date: tomorrow,  items: buildDay(tomorrow,  'tomorrow') },
+    }
   }
 
   const handleToggle = async (auto) => {
@@ -524,6 +656,7 @@ function AutoTab({ session }) {
 
       {autos.map(a => {
         if (a.type !== 'birthday') return null
+        const sched = schedules[a.id]
         return (
           <div key={a.id} style={{...cardStyle, padding:24}}>
             <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:16}}>
@@ -553,12 +686,15 @@ function AutoTab({ session }) {
               </button>
             </div>
 
-            {/* Превью */}
-            {a.is_active && todayCount !== null && (
-              <div style={{background:'#fafde8', borderRadius:10, padding:'10px 14px', marginBottom:14, fontSize:13, color:'#6a7700'}}>
-                {todayCount > 0
-                  ? `🎁 Сегодня будет отправлено: ${todayCount} чел.`
-                  : 'Сегодня именинников нет'}
+            {/* Расписание отправок: вчера / сегодня / завтра */}
+            {sched && (
+              <div style={{background:'#f9f9f9', borderRadius:12, padding:14, marginBottom:14}}>
+                <div style={{fontSize:12, color:'#888', fontWeight:600, marginBottom:10, textTransform:'uppercase', letterSpacing:'0.06em'}}>
+                  📅 Расписание отправок
+                </div>
+                <ScheduleDay label="Вчера"   day={sched.yesterday} kind="past"   isActive={a.is_active} />
+                <ScheduleDay label="Сегодня" day={sched.today}     kind="today"  isActive={a.is_active} />
+                <ScheduleDay label="Завтра"  day={sched.tomorrow}  kind="future" isActive={a.is_active} />
               </div>
             )}
 
