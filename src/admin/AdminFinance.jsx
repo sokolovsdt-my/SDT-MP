@@ -1165,20 +1165,24 @@ function FinanceExpenses({ session }) {
 // Аналитика по индив-занятиям. Доступна только owner (вкладка под общим
 // owner-only гардом /admin/finance).
 const INDIV_PERIODS = [
-  ['today', 'День'], ['week', 'Неделя'], ['month', 'Месяц'], ['year', 'Год'], ['all', 'Всё время']
+  ['today', 'День'], ['week', 'Неделя'], ['month', 'Месяц'], ['year', 'Год'], ['all', 'Всё время'], ['custom', 'Выбранный период']
 ]
 
 function FinanceIndivs() {
   const [period, setPeriod] = useState('month')
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo, setCustomTo] = useState('')
   const [loading, setLoading] = useState(true)
   const [revenue, setRevenue] = useState(0)
   const [salesCount, setSalesCount] = useState(0)
   const [topTeachers, setTopTeachers] = useState([])
   const [slots, setSlots] = useState({ total: 0, used: 0 })
 
-  const range = getPeriodRange(period)
+  const range = period === 'custom'
+    ? (customFrom && customTo ? { from: customFrom, to: customTo } : null)
+    : getPeriodRange(period)
 
-  useEffect(() => { load() }, [period])
+  useEffect(() => { if (range) load() }, [period, customFrom, customTo])
 
   const load = async () => {
     setLoading(true)
@@ -1234,13 +1238,21 @@ function FinanceIndivs() {
   return (
     <div>
       {/* Период */}
-      <div style={{display:'flex', gap:6, marginBottom:16, flexWrap:'wrap'}}>
+      <div style={{display:'flex', gap:6, flexWrap:'wrap', marginBottom: period === 'custom' ? 12 : 16}}>
         {INDIV_PERIODS.map(([v, l]) => (
           <button key={v} onClick={() => setPeriod(v)} style={chipStyle(period === v)}>{l}</button>
         ))}
       </div>
+      {period === 'custom' && (
+        <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:16, maxWidth:420}}>
+          <div><label style={labelStyle}>С</label><input value={customFrom} onChange={e => setCustomFrom(e.target.value)} type="date" style={inputStyle} /></div>
+          <div><label style={labelStyle}>По</label><input value={customTo} onChange={e => setCustomTo(e.target.value)} type="date" style={inputStyle} /></div>
+        </div>
+      )}
 
-      {loading ? (
+      {!range ? (
+        <div style={{textAlign:'center', color:'#BDBDBD', padding:40, fontSize:13}}>Выберите даты периода</div>
+      ) : loading ? (
         <div style={{textAlign:'center', color:'#BDBDBD', padding:40}}>Загрузка...</div>
       ) : (
         <>
