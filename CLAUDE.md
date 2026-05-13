@@ -51,7 +51,7 @@ src/
 │   ├── News.jsx          # лента новостей, теги
 │   ├── Team.jsx          # карточки преподавателей, запись на индив-слоты
 │   ├── Bonus.jsx         # призы за SDTшки
-│   └── Profile.jsx       # профиль, мои занятия, статистика, рефералка, FCM-подписка
+│   └── Profile.jsx       # профиль, мои занятия, мои индивы (MyIndivs), статистика, рефералка, FCM-подписка
 │
 ├── admin/                # админ-панель (sidebar 240px) + панель преподавателя
 │   ├── AdminLayout.jsx           # каркас: aside-меню + Outlet
@@ -62,8 +62,8 @@ src/
 │   ├── AdminCatalog.jsx          # абонементы, услуги, события, мерч, индив-пакеты
 │   ├── AdminGroups.jsx           # учебные группы
 │   ├── AdminCashbox.jsx          # касса, продажи
-│   ├── AdminFinance.jsx          # P&L, расходы, зарплаты, лояльность (owner-only)
-│   ├── AdminTasks.jsx            # задачи (kanban-подобный)
+│   ├── AdminFinance.jsx          # P&L, расходы, зарплаты, индивы (выручка/топ препов/загрузка слотов), лояльность (owner-only)
+│   ├── AdminTasks.jsx            # задачи (kanban-подобный) + вкладка «Индивы» (модерация заявок)
 │   ├── AdminBroadcasts.jsx       # рассылки в Telegram-бот
 │   ├── AdminNews.jsx, AdminPrizes.jsx
 │   ├── AttendancePanel.jsx       # отметка посещаемости на занятии (списание визитов)
@@ -82,7 +82,7 @@ src/
 │   └── useUserRole.js    # роль из profiles.role + флаг error
 │
 ├── utils/
-│   ├── tz.js             # todayMsk / toMskDateStr / mskDayStart/End{Utc,Naive} / nowMskNaive
+│   ├── tz.js             # МСК-границы суток + parseMskNaive/mskParts для чтения starts_at
 │   ├── safeHtml.js       # обёртка над DOMPurify для dangerouslySetInnerHTML
 │   ├── supabaseEdge.js   # edgeUrl(fn) — URL для Supabase Edge Functions из env
 │   └── plural.js         # plural(n, ['день','дня','дней']) — русские склонения
@@ -246,6 +246,7 @@ public/
 | `confirm_indiv_request(p_request_id, p_hall)` | «Подтвердить и создать занятие» в `HallModal` [AdminTasks](src/admin/AdminTasks.jsx) | Атомарно: проверка зала под `advisory_xact_lock`, INSERT в `schedule` (МСК naive, без конверсии), UPDATE `indiv_requests` (status, hall, schedule_id), запись в `schedule_history`. Title из `profiles.full_name` клиента. Ошибки: `hall_conflict`, `already_handled`, `invalid_hall`. |
 | `preview_lesson_salary(p_schedule_id)` | Кнопка «📊 Рассчитать зарплату» в [AttendancePanel](src/admin/AttendancePanel.jsx) | Read-only зеркало `save_lesson_salary`: считает `paid_students` и `amount` ровно той же формулой, что и save, но без UPSERT в `lesson_payments` и без записи в `schedule_history`. Гарантирует, что предпросмотр и фактическое сохранение совпадают. |
 | `transfer_trial(p_schedule_id, p_target_schedule_id, p_student_id)` | `TransferModal` в [AttendancePanel](src/admin/AttendancePanel.jsx) | Атомарно: UPSERT attendance исходного урока со status='transferred' (если строки не было — basis='trial') + INSERT booking на новое занятие. Идемпотентность по `(target, student, 'booked')` — повторный вызов не дублирует. Раньше был двухшаговый flow с work-around на сбой второго запроса. |
+| `cancel_indiv_request(p_request_id)` | Кнопка «Отменить» в `MyLessons` ([Profile.jsx](src/pages/Profile.jsx)), секция «Ваши заявки» в `TeacherDetail` ([Team.jsx](src/pages/Team.jsx)/[Shop.jsx](src/pages/Shop.jsx)) | Клиент сам отменяет свои pending/confirmed заявки на индивы. Проверка `client_id = auth.uid()`. Для `confirmed` — 12-часовой барьер до начала урока (`slot_date+start_time` как МСК → UTC через `at time zone`); если меньше — `too_late` с числом часов в ответе. При confirmed дополнительно ставит `schedule.is_cancelled=true` и пишет в `schedule_history`. Ошибки: `not_authenticated`, `forbidden`, `request_not_found`, `not_cancellable` (с `current_status`), `too_late` (с `hours_left`). |
 
 **Общая модель ошибок:** `not_authenticated`, `forbidden`, `<resource>_not_found`, `lesson_cancelled`, `not_your_lesson` (для teacher), `already_handled` / `already_cancelled`. Все клиентские обработчики имеют словарь `{ error_code: 'русское сообщение' }` и `alert()` на неизвестный код. Сохраняй этот паттерн при добавлении новых RPC.
 
@@ -256,6 +257,7 @@ public/
   - **UTC naive** (`sales.sale_date`, все `*.created_at`, `attendance.marked_at` — серверный `default now()`). Фильтрация — `mskDayStartUtc(date)` / `mskDayEndUtc(date)`.
   - **MSK naive** (`schedule.starts_at`/`ends_at` — админ ввёл напрямую через форму, RPC и UPDATE сохраняют как есть). Фильтрация — `mskDayStartNaive(date)` / `mskDayEndNaive(date)`. Для фильтров «от сейчас» — `nowMskNaive()`, для произвольного момента — `toMskNaive(d)`.
   - **Не пиши `from + 'T00:00:00'`** для UTC-naive колонок — это даст границу в TZ браузера. Используй хелперы из [src/utils/tz.js](src/utils/tz.js).
+- **Чтение `schedule.starts_at`/`ends_at` на клиенте — через `parseMskNaive(s)`** из [src/utils/tz.js](src/utils/tz.js), а не через голый `new Date(s)`. Голый парсер интерпретирует naive-строку как локальное время браузера — у админа из MSK работает по совпадению, у не-MSK даёт сдвиг 3ч на отображение, фильтры `>= now`, `isPast`, расчёт позиции в календарном гриде. Для МСК-частей (часы/минуты для `getEventStyle` и т.п.) — `mskParts(s)` возвращает `{y, m, d, h, mi}` именно в МСК, независимо от TZ браузера. Сортировки и расчёт длительности `(end - start)` через голый `new Date()` остаются корректны (порядок и разность одинаковых сдвигов не меняются).
 
 ---
 
@@ -267,7 +269,7 @@ public/
 - **Все стили inline** через `style={{...}}`. Если нужен hover/анимация — `onMouseEnter`/`onMouseLeave` или встроенный `<style>{`@keyframes pulse{...}`}</style>` в конце компонента (см. [src/App.jsx:366](src/App.jsx:366)). Не вводи Tailwind/styled — это нарушит единый стиль файла.
 - **Read-операции — прямо через `supabase.from(...)`** в компоненте, без слоя репозиториев/сервисов. `useEffect` → `async load()` → `setState` — это сознательный паттерн.
 - **Мутации денег/визитов/учёта — ТОЛЬКО через RPC.** Изменение `profiles.bonus_rubles` / `profiles.bonus_coins` / `subscriptions.visits_used` / `prizes.stock_count` через прямой `update()` запрещено — у этих полей нет защиты от гонок, и read-modify-write на клиенте уже стоил нам нескольких критических багов (см. историю в `git log --grep='RPC'`). Если нужна новая денежная операция — заводи новую RPC по образцу [миграций Supabase](https://supabase.com/docs/guides/database/functions). Простые CRUD (новости, задачи, представители, расписание без денег) — пиши прямо.
-- **Файлы крупные** (300–1500 строк) и содержат несколько вложенных компонентов одной фичи (например, `MyLessons`, `MyStats`, `Referral` внутри [Profile.jsx](src/pages/Profile.jsx)). Это норма — не дроби без необходимости.
+- **Файлы крупные** (300–1500 строк) и содержат несколько вложенных компонентов одной фичи (например, `MyLessons`, `MyIndivs`, `MyStats`, `Referral` внутри [Profile.jsx](src/pages/Profile.jsx)). Это норма — не дроби без необходимости.
 - **Язык интерфейса — русский.** Все строки UI, статусы, alert/confirm — по-русски. Допустимы эмодзи в UI-копи.
 - **Комментарии в коде — по-русски**, чаще всего как разделители блоков: `// ─── Заголовок ──────────`.
 - **localStorage используется как лёгкий «роутер»** для клиента: `activePage`, `lessons_tab`, `profileScreen`, `shop_cat`, `news_tag`.
@@ -374,7 +376,9 @@ if (!data?.ok) {
 - Поправить логин/Telegram-flow — [src/App.jsx:138](src/App.jsx:138).
 - Логика записи на занятие и проверка абонемента — [src/pages/Schedule.jsx](src/pages/Schedule.jsx) и [src/admin/AttendancePanel.jsx](src/admin/AttendancePanel.jsx).
 - Каталог продаваемых продуктов (включая 30-дневные индив-слоты) — [src/admin/AdminCatalog.jsx](src/admin/AdminCatalog.jsx).
-- Денежные операции (продажа / отмена / бонусы / призы / визиты / зарплата / отмена урока) — RPC из раздела «RPC-функции». Клиентский вызов — `supabase.rpc(...)` с обработкой ошибок по общему паттерну.
+- Индив-флоу клиента: выбор препода и слота — [src/pages/Team.jsx](src/pages/Team.jsx) и [src/pages/Shop.jsx](src/pages/Shop.jsx) (TeacherDetail, секция «Ваши заявки» над списком слотов). История проведённых индивов — [src/pages/Profile.jsx](src/pages/Profile.jsx) (`MyIndivs`, экран `screen='indivs'`, группировка по преподу + гибридная пагинация). Подтверждение/отклонение заявок админом — [src/admin/AdminTasks.jsx](src/admin/AdminTasks.jsx) (`tab=indivs`). Аналитика по индивам (выручка/топ-3 препода/загрузка слотов) — [src/admin/AdminFinance.jsx](src/admin/AdminFinance.jsx) (`FinanceIndivs`, owner-only, периоды день/неделя/месяц/год/всё время/выбранный).
+- Расписание препода (TeacherPanel) — собственные занятия + замены через `teacher_substitutions` (мерж двух запросов, бейдж «Замена»), индивы; отметка посещаемости с подсветкой текущего статуса и оптимистичным апдейтом — [src/admin/TeacherPanel.jsx](src/admin/TeacherPanel.jsx).
+- Денежные операции (продажа / отмена / бонусы / призы / визиты / зарплата / отмена урока / отмена индив-заявки) — RPC из раздела «RPC-функции». Клиентский вызов — `supabase.rpc(...)` с обработкой ошибок по общему паттерну.
 - HTML-контент от админов в UI — оборачивай `safeHtml()` из [src/utils/safeHtml.js](src/utils/safeHtml.js).
 - Любые границы суток / фильтры по датам — через хелперы из [src/utils/tz.js](src/utils/tz.js).
 - Если нужно посмотреть, что менялось в денежно-учётном контуре — `git log --grep='fix(prizes\|fix(sales\|fix(attendance\|fix(salary\|fix(lesson'`.
@@ -383,7 +387,7 @@ if (!data?.ok) {
 
 ## Остаток аудита
 
-Бэклог из аудита на момент `62c4b7c`. Закрытые пункты не перечисляются — историю смотри в `git log` по префиксам выше. Ссылки на строки могут смещаться, но имена функций/файлов стабильны.
+Бэклог из аудита на момент `2da3e5c`. Закрытые пункты не перечисляются — историю смотри в `git log` по префиксам выше. Ссылки на строки могут смещаться, но имена функций/файлов стабильны.
 
 ### 🔴 Критичные
 
