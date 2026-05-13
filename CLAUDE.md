@@ -193,7 +193,11 @@ public/
 
 ### Рассылки
 
-- **broadcasts**, **broadcast_templates**, **broadcast_recipients** — отправка через Telegram-бот.
+- **broadcasts** — `id, title, content, channel ('push'|'email'|'push+email'), status ('draft'|'scheduled'|'sending'|'sent'|'failed'|'cancelled'), scheduled_at, sent_at, created_by, filter_type, filter_payload (jsonb — единый снимок фильтра подбора аудитории, читать вместо устаревших filter_* колонок)`.
+- **broadcast_recipients** — `broadcast_id, client_id, is_excluded, delivered_at, failed_at, error`. Заполняется edge-функцией `send-broadcast`.
+- **broadcast_templates** — `name, title, content, created_by`.
+- **auto_broadcasts** — настройки авторассылок (пока type='birthday'): `is_active, channel, title, content, send_time, days_before, sent_count`. RLS: только admin/manager/owner.
+- **auto_broadcast_runs** — журнал отправок авторассылок: `auto_id, recipient_id, run_date, sent_at, channels_sent, error` с `UNIQUE(auto_id, recipient_id, run_date)` (anti-spam).
 
 ### Финансы
 
@@ -224,10 +228,12 @@ public/
 - **telegram-login** — выдача кода, поллинг подтверждения, выдача `hashed_token` для `verifyOtp`.
 - **create-staff** — создание `auth.users` + строки в `profiles` от имени админа (используется и для добавления клиента в [AdminDashboard.jsx:134](src/admin/AdminDashboard.jsx:134)).
 - **send-broadcast** — отправка рассылки. Принимает `{broadcast_id}`. CORS preflight обрабатывает (иначе `supabase.functions.invoke()` с Vercel падает «Failed to send a request»). Атомарно клеймит `broadcasts.status='sending'`, читает получателей + `profiles.push_token/email`, шлёт FCM HTTP v1 (требуется env `FCM_SERVICE_ACCOUNT_JSON`) и/или Resend (`RESEND_API_KEY`, `RESEND_FROM`). Обновляет `broadcast_recipients.delivered_at`/`failed_at`/`error` и `broadcasts.status='sent', sent_at=now()`. Возврат `{ok, sent_push, sent_email, failed}`. Вызывается из клиента при немедленной отправке и из pg_cron job для `status='scheduled' AND scheduled_at <= now()`. **Исходник в git**: [supabase/functions/send-broadcast/index.ts](supabase/functions/send-broadcast/index.ts). Workflow деплоя — в [supabase/README.md](supabase/README.md).
+- **send-auto-broadcast** — отправка авторассылок (пока тип `birthday`). Принимает `{type:'birthday'}`. Читает `auto_broadcasts WHERE type AND is_active`, ищет клиентов у которых ДР через `days_before` дней (МСК, edge-case 29 февраля → 28 в невисокосный год), для каждого делает INSERT в `auto_broadcast_runs` с `UNIQUE(auto_id, recipient_id, run_date)` — anti-spam от повторных запусков cron. Затем FCM/Resend, обновляет `channels_sent`/`error` в run-row, инкрементит `auto_broadcasts.sent_count`. Возврат `{ok, sent, already_today, total_candidates}`. Исходник: [supabase/functions/send-auto-broadcast/index.ts](supabase/functions/send-auto-broadcast/index.ts).
 
 ### pg_cron
 
 - **process-scheduled-broadcasts** (каждую минуту) — выбирает все `broadcasts` со `status='scheduled' AND scheduled_at <= now()` (до 50 за тик) и через `net.http_post` дёргает edge-функцию `send-broadcast` с заголовком `Authorization: Bearer <service_role_key из vault>`. Защищён `pg_try_advisory_lock` от наложения тиков. Service role key должен быть в `vault.decrypted_secrets` под именем `service_role_key` — иначе job логирует warning и пропускает: `select vault.create_secret('<SERVICE_ROLE_KEY>', 'service_role_key');`.
+- **auto-birthday-daily** (каждый день в 07:00 UTC = 10:00 МСК) — `process_auto_birthday()` дёргает `send-auto-broadcast` с `{type:'birthday'}`. Тоже использует service_role_key из vault. Anti-spam обеспечен на уровне БД: UNIQUE(auto_id, recipient_id, run_date) в `auto_broadcast_runs`.
 
 ### RPC-функции (Postgres `SECURITY DEFINER`)
 

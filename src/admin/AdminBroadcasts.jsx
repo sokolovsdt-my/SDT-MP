@@ -387,6 +387,201 @@ function RecipientFilter({ filters, onChange }) {
   )
 }
 
+// ─── Авторассылки ───────────────────────────────────────────────────────────
+function AutoBirthdaySettings({ auto, onClose, onSaved, session }) {
+  const [title, setTitle] = useState(auto.title || '')
+  const [content, setContent] = useState(auto.content || '')
+  const [channel, setChannel] = useState(auto.channel || 'push')
+  const [sendTime, setSendTime] = useState((auto.send_time || '10:00:00').slice(0, 5))
+  const [daysBefore, setDaysBefore] = useState(auto.days_before ?? 0)
+  const [saving, setSaving] = useState(false)
+
+  const handleSave = async () => {
+    if (saving) return
+    setSaving(true)
+    const { error } = await supabase.from('auto_broadcasts').update({
+      title, content, channel,
+      send_time:   sendTime + ':00',
+      days_before: Number(daysBefore) || 0,
+      updated_by:  session.user.id,
+      updated_at:  new Date().toISOString(),
+    }).eq('id', auto.id)
+    setSaving(false)
+    if (error) { alert('Не удалось сохранить: ' + error.message); return }
+    onSaved()
+    onClose()
+  }
+
+  return (
+    <div style={{position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', zIndex:300, display:'flex', alignItems:'center', justifyContent:'center'}}>
+      <div style={{background:'#fff', borderRadius:16, padding:24, width:520, maxHeight:'90vh', overflowY:'auto', fontFamily:'Inter,sans-serif'}}>
+        <div style={{fontSize:16, fontWeight:700, color:'#2a2a2a', marginBottom:16}}>🎂 Настройка поздравления с днём рождения</div>
+
+        <div style={{marginBottom:14}}>
+          <label style={labelStyle}>Заголовок сообщения</label>
+          <RichEditor value={title} onChange={setTitle} defaultBold />
+        </div>
+
+        <div style={{marginBottom:14}}>
+          <label style={labelStyle}>Текст поздравления</label>
+          <RichEditor value={content} onChange={setContent} />
+        </div>
+
+        <div style={{marginBottom:14}}>
+          <label style={labelStyle}>Канал</label>
+          <div style={{display:'flex', gap:8}}>
+            {[['push','📱 Пуш'], ['email','📧 Email'], ['push+email','📱+📧 Оба']].map(([v,l]) => (
+              <label key={v} style={{flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:6, padding:'9px', borderRadius:10, border: channel === v ? '1.5px solid #BFD900' : '1px solid #e0e0e0', background: channel === v ? '#fafde8' : '#fff', fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight: channel === v ? 600 : 400}}>
+                <input type="radio" name="ab_channel" value={v} checked={channel === v} onChange={() => setChannel(v)} style={{accentColor:'#BFD900'}} />
+                {l}
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:18}}>
+          <div>
+            <label style={labelStyle}>Время отправки (МСК)</label>
+            <input type="time" value={sendTime} onChange={e => setSendTime(e.target.value)} style={inputStyle} />
+            <div style={{fontSize:11, color:'#BDBDBD', marginTop:4}}>cron сейчас фиксирован на 10:00 МСК — поле сохранится, но используется не будет</div>
+          </div>
+          <div>
+            <label style={labelStyle}>За сколько дней до ДР</label>
+            <input type="number" min="0" value={daysBefore} onChange={e => setDaysBefore(e.target.value)} style={inputStyle} />
+            <div style={{fontSize:11, color:'#BDBDBD', marginTop:4}}>0 = в день ДР; 7 = за неделю</div>
+          </div>
+        </div>
+
+        <div style={{display:'flex', gap:8}}>
+          <button onClick={handleSave} disabled={saving}
+            style={{...btnPrimary, flex:1, opacity: saving ? 0.5 : 1}}>
+            {saving ? 'Сохраняем...' : 'Сохранить'}
+          </button>
+          <button onClick={onClose}
+            style={{padding:'10px 16px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:10, fontSize:13, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+            Отмена
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function AutoTab({ session }) {
+  const [autos, setAutos] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [editing, setEditing] = useState(null)
+  const [todayCount, setTodayCount] = useState(null)
+  const [togglingId, setTogglingId] = useState(null)
+
+  useEffect(() => { load() }, [])
+
+  const load = async () => {
+    setLoading(true)
+    const { data } = await supabase.from('auto_broadcasts').select('*').order('type')
+    setAutos(data || [])
+    setLoading(false)
+    // Превью «сколько именинников сегодня». Дёргаем ту же логику что edge,
+    // но в SQL: считаем клиентов у которых to_char(birth_date,'MM-DD') == today (МСК).
+    const { data: birthdays } = await supabase.from('profiles')
+      .select('id, birth_date').eq('role','client').not('birth_date','is',null)
+    const todayMd = new Date().toLocaleString('en-US', { timeZone: 'Europe/Moscow', month: '2-digit', day: '2-digit' })
+    // toLocaleString('en-US', {month:'2-digit',day:'2-digit'}) → "MM/DD/YYYY"-ish? Реально вернёт "MM/DD".
+    // Чтобы надёжно — соберём руками.
+    const nowMsk = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Moscow' }))
+    const mm = String(nowMsk.getMonth() + 1).padStart(2,'0')
+    const dd = String(nowMsk.getDate()).padStart(2,'0')
+    const todayKey = `${mm}-${dd}`
+    const cnt = (birthdays || []).filter(p => {
+      const bd = new Date(p.birth_date)
+      const k = `${String(bd.getMonth()+1).padStart(2,'0')}-${String(bd.getDate()).padStart(2,'0')}`
+      return k === todayKey
+    }).length
+    setTodayCount(cnt)
+  }
+
+  const handleToggle = async (auto) => {
+    if (togglingId) return
+    setTogglingId(auto.id)
+    const { error } = await supabase.from('auto_broadcasts').update({
+      is_active:  !auto.is_active,
+      updated_by: session.user.id,
+      updated_at: new Date().toISOString(),
+    }).eq('id', auto.id)
+    setTogglingId(null)
+    if (error) { alert('Не удалось переключить: ' + error.message); return }
+    load()
+  }
+
+  if (loading) return <div style={{textAlign:'center', color:'#BDBDBD', padding:60}}>Загрузка...</div>
+
+  return (
+    <div>
+      {editing && (
+        <AutoBirthdaySettings auto={editing} session={session}
+          onClose={() => setEditing(null)} onSaved={load} />
+      )}
+
+      {autos.map(a => {
+        if (a.type !== 'birthday') return null
+        return (
+          <div key={a.id} style={{...cardStyle, padding:24}}>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:16}}>
+              <div style={{flex:1}}>
+                <div style={{fontSize:18, fontWeight:600, color:'#2a2a2a', marginBottom:6}}>🎂 Поздравление с днём рождения</div>
+                <div style={{fontSize:13, color:'#888', lineHeight:1.5}}>
+                  {a.is_active
+                    ? <>Активна. Отправка ежедневно в 10:00 МСК. Канал: <strong>{a.channel === 'push' ? '📱 Пуш' : a.channel === 'email' ? '📧 Email' : '📱+📧 Оба'}</strong>{a.days_before > 0 ? `, за ${a.days_before} дн. до ДР` : ', в день ДР'}.</>
+                    : <>Выключена. Включи тумблером справа чтобы клиенты автоматически получали поздравление.</>
+                  }
+                </div>
+              </div>
+              {/* Тумблер */}
+              <button onClick={() => handleToggle(a)} disabled={togglingId === a.id}
+                style={{
+                  position:'relative', width:48, height:26, borderRadius:13,
+                  background: a.is_active ? '#BFD900' : '#e0e0e0',
+                  border:'none', cursor: togglingId === a.id ? 'default' : 'pointer',
+                  transition:'background 0.2s', opacity: togglingId === a.id ? 0.5 : 1,
+                  flexShrink:0, marginLeft:16,
+                }}>
+                <div style={{
+                  position:'absolute', top:3, left: a.is_active ? 25 : 3,
+                  width:20, height:20, borderRadius:'50%', background:'#fff',
+                  transition:'left 0.2s', boxShadow:'0 1px 3px rgba(0,0,0,0.2)',
+                }} />
+              </button>
+            </div>
+
+            {/* Превью */}
+            {a.is_active && todayCount !== null && (
+              <div style={{background:'#fafde8', borderRadius:10, padding:'10px 14px', marginBottom:14, fontSize:13, color:'#6a7700'}}>
+                {todayCount > 0
+                  ? `🎁 Сегодня будет отправлено: ${todayCount} чел.`
+                  : 'Сегодня именинников нет'}
+              </div>
+            )}
+
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+              <div style={{fontSize:12, color:'#BDBDBD'}}>
+                Отправлено за всё время: <strong style={{color:'#2a2a2a'}}>{a.sent_count || 0}</strong>
+              </div>
+              <button onClick={() => setEditing(a)}
+                style={{padding:'8px 16px', background:'#f5f5f5', border:'none', borderRadius:10, fontSize:13, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight:600}}>
+                ⚙️ Настроить
+              </button>
+            </div>
+          </div>
+        )
+      })}
+
+      <div style={{fontSize:12, color:'#BDBDBD', textAlign:'center', marginTop:16}}>
+        Скоро здесь появятся: «За N дней до окончания абонемента», «Через N дней после регистрации» и др.
+      </div>
+    </div>
+  )
+}
+
 export default function AdminBroadcasts({ session }) {
   const [searchParams, setSearchParams] = useSearchParams()
   const tab = searchParams.get('tab') || 'new'
@@ -666,7 +861,7 @@ export default function AdminBroadcasts({ session }) {
       <h1 style={{fontSize:24, fontWeight:600, color:'#1f2024', margin:'0 0 20px 0'}}>Рассылки</h1>
 
       <div style={{display:'flex', gap:4, borderBottom:'1px solid #f0f0f0', marginBottom:20}}>
-        {[['new','✍️ Новая рассылка'], ['templates','📋 Шаблоны'], ['history','📜 История']].map(([v,l]) => (
+        {[['new','✍️ Новая рассылка'], ['templates','📋 Шаблоны'], ['auto','⚡ Авто'], ['history','📜 История']].map(([v,l]) => (
           <button key={v} onClick={() => setTab(v)}
             style={{padding:'10px 16px', background:'transparent', border:'none', borderBottom: tab===v ? '2px solid #BFD900' : '2px solid transparent', fontSize:13, fontWeight: tab===v ? 600 : 400, color: tab===v ? '#2a2a2a' : '#888', cursor:'pointer', fontFamily:'Inter,sans-serif', whiteSpace:'nowrap'}}>
             {l}
@@ -866,6 +1061,8 @@ export default function AdminBroadcasts({ session }) {
           )}
         </div>
       )}
+
+      {tab === 'auto' && <AutoTab session={session} />}
 
       {tab === 'history' && (
         <div>
