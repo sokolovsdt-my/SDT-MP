@@ -91,32 +91,26 @@ function SubstitutionModal({ ev, teachers, session, onSave, onCancel }) {
   const [saving, setSaving] = useState(false)
 
   const handleSave = async () => {
-    if (!substituteId) return
+    if (saving || !substituteId) return
     setSaving(true)
-    const originalTeacherId = ev.teacher_id
-
-    // 1. Записываем замену в teacher_substitutions
-    await supabase.from('teacher_substitutions').insert({
-      schedule_id: ev.id,
-      original_teacher_id: originalTeacherId,
-      substitute_teacher_id: substituteId,
+    const { data, error } = await supabase.rpc('assign_substitution', {
+      p_schedule_id: ev.id,
+      p_substitute_teacher_id: substituteId,
+      p_reason: null,
     })
-
-    // 2. Меняем препода только на ЭТОМ занятии
-    await supabase.from('schedule').update({ teacher_id: substituteId }).eq('id', ev.id)
-
-    // 3. Пишем в историю
-    const substituteName = teachers.find(t => t.id === substituteId)?.full_name || '—'
-    const originalName = teachers.find(t => t.id === originalTeacherId)?.full_name || '—'
-    await supabase.from('schedule_history').insert({
-      schedule_id: ev.id,
-      action: 'substitution',
-      author_id: session.user.id,
-      changes: { original_teacher_id: originalTeacherId, substitute_teacher_id: substituteId },
-      comment: `Замена: ${originalName} → ${substituteName}`
-    })
-
     setSaving(false)
+    if (error) { alert('Ошибка сети: ' + error.message); return }
+    if (!data?.ok) {
+      const msg = {
+        not_authenticated: 'Сессия истекла, войдите заново',
+        forbidden:         'Недостаточно прав',
+        lesson_not_found:  'Занятие не найдено',
+        lesson_cancelled:  'Занятие отменено — замена невозможна',
+        same_teacher:      'Этот преподаватель уже ведёт занятие',
+        no_substitute:     'Выберите преподавателя',
+      }[data?.error] || `Не удалось назначить замену: ${data?.error || 'неизвестная ошибка'}`
+      alert(msg); return
+    }
     onSave()
   }
 
@@ -216,19 +210,16 @@ function ScheduleForm({ session, teachers, students, groups, events, onSave, onC
   }
 
   const handleSave = async () => {
+    if (saving) return
     if (!form.hall || !form.date || !form.time_from || !form.time_to) {
       alert('Заполните все обязательные поля: группа, зал, дата, время')
       return
     }
     if (type === 'group' && !form.title && !form.group_id) return
     if (type === 'indiv' && (!form.teacher_id || !form.student_id)) return
-    const hasConflict = await checkConflict()
-    if (hasConflict) return
     setSaving(true)
 
-    const repeatId = crypto.randomUUID()
     const dates = buildDates()
-    const duration = new Date(`${form.date}T${form.time_to}`) - new Date(`${form.date}T${form.time_from}`)
     const selectedGroup = groups.find(g => g.id === form.group_id)
     const selectedEvent = events.find(e => e.id === form.event_id)
     const titleToSave = type === 'group'
@@ -237,42 +228,50 @@ function ScheduleForm({ session, teachers, students, groups, events, onSave, onC
       ? (selectedEvent?.name || '')
       : null
 
-    const toLocalISO = (d) => {
-      const offset = d.getTimezoneOffset()
-      const local = new Date(d.getTime() - offset * 60000)
-      return local.toISOString().slice(0, 19)
-    }
-
-    const rows = dates.map(d => ({
-      title: titleToSave,
-      group_id: type === 'group' ? (form.group_id || null) : null,
-      teacher_id: form.teacher_id || null,
-      hall: form.hall,
-      starts_at: toLocalISO(d),
-      ends_at: toLocalISO(new Date(d.getTime() + duration)),
-      repeat_rule: form.repeat !== 'none' ? form.repeat : null,
-      repeat_id: form.repeat !== 'none' ? repeatId : null,
-      indiv_student_id: type === 'indiv' ? form.student_id : null,
-      event_id: type === 'event' ? form.event_id : null,
-      lesson_type: type,
+    // Дата-время передаём в МСК (naive timestamp) — RPC конвертирует в UTC.
+    // getFullYear/Month/Date берут локальные компоненты, но мы используем их
+    // только как Y-M-D, а время — то, что админ ввёл вручную в полях time_*.
+    const fmtDate = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+    const datesPayload = dates.map(d => ({
+      starts_at: `${fmtDate(d)}T${form.time_from}:00`,
+      ends_at:   `${fmtDate(d)}T${form.time_to}:00`,
     }))
 
-    const { data: inserted } = await supabase.from('schedule').insert(rows).select('id')
-
-    // История — записываем создание
-    if (inserted?.length > 0) {
-      await supabase.from('schedule_history').insert(
-        inserted.map(r => ({
-          schedule_id: r.id,
-          action: 'created',
-          author_id: session.user.id,
-          changes: { group_id: form.group_id, teacher_id: form.teacher_id, hall: form.hall },
-          comment: `Создано занятие`
-        }))
-      )
-    }
+    const { data, error } = await supabase.rpc('create_schedule_event', {
+      p_payload: {
+        lesson_type:       type,
+        title:             titleToSave,
+        group_id:          type === 'group' ? (form.group_id || null) : null,
+        indiv_student_id:  type === 'indiv' ? form.student_id : null,
+        event_id:          type === 'event' ? form.event_id : null,
+        teacher_id:        form.teacher_id || null,
+        hall:              form.hall,
+        repeat_rule:       form.repeat !== 'none' ? form.repeat : null,
+        dates:             datesPayload,
+      },
+    })
 
     setSaving(false)
+    if (error) { alert('Ошибка сети: ' + error.message); return }
+    if (!data?.ok) {
+      if (data?.error === 'hall_conflict') {
+        const n = data.conflicts?.length || 1
+        setConflict(`Зал занят в ${n === 1 ? 'выбранное время' : `${n} дат серии`} — выберите другое время или зал`)
+        return
+      }
+      const msg = {
+        not_authenticated:                  'Сессия истекла, войдите заново',
+        forbidden:                          'Недостаточно прав',
+        no_dates:                           'Не указаны даты',
+        no_hall:                            'Не выбран зал',
+        invalid_lesson_type:                'Неверный тип занятия',
+        invalid_dates:                      'Время окончания должно быть позже начала',
+        indiv_needs_student_and_teacher:    'Для индив-занятия нужны ученик и преподаватель',
+        group_needs_title_or_group:         'Укажите название или выберите группу',
+      }[data?.error] || `Не удалось создать занятие: ${data?.error || 'неизвестная ошибка'}`
+      alert(msg); return
+    }
+    setConflict(null)
     onSave()
   }
 

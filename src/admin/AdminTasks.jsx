@@ -162,23 +162,22 @@ function IndivRequestCard({ request, onUpdate }) {
   const borderColor = isConfirmed ? '#27ae60' : isRejected ? '#BDBDBD' : !hasPackage ? '#e74c3c' : '#BFD900'
 
   const handleConfirm = async (hall) => {
-    const dateStr = request.slot_date
-    const toISO = (time) => {
-      const dt = new Date(`${dateStr}T${time}`)
-      const offset = dt.getTimezoneOffset()
-      return new Date(dt.getTime() - offset * 60000).toISOString()
+    const { data, error } = await supabase.rpc('confirm_indiv_request', {
+      p_request_id: request.id,
+      p_hall: hall,
+    })
+    if (error) { alert('Ошибка сети: ' + error.message); return }
+    if (!data?.ok) {
+      const msg = {
+        not_authenticated: 'Сессия истекла, войдите заново',
+        forbidden:         'Недостаточно прав',
+        not_found:         'Заявка не найдена',
+        already_handled:   'Заявка уже обработана',
+        invalid_hall:      'Неверный зал',
+        hall_conflict:     'Этот зал уже занят на выбранное время — выберите другой',
+      }[data?.error] || `Не удалось подтвердить: ${data?.error || 'неизвестная ошибка'}`
+      alert(msg); return
     }
-    const { data: lesson } = await supabase.from('schedule').insert({
-      title: `Индив: ${request.client?.full_name}`,
-      teacher_id: request.teacher_id,
-      indiv_student_id: request.client_id,
-      hall,
-      starts_at: toISO(request.start_time),
-      ends_at: toISO(request.end_time),
-      lesson_type: 'indiv',
-      is_cancelled: false,
-    }).select().single()
-    await supabase.from('indiv_requests').update({ status: 'confirmed', hall, schedule_id: lesson?.id || null }).eq('id', request.id)
     setShowHallModal(false)
     onUpdate()
   }
