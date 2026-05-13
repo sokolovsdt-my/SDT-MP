@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabase'
+import { nowMskNaive, toMskNaive } from '../utils/tz'
 
 const DAYS = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб']
 const MONTHS = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек']
@@ -465,8 +466,9 @@ export default function TeacherPanel({ session }) {
     const { data: prof } = await supabase.from('profiles').select('*').eq('id', uid).single()
     setProfile(prof)
 
-    const now = new Date().toISOString()
-    const future = new Date(Date.now() + 30*24*60*60*1000).toISOString()
+    // schedule.starts_at — MSK naive, поэтому границы тоже MSK naive (см. tz.js).
+    const now    = nowMskNaive()
+    const future = toMskNaive(new Date(Date.now() + 30*24*60*60*1000))
     const [ownSch, subSch] = await Promise.all([
       supabase.from('schedule')
         .select(`*, groups(name, color),

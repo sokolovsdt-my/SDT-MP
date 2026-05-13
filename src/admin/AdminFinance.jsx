@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabase'
-import { todayMsk, toMskDateStr, mskDayStartUtc, mskDayEndUtc } from '../utils/tz'
+import { todayMsk, toMskDateStr, mskDayStartUtc, mskDayEndUtc, mskDayStartNaive, mskDayEndNaive } from '../utils/tz'
 
 const inputStyle = { width:'100%', padding:'9px 12px', border:'1px solid #e8e8e8', borderRadius:10, fontSize:13, boxSizing:'border-box', fontFamily:'Inter,sans-serif' }
 const labelStyle = { fontSize:12, color:'#888', marginBottom:6, fontWeight:600, display:'block' }
@@ -569,8 +569,8 @@ function FinanceDetail() {
     // отфильтрованные по дате занятия (schedule.starts_at).
     const { data: periodSchedules } = await supabase.from('schedule')
       .select('id')
-      .gte('starts_at', mskDayStartUtc(from))
-      .lte('starts_at', mskDayEndUtc(to))
+      .gte('starts_at', mskDayStartNaive(from))
+      .lte('starts_at', mskDayEndNaive(to))
     const periodScheduleIds = (periodSchedules || []).map(s => s.id)
     let lessonPmts = []
     if (periodScheduleIds.length > 0) {
@@ -1274,8 +1274,8 @@ function FinanceLoyalty({ session }) {
     const { data: groups } = await supabase.from('groups').select('id, name')
     const { data: scheduleData } = await supabase.from('schedule')
       .select('id, group_id, starts_at')
-      .gte('starts_at', mskDayStartUtc(ago30))
-      .lte('starts_at', mskDayEndUtc(today))
+      .gte('starts_at', mskDayStartNaive(ago30))
+      .lte('starts_at', mskDayEndNaive(today))
     const { data: attendanceData } = await supabase.from('attendance')
       .select('schedule_id, student_id, status')
       .eq('status', 'present')

@@ -3,6 +3,7 @@ import { supabase } from '../supabase'
 import AvatarUpload from '../components/AvatarUpload'
 import { requestPermission } from '../firebase'
 import { plural } from '../utils/plural'
+import { nowMskNaive } from '../utils/tz'
 
 // ─── ЗАМЕНИ функцию MyLessons в Profile.jsx ───────────────────────────────────
 // Найди: function MyLessons({ session, onBack }) {
@@ -121,7 +122,7 @@ function MyLessons({ session, onBack }) {
       .select('id, title, starts_at, ends_at, hall, teacher:profiles!schedule_teacher_id_fkey(full_name)')
       .eq('indiv_student_id', session.user.id)
       .eq('lesson_type', 'indiv')
-      .lt('starts_at', now.toISOString())
+      .lt('starts_at', nowMskNaive())
       .order('starts_at', { ascending: false })
       .limit(20)
 

@@ -83,7 +83,7 @@ src/
 │   └── useUserRole.js    # роль из profiles.role + флаг error
 │
 ├── utils/
-│   ├── tz.js             # todayMsk / toMskDateStr / mskDayStart/EndUtc для МСК-границ
+│   ├── tz.js             # todayMsk / toMskDateStr / mskDayStart/End{Utc,Naive} / nowMskNaive
 │   ├── safeHtml.js       # обёртка над DOMPurify для dangerouslySetInnerHTML
 │   ├── supabaseEdge.js   # edgeUrl(fn) — URL для Supabase Edge Functions из env
 │   └── plural.js         # plural(n, ['день','дня','дней']) — русские склонения
@@ -150,7 +150,7 @@ public/
 
 ### Расписание и индивы
 
-- **schedule** — `id, title, starts_at, ends_at, hall, group_id, teacher_id, indiv_student_id, event_id, lesson_type, repeat_rule, repeat_id, is_cancelled, created_at`. `lesson_type='indiv'` для индивидуальных. `starts_at`/`ends_at` — `timestamp WITHOUT time zone`, хранятся в UTC.
+- **schedule** — `id, title, starts_at, ends_at, hall, group_id, teacher_id, indiv_student_id, event_id, lesson_type, repeat_rule, repeat_id, is_cancelled, created_at`. `lesson_type='indiv'` для индивидуальных. `starts_at`/`ends_at` — `timestamp WITHOUT time zone`, **хранятся в МСК naive** (как админ ввёл в форме). RPC `create_schedule_event` и `confirm_indiv_request` пишут как пришло, без TZ-конверсии. Серверные `*.created_at` (всё что через `default now()`) — наоборот UTC naive.
 - **schedule_history** — аудит. `action`-значения: `attendance_marked`, `cancelled`, и др.
 - **bookings** — `id, student_id, schedule_id, subscription_id, status, created_at`. Статусы: `booked`, `cancelled`.
 - **attendance** — `id, schedule_id, student_id, basis, status, subscription_id, subscription_expires, teacher_id, marked_by, marked_at, note, created_at`. `basis ∈ {subscription, single, trial, indiv, event, none}`, `status ∈ {present, absent, cancelled, transferred}`. **`UNIQUE(schedule_id, student_id)`** — UPSERT через `ON CONFLICT` безопасен, дубли невозможны.
@@ -242,9 +242,9 @@ public/
 | `create_sale(p_payload jsonb)` | «Пробить продажу» в [AdminCashbox](src/admin/AdminCashbox.jsx) и `SaleModal` в [AdminClientCard](src/admin/AdminClientCard.jsx) | Один вызов вместо sales.insert + profiles.update + bonus_history.insert + subscriptions.insert + subscription_allowed_groups.insert. **Целочисленная разбивка сумм по позициям** (остаток в первую строку — сумма по строкам = общая). Проверка `bonus_rubles >= used`. `expires_at` для подписок считается из `product_subscriptions.duration_days` сервером. **При наличии в чеке позиций `subscription`/`service` `selected_group_ids` обязателен** — иначе `groups_required` (пустой список — это баг, не «универсальный абонемент»). |
 | `cancel_sale(p_sale_id, p_cancel_whole_receipt bool=true)` | «Отменить» в [AdminFinance](src/admin/AdminFinance.jsx) | Отменяет весь чек по `receipt_id`, замораживает связанные подписки (`is_frozen=true` + `expires_at=today-1` + аудит в `subscription_date_changes`), возвращает `bonus_rubles` + reversal в `bonus_history`. Если у подписки были `visits_used > 0` — в ответе `visits_already_used: true`, визиты не возвращаются. |
 | `save_lesson_salary(p_schedule_id)` | «📊 Рассчитать зарплату» / «✅ Подтвердить» в [AttendancePanel](src/admin/AttendancePanel.jsx) | Сервер сам считает `paid_students` из `attendance`, подбирает тариф из `salary_tiers` (приоритет `per_lesson_tiered → per_lesson`), учитывает `teacher_substitutions`, делает UPSERT в `lesson_payments` + INSERT в `schedule_history`. |
-| `create_schedule_event(p_payload jsonb)` | «Сохранить» в `ScheduleForm` [AdminSchedule](src/admin/AdminSchedule.jsx) | Атомарное создание занятия или серии. Клиент передаёт naive-MSK timestamps в `dates[]`, RPC конвертирует в UTC через `at time zone 'Europe/Moscow'`. `pg_advisory_xact_lock(hall)` сериализует все вставки в зал — TOCTOU закрыт, даже если другой админ жмёт «Сохранить» одновременно. Конфликт хотя бы на одной дате серии → ничего не вставится (атомарный rollback). Ошибки: `hall_conflict` с массивом `conflicts`, `no_dates`, `invalid_dates`, и т.д. |
+| `create_schedule_event(p_payload jsonb)` | «Сохранить» в `ScheduleForm` [AdminSchedule](src/admin/AdminSchedule.jsx) | Атомарное создание занятия или серии. Клиент передаёт МСК-naive timestamps в `dates[]`, RPC пишет как есть (схема MSK naive — без конверсии). `pg_advisory_xact_lock(hall)` сериализует все вставки в зал — TOCTOU закрыт. Конфликт хотя бы на одной дате серии → ничего не вставится (атомарный rollback). Ошибки: `hall_conflict` с массивом `conflicts`, `no_dates`, `invalid_dates`. |
 | `assign_substitution(p_schedule_id, p_substitute_teacher_id, p_reason?)` | Модалка «Замена преподавателя» в [AdminSchedule](src/admin/AdminSchedule.jsx) | UPSERT в `teacher_substitutions` через `UNIQUE(schedule_id)` + UPDATE `schedule.teacher_id` (для UX-консистенции рендера) + INSERT в `schedule_history` — всё в одной транзакции под `FOR UPDATE`. Ошибки: `same_teacher`, `lesson_cancelled`, `lesson_not_found`. |
-| `confirm_indiv_request(p_request_id, p_hall)` | «Подтвердить и создать занятие» в `HallModal` [AdminTasks](src/admin/AdminTasks.jsx) | Атомарно: проверка зала под `advisory_xact_lock`, INSERT в `schedule` (с конвертацией МСК → UTC), UPDATE `indiv_requests` (status, hall, schedule_id), запись в `schedule_history`. Title строится из `profiles.full_name` клиента. Ошибки: `hall_conflict`, `already_handled`, `invalid_hall`. |
+| `confirm_indiv_request(p_request_id, p_hall)` | «Подтвердить и создать занятие» в `HallModal` [AdminTasks](src/admin/AdminTasks.jsx) | Атомарно: проверка зала под `advisory_xact_lock`, INSERT в `schedule` (МСК naive, без конверсии), UPDATE `indiv_requests` (status, hall, schedule_id), запись в `schedule_history`. Title из `profiles.full_name` клиента. Ошибки: `hall_conflict`, `already_handled`, `invalid_hall`. |
 | `preview_lesson_salary(p_schedule_id)` | Кнопка «📊 Рассчитать зарплату» в [AttendancePanel](src/admin/AttendancePanel.jsx) | Read-only зеркало `save_lesson_salary`: считает `paid_students` и `amount` ровно той же формулой, что и save, но без UPSERT в `lesson_payments` и без записи в `schedule_history`. Гарантирует, что предпросмотр и фактическое сохранение совпадают. |
 | `transfer_trial(p_schedule_id, p_target_schedule_id, p_student_id)` | `TransferModal` в [AttendancePanel](src/admin/AttendancePanel.jsx) | Атомарно: UPSERT attendance исходного урока со status='transferred' (если строки не было — basis='trial') + INSERT booking на новое занятие. Идемпотентность по `(target, student, 'booked')` — повторный вызов не дублирует. Раньше был двухшаговый flow с work-around на сбой второго запроса. |
 
@@ -253,7 +253,10 @@ public/
 ### Особенности запросов
 
 - FK-алиасы в join: `teacher:profiles!schedule_teacher_id_fkey(full_name)`, `package:indiv_packages(name)` и т.д.
-- Часовой пояс для дат `slot_date` и т.п. — **Europe/Moscow**. Для границ суток в фильтрах по `timestamp WITHOUT time zone` (`sale_date`, `starts_at`, `created_at`) используй хелперы из [src/utils/tz.js](src/utils/tz.js): `todayMsk()`, `toMskDateStr(d)`, `mskDayStartUtc(dateStr)`, `mskDayEndUtc(dateStr)`. **Не пиши `from + 'T00:00:00'`** — это даст границу в TZ браузера, отчёты «съезжают» у админов не из МСК.
+- Часовой пояс для дат `slot_date` и т.п. — **Europe/Moscow**. В БД две конвенции для `timestamp WITHOUT time zone`:
+  - **UTC naive** (`sales.sale_date`, все `*.created_at`, `attendance.marked_at` — серверный `default now()`). Фильтрация — `mskDayStartUtc(date)` / `mskDayEndUtc(date)`.
+  - **MSK naive** (`schedule.starts_at`/`ends_at` — админ ввёл напрямую через форму, RPC и UPDATE сохраняют как есть). Фильтрация — `mskDayStartNaive(date)` / `mskDayEndNaive(date)`. Для фильтров «от сейчас» — `nowMskNaive()`, для произвольного момента — `toMskNaive(d)`.
+  - **Не пиши `from + 'T00:00:00'`** для UTC-naive колонок — это даст границу в TZ браузера. Используй хелперы из [src/utils/tz.js](src/utils/tz.js).
 
 ---
 
@@ -272,7 +275,7 @@ public/
 - **Кнопки `confirm()` и `alert()`** для критичных действий — это нормально, не заменяй на кастомный модал без просьбы.
 - **`session` пробрасывается пропсом** во все страницы; не дёргай `supabase.auth.getUser()` повторно без причины.
 - **HTML от админов всегда через `safeHtml()`.** Любой `dangerouslySetInnerHTML` из новостей/рассылок/RichEditor должен идти через [src/utils/safeHtml.js](src/utils/safeHtml.js) (DOMPurify под капотом). Без этого утечка админ-аккаунта = stored XSS у всех клиентов.
-- **Границы суток МСК — через хелперы из [src/utils/tz.js](src/utils/tz.js).** Не строй вручную `dateStr + 'T00:00:00'` для фильтров — это даст границу в TZ браузера. Используй `mskDayStartUtc(todayMsk())` и т.п.
+- **Границы суток МСК — через хелперы из [src/utils/tz.js](src/utils/tz.js).** Для UTC-naive колонок (`sale_date`, `created_at`) — `mskDayStartUtc(todayMsk())`. Для MSK-naive (`schedule.starts_at`) — `mskDayStartNaive(todayMsk())`. Для фильтров «от сейчас» по `starts_at` — `nowMskNaive()`, **не** `new Date().toISOString()` (даст 3-часовое смещение, т.к. колонка MSK naive).
 - **Защита от двойного клика** на любой мутирующей кнопке: локальный `if (saving) return` в начале handler + `disabled={saving}`. Особенно критично для денежных RPC, у которых RPC сама идемпотентна, но клиент может успеть отправить два запроса до ответа.
 
 ### Конвенции запросов
@@ -280,7 +283,7 @@ public/
 - Сначала проверка валидности (`if (!session?.user?.id) return`), затем `setLoading(true)`, потом запросы, затем `setLoading(false)`.
 - Для счётчиков-бейджей в layout — `setInterval` + `window.addEventListener('focus', fetch)` (см. [AdminLayout.jsx:48](src/admin/AdminLayout.jsx:48)).
 - Дата «сегодня» в МСК: `todayMsk()` из `utils/tz.js` (старое `toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' })` теперь только внутри хелпера).
-- Границы суток для фильтров timestamp: `.gte('sale_date', mskDayStartUtc(from)).lte('sale_date', mskDayEndUtc(to))`.
+- Границы суток для фильтров: UTC-naive — `.gte('sale_date', mskDayStartUtc(from)).lte('sale_date', mskDayEndUtc(to))`. MSK-naive — `.gte('starts_at', mskDayStartNaive(from)).lte('starts_at', mskDayEndNaive(to))`.
 - Деньги: `(Number(n) || 0).toLocaleString('ru-RU') + ' ₽'`.
 - Время: `toLocaleTimeString('ru-RU', { hour:'2-digit', minute:'2-digit', timeZone:'Europe/Moscow' })` — таймзону указывай явно, даже если кажется что не нужна.
 - `is_cancelled=false` для всех агрегаций `sales` — без этого фильтра отчёты включают отменённые продажи. Все денежные суммы на UI берут только активные строки.

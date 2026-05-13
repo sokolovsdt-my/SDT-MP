@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../supabase'
-import { todayMsk, toMskDateStr, mskDayStartUtc, mskDayEndUtc } from '../utils/tz'
+import { todayMsk, toMskDateStr, mskDayStartUtc, mskDayEndUtc, mskDayStartNaive, mskDayEndNaive } from '../utils/tz'
 import { edgeUrl } from '../utils/supabaseEdge'
 
 const cardStyle = { background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', padding:20, marginBottom:16 }
@@ -69,7 +69,7 @@ export default function AdminDashboard({ session }) {
 
     let scheduleQuery = supabase.from('schedule')
       .select('id, title, starts_at, ends_at, hall, group_id, groups(name, color), teacher_id')
-      .gte('starts_at', mskDayStartUtc(today)).lte('starts_at', mskDayEndUtc(today)).order('starts_at')
+      .gte('starts_at', mskDayStartNaive(today)).lte('starts_at', mskDayEndNaive(today)).order('starts_at')
     if (role === 'teacher') scheduleQuery = scheduleQuery.eq('teacher_id', user.id)
     const { data: scheduleData } = await scheduleQuery
     setTodaySchedule(scheduleData || [])

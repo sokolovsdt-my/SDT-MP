@@ -644,8 +644,9 @@ function StatsTab({ staff }) {
   const [stats, setStats] = useState(null)
   useEffect(() => { load() }, [])
   const load = async () => {
+    // schedule.starts_at — MSK naive, граница тоже MSK naive (1 число месяца, 00:00)
     const now = new Date()
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+    const monthStart = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01T00:00:00`
     const { data: lessons } = await supabase.from('schedule').select('id, is_cancelled, indiv_student_id').eq('teacher_id', staff.id).gte('starts_at', monthStart)
     const total = lessons?.length || 0
     const cancelled = lessons?.filter(l => l.is_cancelled).length || 0

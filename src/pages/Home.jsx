@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../supabase'
 import { safeHtml } from '../utils/safeHtml'
+import { nowMskNaive } from '../utils/tz'
 
 export default function Home({ session, onNewsAll, onBonus }) {
   const [profile, setProfile] = useState(null)
@@ -14,7 +15,8 @@ export default function Home({ session, onNewsAll, onBonus }) {
     const load = async () => {
       // Все четыре запроса страницы параллельно — раньше шли последовательно
       // с накопительным RTT.
-      const nowIso = new Date().toISOString()
+      // schedule.starts_at — MSK naive, фильтр "от сейчас" должен быть в той же конвенции.
+      const nowIso = nowMskNaive()
       const sel = 'id, title, starts_at, ends_at, hall, lesson_type, is_cancelled, groups(name), teacher:profiles!schedule_teacher_id_fkey(full_name)'
       const [profileRes, tagsRes, newsRes, attRes, bookingsRes, indivRes] = await Promise.all([
         supabase.from('profiles').select('*').eq('id', session.user.id).single(),

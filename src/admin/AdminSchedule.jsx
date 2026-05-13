@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabase'
 import AttendancePanel from './AttendancePanel'
-import { toMskDateStr, mskDayStartUtc, mskDayEndUtc } from '../utils/tz'
+import { toMskDateStr, mskDayStartNaive, mskDayEndNaive } from '../utils/tz'
 
 const GROUP_COLORS = [
   { bg:'#FFEBEE', border:'#D32F2F', text:'#B71C1C' },
@@ -172,14 +172,16 @@ function ScheduleForm({ session, teachers, students, groups, events, onSave, onC
 
   const checkConflict = async () => {
     if (!form.hall || !form.date || !form.time_from || !form.time_to) return false
-    const starts = new Date(`${form.date}T${form.time_from}`)
-    const ends = new Date(`${form.date}T${form.time_to}`)
+    // form.date/time_* — это МСК-вход админа, schedule.starts_at тоже MSK naive,
+    // сравниваем напрямую без всяких toISOString.
+    const startsNaive = `${form.date}T${form.time_from}:00`
+    const endsNaive   = `${form.date}T${form.time_to}:00`
     const { data } = await supabase.from('schedule')
       .select('id, title, starts_at, ends_at')
       .eq('hall', form.hall)
       .neq('id', initial?.id || '00000000-0000-0000-0000-000000000000')
-      .lt('starts_at', ends.toISOString())
-      .gt('ends_at', starts.toISOString())
+      .lt('starts_at', endsNaive)
+      .gt('ends_at', startsNaive)
     if (data && data.length > 0) {
       setConflict(`Зал занят: ${data[0].title} (${formatTime(data[0].starts_at)}–${formatTime(data[0].ends_at)})`)
       return true
@@ -426,8 +428,8 @@ export default function AdminSchedule({ session }) {
     const [evRes, allStaffRes, teacherRolesRes, sRes, eventsDataRes, edDataRes, gRes] = await Promise.all([
       supabase.from('schedule')
         .select('*, groups(name), teacher:profiles!schedule_teacher_id_fkey(full_name), student:profiles!schedule_indiv_student_id_fkey(full_name)')
-        .gte('starts_at', mskDayStartUtc(fromMsk))
-        .lte('starts_at', mskDayEndUtc(toMsk))
+        .gte('starts_at', mskDayStartNaive(fromMsk))
+        .lte('starts_at', mskDayEndNaive(toMsk))
         .order('starts_at'),
       supabase.from('profiles').select('id, full_name, email').in('role', ['teacher','owner','manager','admin']),
       supabase.from('staff_roles').select('staff_id').eq('role', 'teacher'),
