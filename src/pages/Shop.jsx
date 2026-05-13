@@ -53,6 +53,8 @@ export default function Shop({ session }) {
   const [bookingError, setBookingError] = useState('')
   const [bookingSlot, setBookingSlot] = useState(null)
   const [savingSlot, setSavingSlot] = useState(false)
+  const [myRequests, setMyRequests] = useState([])
+  const [cancellingId, setCancellingId] = useState(null)
 
   const goCat = (c) => { setActiveCat(c); localStorage.setItem('shop_cat', c) }
   const goTeacher = (id) => {
@@ -166,9 +168,46 @@ export default function Shop({ session }) {
       // Безлимит-пакет: visits_total = null. Не сравниваем — NaN-comparisons дают false.
       const isValid = pkg && (pkg.visits_total === null || pkg.visits_used < pkg.visits_total)
       setClientPackage(isValid ? pkg : null)
+      await loadMyRequests(id)
     }
 
     setIndivLoading(false)
+  }
+
+  const loadMyRequests = async (teacherId) => {
+    const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' })
+    const { data } = await supabase
+      .from('indiv_requests')
+      .select('id, slot_date, start_time, end_time, hall, status')
+      .eq('client_id', session.user.id)
+      .eq('teacher_id', teacherId)
+      .in('status', ['pending', 'confirmed'])
+      .gte('slot_date', today)
+      .order('slot_date').order('start_time')
+    setMyRequests(data || [])
+  }
+
+  const handleCancelRequest = async (req) => {
+    if (cancellingId) return
+    const ask = req.status === 'confirmed'
+      ? 'Отменить подтверждённое занятие? Преподаватель будет уведомлён.'
+      : 'Отменить заявку на индив?'
+    if (!confirm(ask)) return
+    setCancellingId(req.id)
+    const { data, error } = await supabase.rpc('cancel_indiv_request', { p_request_id: req.id })
+    setCancellingId(null)
+    if (error) { alert('Ошибка сети: ' + error.message); return }
+    if (!data?.ok) {
+      const msg = {
+        not_authenticated: 'Сессия истекла, войдите заново',
+        forbidden:         'Можно отменять только свои заявки',
+        request_not_found: 'Заявка не найдена',
+        not_cancellable:   `Заявку нельзя отменить (статус: ${data.current_status})`,
+        too_late:          `До занятия меньше 12 часов (${data.hours_left}ч). Обратись к администратору.`,
+      }[data?.error] || `Не удалось отменить: ${data?.error || 'неизвестная ошибка'}`
+      alert(msg); return
+    }
+    loadMyRequests(selectedTeacher)
   }
 
   const handleBook = async (dateStr, slot) => {
@@ -206,6 +245,7 @@ export default function Shop({ session }) {
 
       const d = new Date(dateStr + 'T00:00:00')
       setBookingDone(`${DAYS_SHORT[d.getDay()]}, ${d.getDate()} ${MONTHS[d.getMonth()]}, ${slot.start_time.slice(0,5)}–${slot.end_time.slice(0,5)}`)
+      loadMyRequests(selectedTeacher)
     } catch {
       setBookingError('Ошибка при записи')
     }
@@ -375,6 +415,30 @@ export default function Shop({ session }) {
           ) : (
             <div style={{background:'#fef9e7', borderRadius:12, padding:'10px 14px', marginBottom:16, fontSize:13, color:'#f39c12'}}>
               Нет активного пакета — после записи нужно оплатить индив
+            </div>
+          )}
+
+          {myRequests.length > 0 && (
+            <div style={{marginBottom:16}}>
+              <div style={{fontSize:11, color:'#BDBDBD', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8}}>Ваши заявки</div>
+              {myRequests.map(r => {
+                const d = new Date(r.slot_date + 'T00:00:00')
+                const isPending = r.status === 'pending'
+                return (
+                  <div key={r.id} style={{display:'flex', justifyContent:'space-between', alignItems:'center', background:'#fff', borderRadius:12, padding:'10px 14px', marginBottom:6, border:'1px solid #f0f0f0', borderLeft:`3px solid ${isPending ? '#f39c12' : '#27ae60'}`}}>
+                    <div style={{flex:1, minWidth:0}}>
+                      <div style={{fontSize:13, color:'#2a2a2a'}}>{DAYS_SHORT[d.getDay()]}, {d.getDate()} {MONTHS[d.getMonth()]} · {r.start_time.slice(0,5)}–{r.end_time.slice(0,5)}</div>
+                      <span style={{display:'inline-block', marginTop:4, fontSize:11, fontWeight:600, color: isPending ? '#f39c12' : '#27ae60', background: isPending ? '#fef9e7' : '#eafaf1', padding:'2px 8px', borderRadius:6}}>
+                        {isPending ? '⏳ Ожидает подтверждения' : '✓ Подтверждено'}
+                      </span>
+                    </div>
+                    <button onClick={() => handleCancelRequest(r)} disabled={cancellingId === r.id}
+                      style={{fontSize:11, color:'#e74c3c', background:'none', border:'1px solid #fdecea', borderRadius:8, padding:'4px 12px', cursor: cancellingId === r.id ? 'default' : 'pointer', fontFamily:'Inter,sans-serif', flexShrink:0, marginLeft:8, opacity: cancellingId === r.id ? 0.5 : 1}}>
+                      Отменить
+                    </button>
+                  </div>
+                )
+              })}
             </div>
           )}
 

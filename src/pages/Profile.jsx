@@ -14,6 +14,7 @@ function MyLessons({ session, onBack }) {
   const [upcoming, setUpcoming] = useState([])
   const [history, setHistory] = useState([])
   const [loading, setLoading] = useState(true)
+  const [cancelling, setCancelling] = useState(false)
 
   useEffect(() => { load() }, [])
 
@@ -110,7 +111,7 @@ function MyLessons({ session, onBack }) {
         indiv_status: r.status,
         package_name: r.package?.name,
         has_package: !!r.package_id,
-        canCancel: false,
+        canCancel: r.status === 'pending' || r.status === 'confirmed',
       }
     })
 
@@ -163,10 +164,38 @@ function MyLessons({ session, onBack }) {
     setLoading(false)
   }
 
-  const handleCancel = async (bookingId) => {
+  const handleCancel = async (lessonId, lesson) => {
+    if (cancelling) return
+
+    if (lessonId.startsWith('indiv-')) {
+      const reqId = lessonId.replace('indiv-', '')
+      const isConfirmed = lesson?.indiv_status === 'confirmed'
+      const ask = isConfirmed
+        ? 'Отменить подтверждённое занятие? Преподаватель будет уведомлён.'
+        : 'Отменить заявку на индив?'
+      if (!confirm(ask)) return
+      setCancelling(true)
+      const { data, error } = await supabase.rpc('cancel_indiv_request', { p_request_id: reqId })
+      setCancelling(false)
+      if (error) { alert('Ошибка сети: ' + error.message); return }
+      if (!data?.ok) {
+        const msg = {
+          not_authenticated: 'Сессия истекла, войдите заново',
+          forbidden:         'Можно отменять только свои заявки',
+          request_not_found: 'Заявка не найдена',
+          not_cancellable:   `Заявку нельзя отменить (статус: ${data.current_status})`,
+          too_late:          `До занятия меньше 12 часов (${data.hours_left}ч). Обратись к администратору.`,
+        }[data?.error] || `Не удалось отменить: ${data?.error || 'неизвестная ошибка'}`
+        alert(msg); return
+      }
+      load(); return
+    }
+
     if (!confirm('Отменить запись на занятие?')) return
-    const id = bookingId.replace('booking-', '')
+    const id = lessonId.replace('booking-', '')
+    setCancelling(true)
     await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', id)
+    setCancelling(false)
     load()
   }
 
@@ -240,7 +269,8 @@ function MyLessons({ session, onBack }) {
                   )}
                 </div>
                 {lesson.canCancel && (
-                  <button onClick={() => handleCancel(lesson.id)} style={{ fontSize: 11, color: '#e74c3c', background: 'none', border: '1px solid #fdecea', borderRadius: 8, padding: '4px 12px', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+                  <button onClick={() => handleCancel(lesson.id, lesson)} disabled={cancelling}
+                    style={{ fontSize: 11, color: '#e74c3c', background: 'none', border: '1px solid #fdecea', borderRadius: 8, padding: '4px 12px', cursor: cancelling ? 'default' : 'pointer', fontFamily: 'Inter,sans-serif', opacity: cancelling ? 0.5 : 1 }}>
                     Отменить
                   </button>
                 )}
