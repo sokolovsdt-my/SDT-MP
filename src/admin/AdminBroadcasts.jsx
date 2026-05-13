@@ -428,6 +428,22 @@ export default function AdminBroadcasts({ session }) {
       }
     }
 
+    // Для немедленной отправки — дёргаем edge-функцию. Для scheduled её подберёт pg_cron.
+    if (status === 'sent') {
+      const { data: sendRes, error: sendErr } = await supabase.functions.invoke('send-broadcast', {
+        body: { broadcast_id: broadcast.id },
+      })
+      if (sendErr || !sendRes?.ok) {
+        setSaving(false)
+        alert('Рассылка создана, но не удалось запустить отправку: ' + (sendErr?.message || sendRes?.error || 'неизвестная ошибка') + '\n\nЗайди в историю — рассылка там, можно повторить попытку отправки позже.')
+        loadBroadcasts()
+        setTab('history')
+        return
+      }
+      const stats = `Отправлено: пуш ${sendRes.sent_push}, email ${sendRes.sent_email}` + (sendRes.failed ? `, неудачно ${sendRes.failed}` : '')
+      alert(stats)
+    }
+
     setTitle(''); setContent(''); setFilters({}); setScheduledAt(''); setChannels({ push: true, email: false })
     setShowPreview(false); setRecipients([]); setExcludedIds([])
     setSaving(false)
