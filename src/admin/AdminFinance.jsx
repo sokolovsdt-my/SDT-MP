@@ -1225,26 +1225,46 @@ function FinanceLoyalty({ session }) {
       { key: 'risk', label: '⚠️ Риск ухода', color: '#e74c3c', bg: '#fdecea', count: levels.risk },
     ])
 
-    // Клиенты с активным абонементом, не посещавшие 10+ дней
-    const { data: recentAttendance } = await supabase.from('attendance')
-      .select('student_id, created_at')
-      .gte('created_at', mskDayStartUtc(ago10))
-      .eq('status', 'present')
+    // Клиенты с активным абонементом, не посещавшие 10+ дней.
+    // Считаем от ПОСЛЕДНЕГО фактического посещения (schedule.starts_at), а не
+    // от activated_at — иначе ходящий клиент с давно купленным абонементом
+    // ошибочно попадает в «не ходят».
+    const studentIds = [...new Set((activeSubs || []).map(s => s.student_id))]
+    let lastVisitByStudent = {}
+    if (studentIds.length > 0) {
+      const { data: att } = await supabase.from('attendance')
+        .select('student_id, schedule:schedule_id(starts_at)')
+        .in('student_id', studentIds)
+        .eq('status', 'present')
+      ;(att || []).forEach(a => {
+        const ts = a.schedule?.starts_at
+        if (!ts) return
+        const cur = lastVisitByStudent[a.student_id]
+        if (!cur || new Date(ts) > new Date(cur)) lastVisitByStudent[a.student_id] = ts
+      })
+    }
 
-    const recentStudentIds = new Set((recentAttendance || []).map(a => a.student_id))
-
+    const now = new Date()
     const noVisit = (activeSubs || []).filter(s => {
-      const activatedAgo = (new Date() - new Date(s.activated_at)) / 86400000
-      return activatedAgo >= 10 && !recentStudentIds.has(s.student_id)
+      const activatedAgo = (now - new Date(s.activated_at)) / 86400000
+      if (activatedAgo < 10) return false  // абонемент только что куплен — клиент ещё мог не прийти
+      const lastVisit = lastVisitByStudent[s.student_id]
+      if (!lastVisit) return true            // активных посещений вообще не было
+      return (now - new Date(lastVisit)) / 86400000 >= 10
     })
-    setNotVisiting(noVisit.map(s => ({
-      clientId: s.student_id,
-      name: s.profiles?.full_name || s.profiles?.email || '—',
-      phone: s.profiles?.phone || '—',
-      type: s.type,
-      activatedAt: s.activated_at,
-      daysSince: Math.floor((new Date() - new Date(s.activated_at)) / 86400000),
-    })))
+    setNotVisiting(noVisit.map(s => {
+      const lastVisit = lastVisitByStudent[s.student_id]
+      const ref = lastVisit ? new Date(lastVisit) : new Date(s.activated_at)
+      return {
+        clientId: s.student_id,
+        name: s.profiles?.full_name || s.profiles?.email || '—',
+        phone: s.profiles?.phone || '—',
+        type: s.type,
+        activatedAt: s.activated_at,
+        lastVisitAt: lastVisit || null,
+        daysSince: Math.floor((now - ref) / 86400000),
+      }
+    }))
 
     // Посещаемость по группам (последние 30 дней)
     const { data: groups } = await supabase.from('groups').select('id, name')
@@ -1396,7 +1416,9 @@ function FinanceLoyalty({ session }) {
             <div>
               <div style={{fontSize:13, fontWeight:600, color:'#2a2a2a'}}>{c.name}</div>
               <div style={{fontSize:12, color:'#888', marginTop:2}}>{c.phone} · {c.type}</div>
-              <div style={{fontSize:11, color:'#e74c3c', marginTop:2}}>Не было {c.daysSince} дней с даты активации</div>
+              <div style={{fontSize:11, color:'#e74c3c', marginTop:2}}>
+                {c.lastVisitAt ? `Не было ${c.daysSince} дней с последнего посещения` : `Ни разу не посещал — абонемент активирован ${c.daysSince} дн. назад`}
+              </div>
             </div>
           </div>
         ))}

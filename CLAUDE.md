@@ -236,6 +236,8 @@ public/
 | `create_schedule_event(p_payload jsonb)` | «Сохранить» в `ScheduleForm` [AdminSchedule](src/admin/AdminSchedule.jsx) | Атомарное создание занятия или серии. Клиент передаёт naive-MSK timestamps в `dates[]`, RPC конвертирует в UTC через `at time zone 'Europe/Moscow'`. `pg_advisory_xact_lock(hall)` сериализует все вставки в зал — TOCTOU закрыт, даже если другой админ жмёт «Сохранить» одновременно. Конфликт хотя бы на одной дате серии → ничего не вставится (атомарный rollback). Ошибки: `hall_conflict` с массивом `conflicts`, `no_dates`, `invalid_dates`, и т.д. |
 | `assign_substitution(p_schedule_id, p_substitute_teacher_id, p_reason?)` | Модалка «Замена преподавателя» в [AdminSchedule](src/admin/AdminSchedule.jsx) | UPSERT в `teacher_substitutions` через `UNIQUE(schedule_id)` + UPDATE `schedule.teacher_id` (для UX-консистенции рендера) + INSERT в `schedule_history` — всё в одной транзакции под `FOR UPDATE`. Ошибки: `same_teacher`, `lesson_cancelled`, `lesson_not_found`. |
 | `confirm_indiv_request(p_request_id, p_hall)` | «Подтвердить и создать занятие» в `HallModal` [AdminTasks](src/admin/AdminTasks.jsx) | Атомарно: проверка зала под `advisory_xact_lock`, INSERT в `schedule` (с конвертацией МСК → UTC), UPDATE `indiv_requests` (status, hall, schedule_id), запись в `schedule_history`. Title строится из `profiles.full_name` клиента. Ошибки: `hall_conflict`, `already_handled`, `invalid_hall`. |
+| `preview_lesson_salary(p_schedule_id)` | Кнопка «📊 Рассчитать зарплату» в [AttendancePanel](src/admin/AttendancePanel.jsx) | Read-only зеркало `save_lesson_salary`: считает `paid_students` и `amount` ровно той же формулой, что и save, но без UPSERT в `lesson_payments` и без записи в `schedule_history`. Гарантирует, что предпросмотр и фактическое сохранение совпадают. |
+| `transfer_trial(p_schedule_id, p_target_schedule_id, p_student_id)` | `TransferModal` в [AttendancePanel](src/admin/AttendancePanel.jsx) | Атомарно: UPSERT attendance исходного урока со status='transferred' (если строки не было — basis='trial') + INSERT booking на новое занятие. Идемпотентность по `(target, student, 'booked')` — повторный вызов не дублирует. Раньше был двухшаговый flow с work-around на сбой второго запроса. |
 
 **Общая модель ошибок:** `not_authenticated`, `forbidden`, `<resource>_not_found`, `lesson_cancelled`, `not_your_lesson` (для teacher), `already_handled` / `already_cancelled`. Все клиентские обработчики имеют словарь `{ error_code: 'русское сообщение' }` и `alert()` на неизвестный код. Сохраняй этот паттерн при добавлении новых RPC.
 
@@ -386,11 +388,6 @@ if (!data?.ok) {
 
 **Логика клиентской мобилки:**
 - **Глубокие ссылки клиента не работают** ([App.jsx:55](src/App.jsx:55)): `*` ловит всё кроме `/admin` и `/teacher`, редиректит на `/`. Поделиться ссылкой на `/profile` нельзя, кнопка «Назад» браузера ломает навигацию. Перевод клиента на react-router — заметная работа.
-
-**Аналитика owner:**
-- **«Не ходят 10 дней»** считается от `activated_at` ([AdminFinance.jsx:1184](src/admin/AdminFinance.jsx:1184)), а не от последнего посещения. Активный клиент с давно купленным абонементом попадает сюда ошибочно.
-- **TransferModal: первый шаг через RPC, второй — нет** ([AttendancePanel.jsx:172](src/admin/AttendancePanel.jsx:172)). `mark_attendance('transferred')` атомарный, но последующий `bookings.insert` на новое занятие идёт отдельным запросом. Можно объединить в `transfer_trial(p_schedule_id, p_target_schedule_id, p_student_id)` RPC. Сейчас при сбое второго шага UI говорит «Перенос помечен, но не удалось создать новую запись» — это work-around, не решение.
-- **`saveSalaryCalc` атомарен, но `calculateSalary` (предпросмотр) дублирует формулу на клиенте** ([AttendancePanel.jsx:419](src/admin/AttendancePanel.jsx:419)). Если расчёт сервера отличается, админ удивится после клика «Подтвердить». Решение — `preview_lesson_salary` RPC (read-only) и убрать клиентскую формулу.
 
 **State и производительность:**
 - **Двойной `RequireRole` + `useUserRole`** на каждом `/admin/*` ([App.jsx:96](src/App.jsx:96)) → 3-4 параллельных запроса к `profiles` на каждом переходе. Завести `RoleContext` в `AdminLayout`.

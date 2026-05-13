@@ -178,37 +178,27 @@ function TransferModal({ booking, lesson, onClose, onDone }) {
   const handleConfirm = async () => {
     if (!selected || saving) return
     setSaving(true)
-
-    // 1. Помечаем текущее занятие как «перенесено» — атомарно через RPC
-    //    (если у ученика был present, RPC сам вернёт визит в абонемент).
-    const { data: rpcRes, error: rpcErr } = await supabase.rpc('mark_attendance', {
-      p_schedule_id: lesson.id,
-      p_student_id:  booking.student_id,
-      p_new_status:  'transferred',
+    // Атомарный перенос: attendance → 'transferred' + INSERT booking на новое
+    // занятие в одной транзакции. Раньше делалось двумя независимыми запросами,
+    // и сбой второго оставлял attendance как 'transferred' без нового booking'а.
+    const { data, error } = await supabase.rpc('transfer_trial', {
+      p_schedule_id:        lesson.id,
+      p_target_schedule_id: selected,
+      p_student_id:         booking.student_id,
     })
-    if (rpcErr) { alert('Ошибка сети: ' + rpcErr.message); setSaving(false); return }
-    if (!rpcRes?.ok) {
+    setSaving(false)
+    if (error) { alert('Ошибка сети: ' + error.message); return }
+    if (!data?.ok) {
       const msg = {
         not_authenticated: 'Сессия истекла, войдите заново',
         forbidden:         'Недостаточно прав',
-        lesson_cancelled:  'Занятие отменено — перенос невозможен',
-        not_your_lesson:   'Можно отмечать только свои занятия',
-      }[rpcRes?.error] || `Не удалось пометить перенос: ${rpcRes?.error || 'неизвестная ошибка'}`
-      alert(msg); setSaving(false); return
+        same_lesson:       'Нельзя перенести на то же занятие',
+        source_not_found:  'Текущее занятие не найдено',
+        target_not_found:  'Выбранное занятие не найдено',
+        target_cancelled:  'Выбранное занятие отменено',
+      }[data?.error] || `Не удалось перенести: ${data?.error || 'неизвестная ошибка'}`
+      alert(msg); return
     }
-
-    // 2. Создаём новую запись на выбранное занятие
-    const { data: { user } } = await supabase.auth.getUser()
-    const { error: bookErr } = await supabase
-      .from('bookings')
-      .insert({ schedule_id: selected, student_id: booking.student_id, status: 'booked',
-                ...(user?.id ? { created_by: user.id } : {}) })
-    if (bookErr) {
-      alert('Перенос помечен, но не удалось создать новую запись: ' + bookErr.message)
-      setSaving(false); return
-    }
-
-    setSaving(false)
     onDone()
   }
 
@@ -417,33 +407,30 @@ export default function AttendancePanel({ lesson, session, onClose, teachers, on
   }
 
   const calculateSalary = async () => {
+    if (calcLoading) return
     setCalcLoading(true)
-    const paidCount = isIndivLesson
-      ? bookings.filter(b => b.attendance_status === 'present').length
-      : bookings.filter(b => b.attendance_status === 'present' && b.basis === 'subscription').length
-
-    const { data: subData } = await supabase.from('teacher_substitutions').select('substitute_teacher_id').eq('schedule_id', lesson.id).maybeSingle()
-    const actualTeacherId = subData?.substitute_teacher_id || lesson.teacher_id
-    const isSubstitution = !!subData
-
-    const { data: tiers } = await supabase.from('salary_tiers').select('*').eq('staff_id', actualTeacherId).eq('role_context', 'teacher').eq('is_active', true)
-
-    let amount = 0
-    if (tiers && tiers.length > 0) {
-      const tieredTier = tiers.find(t => t.tier_type === 'per_lesson_tiered')
-      if (tieredTier && tieredTier.tiers) {
-        const sorted = [...tieredTier.tiers].sort((a, b) => { if (a.max_students === null) return 1; if (b.max_students === null) return -1; return a.max_students - b.max_students })
-        for (const tier of sorted) {
-          if (tier.max_students === null || paidCount <= tier.max_students) { amount = Number(tier.amount); break }
-        }
-      } else {
-        const perLesson = tiers.find(t => t.tier_type === 'per_lesson')
-        if (perLesson) amount = Number(perLesson.amount)
-      }
-    }
-
-    setSalaryCalc({ amount, paid_students: paidCount, actualTeacherId, isSubstitution })
+    // Расчёт ведётся на сервере (preview_lesson_salary), чтобы предпросмотр
+    // показывал ровно то же число, что потом запишет save_lesson_salary.
+    const { data, error } = await supabase.rpc('preview_lesson_salary', { p_schedule_id: lesson.id })
     setCalcLoading(false)
+    if (error) { alert('Ошибка сети: ' + error.message); return }
+    if (!data?.ok) {
+      const msg = {
+        not_authenticated: 'Сессия истекла, войдите заново',
+        forbidden:         'Недостаточно прав',
+        lesson_not_found:  'Занятие не найдено',
+        lesson_cancelled:  'Занятие отменено',
+        no_teacher:        'У занятия не назначен преподаватель',
+        not_your_lesson:   'Можно рассчитывать только свои занятия',
+      }[data?.error] || `Не удалось рассчитать: ${data?.error || 'неизвестная ошибка'}`
+      alert(msg); return
+    }
+    setSalaryCalc({
+      amount: Number(data.amount),
+      paid_students: data.paid_students,
+      actualTeacherId: data.actual_teacher_id,
+      isSubstitution:  data.is_substitution,
+    })
   }
 
   const saveSalaryCalc = async () => {
