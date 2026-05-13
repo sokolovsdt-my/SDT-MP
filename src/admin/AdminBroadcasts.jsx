@@ -113,14 +113,79 @@ function RichEditor({ value, onChange, defaultBold = false }) {
   )
 }
 
+// Множественный выбор с поиском. options: [{value, label, group?}].
+// Выбранные показываются плашками сверху (можно убрать крестиком), снизу
+// поиск + список совпадений. Удобно для 30+ элементов в отличие от чекбоксов.
+function PillsMultiSelect({ options, selected, onChange, placeholder = 'Найти и добавить...', groupLabels }) {
+  const [query, setQuery] = useState('')
+  const selectedSet = new Set(selected)
+  const visibleOptions = options.filter(o =>
+    !selectedSet.has(o.value) &&
+    (!query || o.label.toLowerCase().includes(query.toLowerCase()))
+  )
+  const grouped = {}
+  visibleOptions.forEach(o => {
+    const key = o.group || ''
+    if (!grouped[key]) grouped[key] = []
+    grouped[key].push(o)
+  })
+  const orderedGroups = Object.keys(grouped).sort()
+
+  const add = (val) => { onChange([...selected, val]); setQuery('') }
+  const remove = (val) => onChange(selected.filter(v => v !== val))
+
+  return (
+    <div>
+      {/* Pills выбранных */}
+      {selected.length > 0 && (
+        <div style={{display:'flex', flexWrap:'wrap', gap:6, marginBottom:8}}>
+          {selected.map(val => {
+            const opt = options.find(o => o.value === val)
+            return (
+              <span key={val} style={{display:'inline-flex', alignItems:'center', gap:6, background:'#fafde8', border:'1px solid #BFD900', borderRadius:20, padding:'4px 10px', fontSize:12, color:'#2a2a2a'}}>
+                {opt?.label || val}
+                <button type="button" onClick={() => remove(val)}
+                  style={{background:'none', border:'none', cursor:'pointer', color:'#888', padding:0, fontSize:14, lineHeight:1}}>×</button>
+              </span>
+            )
+          })}
+        </div>
+      )}
+      {/* Поиск */}
+      <input value={query} onChange={e => setQuery(e.target.value)} placeholder={placeholder}
+        style={{...inputStyle, marginBottom: visibleOptions.length > 0 && (query || selected.length === 0) ? 6 : 0}} />
+      {/* Список */}
+      {(query || selected.length === 0) && visibleOptions.length > 0 && (
+        <div style={{maxHeight:180, overflowY:'auto', background:'#fff', border:'1px solid #f0f0f0', borderRadius:10}}>
+          {orderedGroups.map(g => (
+            <div key={g}>
+              {g && <div style={{padding:'6px 12px', fontSize:11, color:'#888', textTransform:'uppercase', letterSpacing:'0.06em', background:'#f9f9f9'}}>{groupLabels?.[g] || g}</div>}
+              {grouped[g].map(o => (
+                <div key={o.value} onClick={() => add(o.value)}
+                  style={{padding:'8px 12px', cursor:'pointer', fontSize:13, color:'#2a2a2a', borderBottom:'1px solid #f8f8f8'}}
+                  onMouseEnter={e => e.currentTarget.style.background='#f9f9f9'}
+                  onMouseLeave={e => e.currentTarget.style.background='#fff'}>
+                  {o.label}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function RecipientFilter({ filters, onChange }) {
   const [groups, setGroups] = useState([])
   const [products, setProducts] = useState([])
 
   useEffect(() => {
     let cancelled = false
-    supabase.from('groups').select('id, name').then(({ data }) => { if (!cancelled) setGroups(data || []) })
-    supabase.from('products').select('id, name, type').eq('is_active', true).order('type').then(({ data }) => { if (!cancelled) setProducts(data || []) })
+    // Только открытые группы — закрытые в фильтр не предлагаем.
+    supabase.from('groups').select('id, name').eq('is_closed', false).order('name').then(({ data }) => { if (!cancelled) setGroups(data || []) })
+    // Активные продукты всех типов — список тянется динамически, никакого хардкода.
+    supabase.from('products').select('id, name, type').eq('is_active', true).order('type').order('name').then(({ data }) => { if (!cancelled) setProducts(data || []) })
     return () => { cancelled = true }
   }, [])
 
@@ -135,30 +200,32 @@ function RecipientFilter({ filters, onChange }) {
     </label>
   )
 
+  const productOptions = products.map(p => ({ value: p.id, label: p.name, group: p.type }))
+  const groupOptions   = groups.map(g => ({ value: g.id, label: g.name }))
+  const loyaltyOptions = [
+    ...Object.entries(LOYALTY_LABELS).map(([k, v]) => ({ value: k, label: v })),
+    { value: 'none', label: '⚪ Без метки' },
+  ]
+
   return (
     <div>
       <div style={{fontSize:12, color:'#888', marginBottom:10, background:'#fafde8', borderRadius:8, padding:'8px 12px'}}>
         💡 Фильтры комбинируются — чем больше включено, тем уже аудитория
       </div>
 
-      {/* По продукту */}
+      {/* По купленным продуктам (множественный) */}
       <div style={sectionStyle}>
-        {checkRow('По купленному продукту', 'use_product')}
+        {checkRow('По купленным продуктам', 'use_product')}
         {filters.use_product && (
           <div style={{paddingLeft:24}}>
-            <select value={filters.product_id || ''} onChange={e => set('product_id', e.target.value)} style={{...inputStyle, marginBottom:10}}>
-              <option value="">Любой продукт</option>
-              {Object.entries(PRODUCT_TYPE_LABELS).map(([type, label]) => {
-                const group = products.filter(p => p.type === type)
-                if (group.length === 0) return null
-                return (
-                  <optgroup key={type} label={label}>
-                    {group.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </optgroup>
-                )
-              })}
-            </select>
-            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8}}>
+            <PillsMultiSelect
+              options={productOptions}
+              selected={filters.product_ids || []}
+              onChange={vals => set('product_ids', vals)}
+              placeholder="Поиск продукта..."
+              groupLabels={PRODUCT_TYPE_LABELS}
+            />
+            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginTop:10}}>
               <div>
                 <label style={labelStyle}>Дата покупки с</label>
                 <input type="date" value={filters.purchase_from || ''} onChange={e => set('purchase_from', e.target.value)} style={inputStyle} />
@@ -177,15 +244,17 @@ function RecipientFilter({ filters, onChange }) {
         {checkRow('Нет активного абонемента сейчас', 'no_active_sub')}
       </div>
 
-      {/* По группе */}
+      {/* По группам (множественный) */}
       <div style={sectionStyle}>
-        {checkRow('По группе', 'use_group')}
+        {checkRow('По группам', 'use_group')}
         {filters.use_group && (
           <div style={{paddingLeft:24}}>
-            <select value={filters.group_id || ''} onChange={e => set('group_id', e.target.value)} style={inputStyle}>
-              <option value="">Выберите группу</option>
-              {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
-            </select>
+            <PillsMultiSelect
+              options={groupOptions}
+              selected={filters.group_ids || []}
+              onChange={vals => set('group_ids', vals)}
+              placeholder="Поиск группы..."
+            />
           </div>
         )}
       </div>
@@ -249,15 +318,68 @@ function RecipientFilter({ filters, onChange }) {
         )}
       </div>
 
-      {/* По лояльности */}
+      {/* По лояльности (множественный + 'Без метки') */}
       <div style={sectionStyle}>
-        {checkRow('По метке лояльности', 'use_loyalty')}
+        {checkRow('По меткам лояльности', 'use_loyalty')}
         {filters.use_loyalty && (
           <div style={{paddingLeft:24}}>
-            <select value={filters.loyalty_level || ''} onChange={e => set('loyalty_level', e.target.value)} style={inputStyle}>
-              <option value="">Выберите уровень</option>
-              {Object.entries(LOYALTY_LABELS).map(([k,v]) => <option key={k} value={k}>{v}</option>)}
-            </select>
+            <PillsMultiSelect
+              options={loyaltyOptions}
+              selected={filters.loyalty_levels || []}
+              onChange={vals => set('loyalty_levels', vals)}
+              placeholder="Поиск метки..."
+            />
+          </div>
+        )}
+      </div>
+
+      {/* По пуш-уведомлениям */}
+      <div style={sectionStyle}>
+        {checkRow('По пуш-уведомлениям', 'use_push')}
+        {filters.use_push && (
+          <div style={{paddingLeft:24, display:'flex', gap:8}}>
+            {[
+              ['with_push',    '📱 Только с пушем'],
+              ['without_push', '🚫 Только без пуша'],
+            ].map(([v, l]) => (
+              <label key={v} style={{flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:6, padding:'8px', borderRadius:10, border: filters.push_filter === v ? '1.5px solid #BFD900' : '1px solid #e0e0e0', background: filters.push_filter === v ? '#fafde8' : '#fff', fontSize:12, cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight: filters.push_filter === v ? 600 : 400}}>
+                <input type="radio" name="push_filter" value={v} checked={filters.push_filter === v} onChange={() => set('push_filter', v)} style={{accentColor:'#BFD900'}} />
+                {l}
+              </label>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Новые клиенты */}
+      <div style={sectionStyle}>
+        {checkRow('Новые клиенты', 'use_registered')}
+        {filters.use_registered && (
+          <div style={{paddingLeft:24}}>
+            <label style={labelStyle}>Зарегистрировались за последние (дней)</label>
+            <input type="number" value={filters.registered_days || ''} onChange={e => set('registered_days', e.target.value)} placeholder="30" style={inputStyle} />
+          </div>
+        )}
+      </div>
+
+      {/* Именинники */}
+      <div style={sectionStyle}>
+        {checkRow('Именинники', 'use_birthday')}
+        {filters.use_birthday && (
+          <div style={{paddingLeft:24}}>
+            <label style={labelStyle}>День рождения в ближайшие (дней)</label>
+            <input type="number" value={filters.birthday_days ?? ''} onChange={e => set('birthday_days', e.target.value)} placeholder="7" style={inputStyle} />
+          </div>
+        )}
+      </div>
+
+      {/* Исключить уже получавших */}
+      <div style={sectionStyle}>
+        {checkRow('Не отправлять уже получавшим', 'use_exclude_received')}
+        {filters.use_exclude_received && (
+          <div style={{paddingLeft:24}}>
+            <label style={labelStyle}>Получали рассылку за последние (дней)</label>
+            <input type="number" value={filters.exclude_received_days || ''} onChange={e => set('exclude_received_days', e.target.value)} placeholder="14" style={inputStyle} />
           </div>
         )}
       </div>
@@ -320,12 +442,16 @@ export default function AdminBroadcasts({ session }) {
   const buildRpcFilters = () => {
     const f = {}
     if (filters.use_product) {
-      if (filters.product_id)    f.product_id    = filters.product_id
+      const ids = (filters.product_ids || []).filter(Boolean)
+      if (ids.length > 0)        f.product_ids   = ids
       if (filters.purchase_from) f.purchase_from = filters.purchase_from
       if (filters.purchase_to)   f.purchase_to   = filters.purchase_to
     }
     if (filters.no_active_sub) f.no_active_sub = true
-    if (filters.use_group && filters.group_id) f.group_ids = [filters.group_id]
+    if (filters.use_group) {
+      const ids = (filters.group_ids || []).filter(Boolean)
+      if (ids.length > 0) f.group_ids = ids
+    }
     if (filters.use_sub_status) f.subscription_status = filters.subscription_status || 'active'
     if (filters.use_ltv) {
       if (filters.ltv_min !== '' && filters.ltv_min != null) f.ltv_min = Number(filters.ltv_min)
@@ -336,7 +462,16 @@ export default function AdminBroadcasts({ session }) {
       if (filters.age_max !== '' && filters.age_max != null) f.age_max = Number(filters.age_max)
     }
     if (filters.use_last_visit && filters.last_visit_days) f.last_visit_days = Number(filters.last_visit_days)
-    if (filters.use_loyalty && filters.loyalty_level) f.loyalty_levels = [filters.loyalty_level]
+    if (filters.use_loyalty) {
+      const lv = (filters.loyalty_levels || []).filter(Boolean)
+      if (lv.length > 0) f.loyalty_levels = lv
+    }
+    if (filters.use_push && filters.push_filter)              f.push_filter           = filters.push_filter
+    if (filters.use_registered && filters.registered_days)    f.registered_days       = Number(filters.registered_days)
+    if (filters.use_birthday && filters.birthday_days != null && filters.birthday_days !== '')
+      f.birthday_days = Number(filters.birthday_days)
+    if (filters.use_exclude_received && filters.exclude_received_days)
+      f.exclude_received_days = Number(filters.exclude_received_days)
     return f
   }
 
@@ -361,6 +496,74 @@ export default function AdminBroadcasts({ session }) {
 
   const [savingTemplate, setSavingTemplate] = useState(false)
   const [deletingTemplateId, setDeletingTemplateId] = useState(null)
+  const [manualQuery, setManualQuery] = useState('')
+  const [manualResults, setManualResults] = useState([])
+  const [sendingTest, setSendingTest] = useState(false)
+
+  // Поиск клиента для ручного добавления в список получателей.
+  const handleManualSearch = async (val) => {
+    setManualQuery(val)
+    if (val.length < 2) { setManualResults([]); return }
+    const { data } = await supabase.from('profiles')
+      .select('id, full_name, email, phone, push_token')
+      .eq('role', 'client')
+      .or(`full_name.ilike.%${val}%,phone.ilike.%${val}%,email.ilike.%${val}%`)
+      .limit(8)
+    setManualResults(data || [])
+  }
+
+  const handleManualAdd = (client) => {
+    if (recipients.find(r => r.id === client.id)) {
+      setManualQuery(''); setManualResults([])
+      return
+    }
+    setRecipients(prev => [...prev, client])
+    setManualQuery(''); setManualResults([])
+    if (!showPreview) setShowPreview(true)
+  }
+
+  // Тестовая отправка только себе — не загрязняет историю чужими получателями.
+  // Создаёт обычную рассылку с одним получателем (текущий админ) + помечает в title
+  // префиксом [ТЕСТ], чтоб в истории видно было.
+  const handleSendTest = async () => {
+    if (sendingTest) return
+    if (!title || !content) { alert('Заполни заголовок и текст'); return }
+    setSendingTest(true)
+    const { data: testB, error: bErr } = await supabase.from('broadcasts').insert({
+      title:   '[ТЕСТ] ' + title,
+      content,
+      channel: Object.entries(channels).filter(([,v]) => v).map(([k]) => k).join('+') || 'push',
+      status:  'sent',
+      sent_at: new Date().toISOString(),
+      created_by: session.user.id,
+      filter_type: 'test',
+      filter_payload: { test_only_self: true },
+    }).select().single()
+    if (bErr || !testB) {
+      setSendingTest(false)
+      alert('Не удалось создать тестовую рассылку: ' + (bErr?.message || 'неизвестная ошибка'))
+      return
+    }
+    const { error: rErr } = await supabase.from('broadcast_recipients').insert({
+      broadcast_id: testB.id, client_id: session.user.id,
+    })
+    if (rErr) {
+      setSendingTest(false)
+      alert('Тестовая рассылка создана, но получатель не сохранился: ' + rErr.message)
+      return
+    }
+    const { data: sendRes, error: sendErr } = await supabase.functions.invoke('send-broadcast', {
+      body: { broadcast_id: testB.id },
+    })
+    setSendingTest(false)
+    if (sendErr || !sendRes?.ok) {
+      alert('Не удалось отправить тестовую рассылку: ' + (sendErr?.message || sendRes?.error || 'неизвестная ошибка'))
+      return
+    }
+    const stats = `Отправлено вам: пуш ${sendRes.sent_push}, email ${sendRes.sent_email}` + (sendRes.failed ? `, неудачно ${sendRes.failed}` : '')
+    alert(stats)
+    loadBroadcasts()
+  }
 
   const handleSaveTemplate = async () => {
     if (savingTemplate || !templateName) return
@@ -394,17 +597,13 @@ export default function AdminBroadcasts({ session }) {
       scheduled_at: scheduledAt || null,
       sent_at: status === 'sent' ? new Date().toISOString() : null,
       created_by: session.user.id,
-      // Сохраняем все параметры подбора аудитории — чтобы можно было повторить рассылку
-      // и видеть в истории под какой фильтр она ушла.
-      filter_type:                'combined',
-      filter_group_id:            (filters.use_group && filters.group_id) ? filters.group_id : null,
-      filter_subscription_status: filters.use_sub_status ? (filters.subscription_status || null) : null,
-      filter_ltv_min:             filters.use_ltv && filters.ltv_min !== '' ? Number(filters.ltv_min) : null,
-      filter_ltv_max:             filters.use_ltv && filters.ltv_max !== '' ? Number(filters.ltv_max) : null,
-      filter_age_min:             filters.use_age && filters.age_min !== '' ? Number(filters.age_min) : null,
-      filter_age_max:             filters.use_age && filters.age_max !== '' ? Number(filters.age_max) : null,
-      filter_last_visit_days:     filters.use_last_visit && filters.last_visit_days !== '' ? Number(filters.last_visit_days) : null,
-      filter_loyalty_level:       filters.use_loyalty ? (filters.loyalty_level || null) : null,
+      // filter_payload — единый JSON-снимок всех применённых фильтров. Точно тот же
+      // payload что отправляется в recipients_for_broadcast. Используется в истории
+      // для просмотра под какой фильтр ушла рассылка и для кнопки «Дублировать»
+      // (которой пока нет, но будет тривиальной). Старые filter_* колонки больше
+      // не заполняем — они оставлены deprecated для совместимости старых строк.
+      filter_type:    'combined',
+      filter_payload: buildRpcFilters(),
     }).select().single()
 
     if (bErr || !broadcast) {
@@ -518,6 +717,15 @@ export default function AdminBroadcasts({ session }) {
                 style={{...btnPrimary, marginTop:8, width:'100%', opacity: loadingRecipients ? 0.7 : 1}}>
                 {loadingRecipients ? 'Загружаем...' : '👥 Подобрать получателей'}
               </button>
+              {showPreview && recipients.length > 0 && (() => {
+                const withEmail = activeRecipients.filter(r => r.email).length
+                const withPush  = activeRecipients.filter(r => r.push_token).length
+                return (
+                  <div style={{marginTop:10, fontSize:12, color:'#888', textAlign:'center'}}>
+                    Найдено: <strong style={{color:'#2a2a2a'}}>{activeRecipients.length}</strong> чел., из них 📧 <strong style={{color:'#2a2a2a'}}>{withEmail}</strong> с email, 📱 <strong style={{color:'#2a2a2a'}}>{withPush}</strong> с пушем
+                  </div>
+                )
+              })()}
             </div>
 
             {showPreview && (
@@ -527,6 +735,31 @@ export default function AdminBroadcasts({ session }) {
                   <span style={{marginLeft:8, fontSize:13, color:'#BFD900', fontWeight:700}}>{activeRecipients.length}</span>
                   <span style={{fontSize:12, color:'#BDBDBD', fontWeight:400}}> из {recipients.length}</span>
                 </div>
+
+                {/* Ручное добавление поверх фильтров */}
+                <div style={{position:'relative', marginBottom:12}}>
+                  <input value={manualQuery} onChange={e => handleManualSearch(e.target.value)}
+                    placeholder="+ Добавить вручную (имя/телефон/email)..."
+                    style={inputStyle} />
+                  {manualResults.length > 0 && (
+                    <div style={{position:'absolute', top:'100%', left:0, right:0, background:'#fff', border:'1px solid #e8e8e8', borderRadius:10, zIndex:10, boxShadow:'0 4px 16px rgba(0,0,0,0.1)', marginTop:4, maxHeight:240, overflowY:'auto'}}>
+                      {manualResults.map(c => (
+                        <div key={c.id} onClick={() => handleManualAdd(c)}
+                          style={{padding:'10px 12px', cursor:'pointer', borderBottom:'1px solid #f5f5f5', fontSize:13}}
+                          onMouseEnter={e => e.currentTarget.style.background='#f9f9f9'}
+                          onMouseLeave={e => e.currentTarget.style.background='#fff'}>
+                          <div style={{fontWeight:500, color:'#2a2a2a'}}>{c.full_name || c.email}</div>
+                          <div style={{fontSize:11, color:'#BDBDBD', marginTop:2, display:'flex', gap:8, alignItems:'center'}}>
+                            {c.phone && <span>{c.phone}</span>}
+                            {c.email && <span>📧 {c.email}</span>}
+                            {c.push_token && <span>📱</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 {recipients.length === 0 ? (
                   <div style={{fontSize:12, color:'#BDBDBD'}}>По выбранным фильтрам никого не найдено</div>
                 ) : (
@@ -535,12 +768,16 @@ export default function AdminBroadcasts({ session }) {
                       const excluded = excludedIds.includes(r.id)
                       return (
                         <div key={r.id} style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 0', borderBottom:'1px solid #f8f8f8', opacity: excluded ? 0.4 : 1}}>
-                          <div>
+                          <div style={{flex:1, minWidth:0}}>
                             <div style={{fontSize:13, fontWeight:500, color:'#2a2a2a', textDecoration: excluded ? 'line-through' : 'none'}}>{r.full_name || r.email}</div>
-                            <div style={{fontSize:11, color:'#BDBDBD'}}>{r.phone || r.email}</div>
+                            <div style={{fontSize:11, color:'#BDBDBD', display:'flex', gap:6, alignItems:'center'}}>
+                              {r.phone && <span>{r.phone}</span>}
+                              <span title={r.email ? `email: ${r.email}` : 'нет email'} style={{opacity: r.email ? 1 : 0.3}}>📧</span>
+                              <span title={r.push_token ? 'есть push_token' : 'нет push_token'} style={{opacity: r.push_token ? 1 : 0.3}}>📱</span>
+                            </div>
                           </div>
                           <button onClick={() => setExcludedIds(p => p.includes(r.id) ? p.filter(x => x !== r.id) : [...p, r.id])}
-                            style={{fontSize:11, color: excluded ? '#27ae60' : '#e74c3c', background:'none', border:'none', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+                            style={{fontSize:11, color: excluded ? '#27ae60' : '#e74c3c', background:'none', border:'none', cursor:'pointer', fontFamily:'Inter,sans-serif', flexShrink:0, marginLeft:8}}>
                             {excluded ? '+ Вернуть' : '× Убрать'}
                           </button>
                         </div>
@@ -576,6 +813,10 @@ export default function AdminBroadcasts({ session }) {
               <button onClick={() => handleSend(scheduledAt ? 'scheduled' : 'sent')} disabled={saving || !title || !content}
                 style={{...btnPrimary, width:'100%', fontSize:14, padding:'12px', opacity: (saving || !title || !content) ? 0.5 : 1}}>
                 {saving ? 'Отправляем...' : scheduledAt ? '⏰ Запланировать' : '🚀 Отправить'}
+              </button>
+              <button onClick={handleSendTest} disabled={sendingTest || !title || !content}
+                style={{width:'100%', padding:'10px', background:'#fef9e7', border:'1px solid #f39c12', borderRadius:10, fontSize:13, color:'#f39c12', cursor: (sendingTest || !title || !content) ? 'default' : 'pointer', fontFamily:'Inter,sans-serif', marginTop:8, fontWeight:600, opacity: (sendingTest || !title || !content) ? 0.5 : 1}}>
+                {sendingTest ? 'Отправляем...' : '🧪 Тест только мне'}
               </button>
               <button onClick={() => handleSend('draft')} disabled={saving}
                 style={{width:'100%', padding:'10px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:10, fontSize:13, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif', marginTop:8}}>
