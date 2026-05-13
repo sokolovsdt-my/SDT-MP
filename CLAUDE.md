@@ -61,10 +61,10 @@ src/
 │   ├── AdminSchedule.jsx         # календарь сетки занятий
 │   ├── AdminCatalog.jsx          # абонементы, услуги, события, мерч, индив-пакеты
 │   ├── AdminGroups.jsx           # учебные группы
-│   ├── AdminCashbox.jsx          # касса, продажи
+│   ├── AdminCashbox.jsx          # касса, продажи. Принимает ?client=<uuid> для предзаполнения клиента (используется из NoBasisModal в AttendancePanel)
 │   ├── AdminFinance.jsx          # P&L, расходы, зарплаты, индивы (выручка/топ препов/загрузка слотов), лояльность (owner-only)
 │   ├── AdminTasks.jsx            # задачи (kanban-подобный) + вкладка «Индивы» (модерация заявок)
-│   ├── AdminBroadcasts.jsx       # рассылки в Telegram-бот
+│   ├── AdminBroadcasts.jsx       # рассылки FCM + Resend: новая (фильтры аудитории, тест-отправка), шаблоны, авторассылки (вкладка «Авто» с расписанием), история
 │   ├── AdminNews.jsx, AdminPrizes.jsx
 │   ├── AttendancePanel.jsx       # отметка посещаемости на занятии (списание визитов)
 │   └── TeacherPanel.jsx          # отдельный UI для роли teacher (/teacher)
@@ -96,6 +96,15 @@ public/
 
 .env.example                       # шаблон для VITE_* переменных
                                    # для git worktree: cp /path/to/main/.env.local ./.env.local
+
+supabase/                          # серверный код в git (source of truth)
+├── README.md                      # workflow деплоя через MCP / CLI, env-переменные, vault
+├── functions/
+│   ├── send-broadcast/index.ts        # отправка обычных рассылок (FCM + Resend)
+│   └── send-auto-broadcast/index.ts   # отправка авторассылок (тип 'birthday')
+└── migrations/                    # SQL-миграции с timestamp в имени
+    └── *.sql                      # старые миграции живут только в Supabase (исторически),
+                                   # новые сразу коммитим сюда параллельно apply_migration
 ```
 
 ---
@@ -258,6 +267,7 @@ public/
 | `preview_lesson_salary(p_schedule_id)` | Кнопка «📊 Рассчитать зарплату» в [AttendancePanel](src/admin/AttendancePanel.jsx) | Read-only зеркало `save_lesson_salary`: считает `paid_students` и `amount` ровно той же формулой, что и save, но без UPSERT в `lesson_payments` и без записи в `schedule_history`. Гарантирует, что предпросмотр и фактическое сохранение совпадают. |
 | `transfer_trial(p_schedule_id, p_target_schedule_id, p_student_id)` | `TransferModal` в [AttendancePanel](src/admin/AttendancePanel.jsx) | Атомарно: UPSERT attendance исходного урока со status='transferred' (если строки не было — basis='trial') + INSERT booking на новое занятие. Идемпотентность по `(target, student, 'booked')` — повторный вызов не дублирует. Раньше был двухшаговый flow с work-around на сбой второго запроса. |
 | `cancel_indiv_request(p_request_id)` | Кнопка «Отменить» в `MyLessons` ([Profile.jsx](src/pages/Profile.jsx)), секция «Ваши заявки» в `TeacherDetail` ([Team.jsx](src/pages/Team.jsx)/[Shop.jsx](src/pages/Shop.jsx)) | Клиент сам отменяет свои pending/confirmed заявки на индивы. Проверка `client_id = auth.uid()`. Для `confirmed` — 12-часовой барьер до начала урока (`slot_date+start_time` как МСК → UTC через `at time zone`); если меньше — `too_late` с числом часов в ответе. При confirmed дополнительно ставит `schedule.is_cancelled=true` и пишет в `schedule_history`. Ошибки: `not_authenticated`, `forbidden`, `request_not_found`, `not_cancellable` (с `current_status`), `too_late` (с `hours_left`). |
+| `recipients_for_broadcast(p_filters jsonb)` | «👥 Подобрать получателей» в [AdminBroadcasts](src/admin/AdminBroadcasts.jsx) | Серверный подбор аудитории рассылки — один SQL вместо N+1 запросов на клиенте. Принимает JSON с любой комбинацией: `product_ids[]`, `purchase_from/to`, `no_active_sub`, `group_ids[]`, `subscription_status` ('active'/'expiring'/'expired'), `ltv_min/max`, `age_min/max`, `last_visit_days` (по `attendance.marked_at` со `status='present'`), `loyalty_levels[]` (с поддержкой `'none'` для клиентов без записи в `client_loyalty`), `push_filter` ('with_push'/'without_push'), `registered_days`, `birthday_days` (с edge case 29 февраля → 28 февраля в невисокосный год), `exclude_received_days` (исключить попавших в `broadcast_recipients` за N дней). Возвращает SETOF (id, full_name, email, phone, push_token). Доступна `admin/manager/owner`. Тот же payload сохраняется в `broadcasts.filter_payload` как снимок фильтра. |
 
 **Общая модель ошибок:** `not_authenticated`, `forbidden`, `<resource>_not_found`, `lesson_cancelled`, `not_your_lesson` (для teacher), `already_handled` / `already_cancelled`. Все клиентские обработчики имеют словарь `{ error_code: 'русское сообщение' }` и `alert()` на неизвестный код. Сохраняй этот паттерн при добавлении новых RPC.
 
@@ -390,6 +400,7 @@ if (!data?.ok) {
 - Индив-флоу клиента: выбор препода и слота — [src/pages/Team.jsx](src/pages/Team.jsx) и [src/pages/Shop.jsx](src/pages/Shop.jsx) (TeacherDetail, секция «Ваши заявки» над списком слотов). История проведённых индивов — [src/pages/Profile.jsx](src/pages/Profile.jsx) (`MyIndivs`, экран `screen='indivs'`, группировка по преподу + гибридная пагинация). Подтверждение/отклонение заявок админом — [src/admin/AdminTasks.jsx](src/admin/AdminTasks.jsx) (`tab=indivs`). Аналитика по индивам (выручка/топ-3 препода/загрузка слотов) — [src/admin/AdminFinance.jsx](src/admin/AdminFinance.jsx) (`FinanceIndivs`, owner-only, периоды день/неделя/месяц/год/всё время/выбранный).
 - Расписание препода (TeacherPanel) — собственные занятия + замены через `teacher_substitutions` (мерж двух запросов, бейдж «Замена»), индивы; отметка посещаемости с подсветкой текущего статуса и оптимистичным апдейтом — [src/admin/TeacherPanel.jsx](src/admin/TeacherPanel.jsx).
 - Гард «нет основания»: ученик без активного абонемента/регистрации в `AttendancePanel` видит красную кнопку «Нет абонемента» вместо StatusButton → `NoBasisModal` с тремя ветками: открыть кассу с предзаполненным клиентом (`/admin/cashbox?client=<id>` — AdminCashbox читает query‑param при монтировании), открыть карточку клиента, «Отметить как пробное» (для групповых уроков, через `mark_attendance(p_mark_as_trial=true)`). На сервере дублирующий гард — RPC возвращает `no_valid_basis` если кто‑то обойдёт UI. Логика покрывает все типы уроков: группа/индив/event и все типы оснований: subscription/single/trial/indiv/event.
+- Рассылки — [src/admin/AdminBroadcasts.jsx](src/admin/AdminBroadcasts.jsx): четыре вкладки — «Новая» (RichEditor + 11 фильтров аудитории через `PillsMultiSelect` + ручное добавление + 🧪 тест‑отправка), «Шаблоны», «⚡ Авто» (карточки авторассылок с тумблером, расписанием «вчера/сегодня/завтра» с именами и статусами, модалкой настройки), «История». Подбор аудитории — RPC `recipients_for_broadcast(p_filters)`, payload сохраняется в `broadcasts.filter_payload`. Реальная отправка — edge `send-broadcast` для немедленных, edge `send-auto-broadcast` + cron `auto-birthday-daily` для авто. Per‑recipient статусы доставки в `broadcast_recipients.delivered_at/failed_at/error` и в `auto_broadcast_runs.channels_sent/error`.
 - Денежные операции (продажа / отмена / бонусы / призы / визиты / зарплата / отмена урока / отмена индив-заявки) — RPC из раздела «RPC-функции». Клиентский вызов — `supabase.rpc(...)` с обработкой ошибок по общему паттерну.
 - HTML-контент от админов в UI — оборачивай `safeHtml()` из [src/utils/safeHtml.js](src/utils/safeHtml.js).
 - Любые границы суток / фильтры по датам — через хелперы из [src/utils/tz.js](src/utils/tz.js).
@@ -399,7 +410,7 @@ if (!data?.ok) {
 
 ## Остаток аудита
 
-Бэклог из аудита на момент `0ab347f`. Закрытые пункты не перечисляются — историю смотри в `git log` по префиксам выше. Ссылки на строки могут смещаться, но имена функций/файлов стабильны.
+Бэклог из аудита на момент `93f3d0d`. Закрытые пункты не перечисляются — историю смотри в `git log` по префиксам выше. Ссылки на строки могут смещаться, но имена функций/файлов стабильны.
 
 ### 🔴 Критичные
 
