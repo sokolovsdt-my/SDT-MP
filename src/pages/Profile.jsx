@@ -438,6 +438,130 @@ function MyStats({ session, onBack }) {
   )
 }
 
+function MyIndivs({ session, onBack }) {
+  const [loading, setLoading] = useState(true)
+  const [groups, setGroups] = useState([])
+  const [totals, setTotals] = useState({ total: 0, teachers: 0 })
+  // expanded[teacherId] = сколько строк видно для группы; undefined → 3 по умолчанию
+  const [expanded, setExpanded] = useState({})
+
+  useEffect(() => { load() }, [])
+
+  const load = async () => {
+    setLoading(true)
+    const { data } = await supabase
+      .from('attendance')
+      .select('status, schedule:schedule_id(id, starts_at, ends_at, hall, teacher:profiles!schedule_teacher_id_fkey(id, full_name))')
+      .eq('student_id', session.user.id)
+      .eq('basis', 'indiv')
+
+    const items = (data || []).filter(a => a.schedule?.starts_at)
+
+    // ─── Группировка по преподавателю ──────────────────────────────────────
+    const map = new Map()
+    for (const it of items) {
+      const t = it.schedule.teacher
+      const tid = t?.id || 'unknown'
+      const tname = t?.full_name || 'Преподаватель'
+      if (!map.has(tid)) map.set(tid, { teacherId: tid, teacherName: tname, items: [] })
+      map.get(tid).items.push({
+        id: it.schedule.id,
+        starts_at: it.schedule.starts_at,
+        ends_at: it.schedule.ends_at,
+        hall: it.schedule.hall,
+        status: it.status,
+      })
+    }
+    const arr = Array.from(map.values())
+    arr.forEach(g => g.items.sort((a, b) => new Date(b.starts_at) - new Date(a.starts_at)))
+    // группы — по свежести последнего индива
+    arr.sort((a, b) => new Date(b.items[0].starts_at) - new Date(a.items[0].starts_at))
+
+    setGroups(arr)
+    setTotals({ total: items.length, teachers: arr.length })
+    setLoading(false)
+  }
+
+  const visibleCount = (tid, total) => Math.min(expanded[tid] ?? 3, total)
+
+  const handleShowMore = (tid, total) => {
+    const cur = expanded[tid] ?? 3
+    // ≤15 — раскрываем сразу всё; иначе порция по 5, последняя = остаток
+    setExpanded({ ...expanded, [tid]: total <= 15 ? total : Math.min(cur + 5, total) })
+  }
+
+  const buttonLabel = (tid, total) => {
+    const cur = visibleCount(tid, total)
+    if (cur >= total) return null
+    if (total <= 15) return `Показать все (${total})`
+    return `Показать ещё (${Math.min(5, total - cur)})`
+  }
+
+  const fmtDate = (d) => new Date(d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
+  const fmtTime = (d) => new Date(d).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' })
+
+  return (
+    <div style={{ fontFamily: 'Inter,sans-serif', maxWidth: 480, margin: '0 auto' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 20px', borderBottom: '1px solid #f0f0f0' }}>
+        <div onClick={onBack} style={{ cursor: 'pointer', color: '#BDBDBD', fontSize: 20 }}>←</div>
+        <div style={{ fontSize: 16, color: '#2a2a2a', fontWeight: 500 }}>Мои индивы</div>
+      </div>
+      {loading ? (
+        <div style={{ textAlign: 'center', color: '#BDBDBD', padding: 40 }}>Загрузка...</div>
+      ) : (
+        <div style={{ padding: '16px 20px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+            <div style={{ background: '#fff', borderRadius: 14, padding: 16, border: '1px solid #f0f0f0', textAlign: 'center' }}>
+              <div style={{ fontSize: 28, fontWeight: 300, color: '#2a2a2a' }}>{totals.total}</div>
+              <div style={{ fontSize: 11, color: '#BDBDBD', marginTop: 4 }}>Всего индивов</div>
+            </div>
+            <div style={{ background: '#fff', borderRadius: 14, padding: 16, border: '1px solid #f0f0f0', textAlign: 'center' }}>
+              <div style={{ fontSize: 28, fontWeight: 300, color: '#2a2a2a' }}>{totals.teachers}</div>
+              <div style={{ fontSize: 11, color: '#BDBDBD', marginTop: 4 }}>Преподавателей</div>
+            </div>
+          </div>
+
+          {groups.length === 0 ? (
+            <div style={{ textAlign: 'center', color: '#BDBDBD', padding: 40, fontSize: 13 }}>Индивов пока нет</div>
+          ) : groups.map(g => {
+            const total = g.items.length
+            const visible = visibleCount(g.teacherId, total)
+            const label = buttonLabel(g.teacherId, total)
+            const slice = g.items.slice(0, visible)
+            return (
+              <div key={g.teacherId} style={{ marginBottom: 20 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#2a2a2a' }}>{g.teacherName}</div>
+                  <div style={{ fontSize: 11, color: '#BDBDBD' }}>{total} {plural(total, ['занятие', 'занятия', 'занятий'])}</div>
+                </div>
+                <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #f0f0f0', padding: '4px 14px' }}>
+                  {slice.map((it, idx) => (
+                    <div key={it.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '10px 0', borderBottom: idx < slice.length - 1 ? '1px solid #f8f8f8' : 'none' }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 13, color: '#2a2a2a' }}>{fmtDate(it.starts_at)} · {fmtTime(it.starts_at)}–{fmtTime(it.ends_at)}</div>
+                        {it.hall && <div style={{ fontSize: 11, color: '#BDBDBD', marginTop: 2 }}>🏛 {it.hall}</div>}
+                      </div>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: it.status === 'present' ? '#27ae60' : it.status === 'absent' ? '#e74c3c' : '#BDBDBD', background: it.status === 'present' ? '#eafaf1' : it.status === 'absent' ? '#fdecea' : '#f5f5f5', padding: '2px 8px', borderRadius: 6, flexShrink: 0, marginLeft: 8 }}>
+                        {it.status === 'present' ? '✓ Был' : it.status === 'absent' ? '✗ Не был' : '—'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                {label && (
+                  <button onClick={() => handleShowMore(g.teacherId, total)}
+                    style={{ width: '100%', marginTop: 8, padding: '10px', background: 'transparent', border: '1px solid #e0e0e0', borderRadius: 10, fontSize: 12, color: '#888', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+                    {label}
+                  </button>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function Referral({ session, onBack }) {
   const refLink = `https://sdt-mp.vercel.app?ref=${session.user.id.slice(0, 8)}`
   return (
@@ -541,6 +665,7 @@ export default function Profile({ session }) {
   const subExpDate = activeSub?.expires_at ? new Date(activeSub.expires_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }) : ''
 
   if (screen === 'lessons') return <MyLessons session={session} onBack={() => goScreen(null)} />
+  if (screen === 'indivs') return <MyIndivs session={session} onBack={() => goScreen(null)} />
   if (screen === 'stats') return <MyStats session={session} onBack={() => goScreen(null)} />
   if (screen === 'referral') return <Referral session={session} onBack={() => goScreen(null)} />
   if (screen === 'editing') return (
@@ -616,6 +741,7 @@ export default function Profile({ session }) {
 
       {[
         { label: 'Мои занятия', action: () => goScreen('lessons') },
+        { label: 'Мои индивы', action: () => goScreen('indivs') },
         { label: 'Моя статистика', action: () => goScreen('stats') },
         { label: 'Привести друга ✦', accent: true, action: () => goScreen('referral') },
       ].map((item, i) => (
