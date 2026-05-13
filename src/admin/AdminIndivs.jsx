@@ -1,10 +1,17 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabase'
 
 const DAYS = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб']
 
-export default function AdminIndivs({ session }) {
+const STATUS_LABELS = {
+  pending:   { label: 'Ожидает',     color: '#f39c12', bg: '#fef9e7' },
+  confirmed: { label: 'Подтверждён', color: '#27ae60', bg: '#eafaf1' },
+  rejected:  { label: 'Отклонён',    color: '#888',    bg: '#f5f5f5' },
+  cancelled: { label: 'Отменён',     color: '#e74c3c', bg: '#fdecea' },
+}
+
+function SlotsAndPackages({ session }) {
   const navigate = useNavigate()
   const [teachers, setTeachers] = useState([])
   const [selected, setSelected] = useState(null)
@@ -253,7 +260,6 @@ export default function AdminIndivs({ session }) {
 
   return (
     <div>
-      <h1 style={{fontSize:24, fontWeight:600, color:'#1f2024', marginBottom:24}}>Индивы</h1>
       {loading ? (
         <div style={{textAlign:'center', color:'#BDBDBD', padding:40}}>Загрузка...</div>
       ) : teachers.length === 0 ? (
@@ -285,6 +291,194 @@ export default function AdminIndivs({ session }) {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+// ─── Журнал индивов ─────────────────────────────────────────────────────────
+function IndivsJournal() {
+  const [requests, setRequests] = useState([])
+  const [teachersList, setTeachersList] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [teacherFilter, setTeacherFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
+  const [limit, setLimit] = useState(100)
+
+  // Преподавателей грузим один раз — для дропдауна фильтра.
+  useEffect(() => {
+    supabase.from('staff_roles').select('staff_id').eq('role', 'teacher')
+      .then(async ({ data }) => {
+        const ids = (data || []).map(r => r.staff_id)
+        if (ids.length === 0) { setTeachersList([]); return }
+        const { data: profs } = await supabase.from('profiles')
+          .select('id, full_name').in('id', ids).order('full_name')
+        setTeachersList(profs || [])
+      })
+  }, [])
+
+  useEffect(() => { load() }, [teacherFilter, statusFilter, fromDate, toDate, limit])
+
+  const load = async () => {
+    setLoading(true)
+    let q = supabase.from('indiv_requests')
+      .select(`id, slot_date, start_time, end_time, hall, status, created_at,
+        client:profiles!indiv_requests_client_id_fkey(id, full_name, phone),
+        teacher:profiles!indiv_requests_teacher_id_fkey(id, full_name),
+        package:indiv_packages(id, name)`)
+      .order('slot_date', { ascending: false })
+      .order('start_time', { ascending: false })
+      .limit(limit)
+    if (teacherFilter !== 'all') q = q.eq('teacher_id', teacherFilter)
+    if (statusFilter !== 'all')  q = q.eq('status', statusFilter)
+    if (fromDate) q = q.gte('slot_date', fromDate)
+    if (toDate)   q = q.lte('slot_date', toDate)
+    const { data } = await q
+    setRequests(data || [])
+    setLoading(false)
+  }
+
+  const resetFilters = () => {
+    setTeacherFilter('all'); setStatusFilter('all'); setFromDate(''); setToDate(''); setLimit(100)
+  }
+
+  const inputStyle = { padding:'8px 10px', border:'1px solid #e8e8e8', borderRadius:8, fontSize:13, fontFamily:'Inter,sans-serif', boxSizing:'border-box' }
+  const chipStyle = (active, color = '#BFD900') => ({
+    padding:'6px 12px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'Inter,sans-serif',
+    border: active ? 'none' : '1px solid #e8e8e8',
+    background: active ? color : '#fff',
+    color: active ? '#2a2a2a' : '#888',
+    fontWeight: active ? 600 : 400,
+  })
+  const fmtDate = (d) => {
+    const dt = new Date(d + 'T00:00:00')
+    return `${DAYS[dt.getDay()]}, ${dt.toLocaleDateString('ru-RU', { day:'numeric', month:'short' })}`
+  }
+  const filtersActive = teacherFilter !== 'all' || statusFilter !== 'all' || fromDate || toDate
+
+  return (
+    <div>
+      {/* Фильтры */}
+      <div style={{background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', padding:16, marginBottom:16}}>
+        <div style={{display:'grid', gridTemplateColumns:'2fr 1fr 1fr', gap:12, marginBottom:12}}>
+          <div>
+            <div style={{fontSize:11, color:'#888', marginBottom:4, fontWeight:600}}>Преподаватель</div>
+            <select value={teacherFilter} onChange={e => setTeacherFilter(e.target.value)} style={{...inputStyle, width:'100%'}}>
+              <option value="all">Все преподаватели</option>
+              {teachersList.map(t => <option key={t.id} value={t.id}>{t.full_name || '—'}</option>)}
+            </select>
+          </div>
+          <div>
+            <div style={{fontSize:11, color:'#888', marginBottom:4, fontWeight:600}}>Дата с</div>
+            <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} style={{...inputStyle, width:'100%'}} />
+          </div>
+          <div>
+            <div style={{fontSize:11, color:'#888', marginBottom:4, fontWeight:600}}>Дата по</div>
+            <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} style={{...inputStyle, width:'100%'}} />
+          </div>
+        </div>
+        <div style={{display:'flex', gap:6, flexWrap:'wrap', alignItems:'center'}}>
+          <span style={{fontSize:11, color:'#888', marginRight:4, fontWeight:600}}>Статус:</span>
+          <button onClick={() => setStatusFilter('all')} style={chipStyle(statusFilter === 'all')}>Все</button>
+          {Object.entries(STATUS_LABELS).map(([v, s]) => (
+            <button key={v} onClick={() => setStatusFilter(v)} style={chipStyle(statusFilter === v, s.bg)}>{s.label}</button>
+          ))}
+          {filtersActive && (
+            <button onClick={resetFilters}
+              style={{marginLeft:'auto', padding:'6px 12px', background:'transparent', border:'1px solid #e8e8e8', borderRadius:8, fontSize:12, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+              Сбросить
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Список заявок */}
+      {loading ? (
+        <div style={{textAlign:'center', color:'#BDBDBD', padding:40}}>Загрузка...</div>
+      ) : requests.length === 0 ? (
+        <div style={{textAlign:'center', color:'#BDBDBD', padding:60, background:'#fff', borderRadius:14, border:'1px solid #f0f0f0'}}>
+          Ничего не нашлось
+        </div>
+      ) : (
+        <>
+          <div style={{background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', overflow:'hidden'}}>
+            {/* Заголовок таблицы */}
+            <div style={{display:'grid', gridTemplateColumns:'1.4fr 1.2fr 1.2fr 0.9fr 0.9fr 1fr', gap:12, padding:'10px 16px', background:'#f9f9f9', fontSize:11, fontWeight:600, color:'#888', textTransform:'uppercase', letterSpacing:'0.06em'}}>
+              <div>Клиент</div>
+              <div>Препод</div>
+              <div>Дата · время</div>
+              <div>Зал</div>
+              <div>Статус</div>
+              <div>Пакет</div>
+            </div>
+            {requests.map(r => {
+              const st = STATUS_LABELS[r.status] || { label: r.status, color: '#888', bg: '#f5f5f5' }
+              return (
+                <div key={r.id} style={{display:'grid', gridTemplateColumns:'1.4fr 1.2fr 1.2fr 0.9fr 0.9fr 1fr', gap:12, padding:'12px 16px', borderTop:'1px solid #f5f5f5', alignItems:'center', fontSize:13}}>
+                  <div>
+                    <div style={{color:'#2a2a2a', fontWeight:500}}>{r.client?.full_name || '—'}</div>
+                    {r.client?.phone && <div style={{fontSize:11, color:'#BDBDBD', marginTop:2}}>{r.client.phone}</div>}
+                  </div>
+                  <div style={{color:'#2a2a2a'}}>{r.teacher?.full_name || '—'}</div>
+                  <div style={{color:'#2a2a2a'}}>
+                    <div>{fmtDate(r.slot_date)}</div>
+                    <div style={{fontSize:11, color:'#BDBDBD', marginTop:2}}>{r.start_time?.slice(0,5)}—{r.end_time?.slice(0,5)}</div>
+                  </div>
+                  <div style={{color: r.hall ? '#2a2a2a' : '#BDBDBD'}}>{r.hall || '—'}</div>
+                  <div>
+                    <span style={{fontSize:11, fontWeight:600, color:st.color, background:st.bg, padding:'3px 8px', borderRadius:6}}>{st.label}</span>
+                  </div>
+                  <div style={{color: r.package?.name ? '#27ae60' : '#e74c3c', fontSize:12}}>
+                    {r.package?.name ? `✓ ${r.package.name}` : '✕ Нет'}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          {/* Пагинация */}
+          {requests.length === limit && (
+            <div style={{textAlign:'center', marginTop:12}}>
+              <button onClick={() => setLimit(l => l + 100)}
+                style={{padding:'9px 20px', background:'transparent', border:'1px solid #e0e0e0', borderRadius:10, fontSize:13, color:'#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+                Показать ещё 100
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+// ─── Wrapper с табами ───────────────────────────────────────────────────────
+export default function AdminIndivs({ session }) {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tab = searchParams.get('tab') || 'slots'
+  const setTab = (t) => {
+    const next = new URLSearchParams(searchParams)
+    if (t === 'slots') next.delete('tab'); else next.set('tab', t)
+    setSearchParams(next, { replace: true })
+  }
+
+  const tabs = [
+    { id: 'slots',   label: 'Слоты и пакеты' },
+    { id: 'journal', label: 'Журнал' },
+  ]
+
+  return (
+    <div>
+      <h1 style={{fontSize:24, fontWeight:600, color:'#1f2024', margin:'0 0 20px 0'}}>Индивы</h1>
+      <div style={{display:'flex', gap:4, borderBottom:'1px solid #f0f0f0', marginBottom:20}}>
+        {tabs.map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)}
+            style={{padding:'10px 16px', background:'transparent', border:'none', borderBottom: tab === t.id ? '2px solid #BFD900' : '2px solid transparent', fontSize:13, fontWeight: tab === t.id ? 600 : 400, color: tab === t.id ? '#2a2a2a' : '#888', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {tab === 'slots'   && <SlotsAndPackages session={session} />}
+      {tab === 'journal' && <IndivsJournal />}
     </div>
   )
 }
