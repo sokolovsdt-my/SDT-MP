@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabase'
 import { safeHtml } from '../utils/safeHtml'
+import { todayMsk, toMskDateStr, mskDayStartUtc, mskDayEndUtc } from '../utils/tz'
 
 const cardStyle = { background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', padding:20, marginBottom:16 }
 const inputStyle = { width:'100%', padding:'9px 12px', border:'1px solid #e8e8e8', borderRadius:10, fontSize:13, boxSizing:'border-box', fontFamily:'Inter,sans-serif' }
@@ -15,14 +16,19 @@ const PRODUCT_TYPE_LABELS = { subscription:'Абонемент', service:'Усл
 function RichEditor({ value, onChange, defaultBold = false }) {
   const editorRef = useRef(null)
   const [showEmoji, setShowEmoji] = useState(false)
-  const isFirstRender = useRef(true)
 
+  // Синхронизируем innerHTML с пропсом value, когда он меняется ИЗВНЕ
+  // (например, «Использовать шаблон» меняет setTitle/setContent в родителе).
+  // Не пишем во время фокуса — иначе сломается каретка во время набора.
   useEffect(() => {
-    if (editorRef.current && isFirstRender.current) {
-      editorRef.current.innerHTML = value || ''
-      isFirstRender.current = false
+    const el = editorRef.current
+    if (!el) return
+    const focused = document.activeElement === el
+    const incoming = value || ''
+    if (!focused && el.innerHTML !== incoming) {
+      el.innerHTML = incoming
     }
-  }, [])
+  }, [value])
 
   const exec = (cmd, val = null) => {
     editorRef.current?.focus()
@@ -113,8 +119,10 @@ function RecipientFilter({ filters, onChange }) {
   const [products, setProducts] = useState([])
 
   useEffect(() => {
-    supabase.from('groups').select('id, name').then(({ data }) => setGroups(data || []))
-    supabase.from('products').select('id, name, type').eq('is_active', true).order('type').then(({ data }) => setProducts(data || []))
+    let cancelled = false
+    supabase.from('groups').select('id, name').then(({ data }) => { if (!cancelled) setGroups(data || []) })
+    supabase.from('products').select('id, name, type').eq('is_active', true).order('type').then(({ data }) => { if (!cancelled) setProducts(data || []) })
+    return () => { cancelled = true }
   }, [])
 
   const toggle = (key) => onChange({...filters, [key]: !filters[key]})
@@ -281,19 +289,28 @@ export default function AdminBroadcasts({ session }) {
   const [showSaveTemplate, setShowSaveTemplate] = useState(false)
   const [templateName, setTemplateName] = useState('')
 
+  // mounted-флаг — чтобы не делать setState на размонтированном компоненте
+  // при возврате из долгих сетевых запросов.
+  const mountedRef = useRef(true)
+  useEffect(() => { return () => { mountedRef.current = false } }, [])
+
   useEffect(() => { loadTemplates(); loadBroadcasts() }, [])
 
   const loadTemplates = async () => {
-    const { data } = await supabase.from('broadcast_templates').select('*').order('created_at', { ascending: false })
+    const { data, error } = await supabase.from('broadcast_templates').select('*').order('created_at', { ascending: false })
+    if (!mountedRef.current) return
+    if (error) { console.error('loadTemplates:', error); setTemplates([]); return }
     setTemplates(data || [])
   }
 
   const loadBroadcasts = async () => {
     // recipients_count подтягиваем агрегатом через PostgREST: broadcast_recipients(count)
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('broadcasts')
       .select('*, profiles:created_by(full_name), recipients:broadcast_recipients(count)')
       .order('created_at', { ascending: false })
+    if (!mountedRef.current) return
+    if (error) { console.error('loadBroadcasts:', error); setBroadcasts([]); return }
     setBroadcasts((data || []).map(b => ({
       ...b,
       recipients_count: b.recipients?.[0]?.count ?? 0,
@@ -302,10 +319,9 @@ export default function AdminBroadcasts({ session }) {
 
   const loadRecipients = async () => {
     setLoadingRecipients(true)
-    const toMoscowDate = (d) => d.toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' })
-    const today = toMoscowDate(new Date())
-    const in7 = toMoscowDate(new Date(Date.now() + 7*86400000))
-    const ago30 = toMoscowDate(new Date(Date.now() - 30*86400000))
+    const today = todayMsk()
+    const in7 = toMskDateStr(new Date(Date.now() + 7*86400000))
+    const ago30 = toMskDateStr(new Date(Date.now() - 30*86400000))
 
     let query = supabase.from('profiles').select('id, full_name, email, phone, birth_date').eq('role', 'client')
 
@@ -321,29 +337,37 @@ export default function AdminBroadcasts({ session }) {
       }
     }
 
-    const { data: clients } = await query
+    const { data: clients, error: clientsErr } = await query
+    if (clientsErr) {
+      alert('Не удалось загрузить клиентов: ' + clientsErr.message)
+      setLoadingRecipients(false); return
+    }
     let result = clients || []
 
     if (filters.use_product) {
       let salesQuery = supabase.from('sales').select('client_id').eq('is_cancelled', false)
       if (filters.product_id) salesQuery = salesQuery.eq('product_id', filters.product_id)
-      if (filters.purchase_from) salesQuery = salesQuery.gte('sale_date', filters.purchase_from + 'T00:00:00')
-      if (filters.purchase_to) salesQuery = salesQuery.lte('sale_date', filters.purchase_to + 'T23:59:59')
-      const { data: sales } = await salesQuery
+      // sales.sale_date — UTC naive (через default now()). Используем UTC-границы.
+      if (filters.purchase_from) salesQuery = salesQuery.gte('sale_date', mskDayStartUtc(filters.purchase_from))
+      if (filters.purchase_to)   salesQuery = salesQuery.lte('sale_date', mskDayEndUtc(filters.purchase_to))
+      const { data: sales, error: salesErr } = await salesQuery
+      if (salesErr) { alert('Ошибка фильтра по продажам: ' + salesErr.message); setLoadingRecipients(false); return }
       const clientIds = new Set((sales || []).map(s => s.client_id))
       result = result.filter(c => clientIds.has(c.id))
     }
 
     if (filters.no_active_sub) {
-      const { data: activeSubs } = await supabase.from('subscriptions').select('student_id').gte('expires_at', today).eq('is_frozen', false)
+      const { data: activeSubs, error: e } = await supabase.from('subscriptions').select('student_id').gte('expires_at', today).eq('is_frozen', false)
+      if (e) { alert('Ошибка фильтра «без абонемента»: ' + e.message); setLoadingRecipients(false); return }
       const activeIds = new Set((activeSubs || []).map(s => s.student_id))
       result = result.filter(c => !activeIds.has(c.id))
     }
 
     if (filters.use_group && filters.group_id) {
-      const { data: subs } = await supabase.from('subscription_allowed_groups')
+      const { data: subs, error: e } = await supabase.from('subscription_allowed_groups')
         .select('subscription_id, subscriptions:subscription_id(student_id)')
         .eq('group_id', filters.group_id)
+      if (e) { alert('Ошибка фильтра по группе: ' + e.message); setLoadingRecipients(false); return }
       const clientIds = new Set((subs || []).map(s => s.subscriptions?.student_id).filter(Boolean))
       result = result.filter(c => clientIds.has(c.id))
     }
@@ -354,13 +378,15 @@ export default function AdminBroadcasts({ session }) {
       if (status === 'active') subQuery = subQuery.gte('expires_at', today)
       if (status === 'expiring') subQuery = subQuery.gte('expires_at', today).lte('expires_at', in7)
       if (status === 'expired') subQuery = subQuery.lt('expires_at', today).gte('expires_at', ago30)
-      const { data: subs } = await subQuery
+      const { data: subs, error: e } = await subQuery
+      if (e) { alert('Ошибка фильтра по статусу абонемента: ' + e.message); setLoadingRecipients(false); return }
       const clientIds = new Set((subs || []).map(s => s.student_id))
       result = result.filter(c => clientIds.has(c.id))
     }
 
     if (filters.use_ltv) {
-      const { data: sales } = await supabase.from('sales').select('client_id, amount_paid').eq('is_cancelled', false)
+      const { data: sales, error: e } = await supabase.from('sales').select('client_id, amount_paid').eq('is_cancelled', false)
+      if (e) { alert('Ошибка фильтра по LTV: ' + e.message); setLoadingRecipients(false); return }
       const ltvMap = {}
       ;(sales || []).forEach(s => { ltvMap[s.client_id] = (ltvMap[s.client_id] || 0) + Number(s.amount_paid) })
       result = result.filter(c => {
@@ -372,47 +398,97 @@ export default function AdminBroadcasts({ session }) {
     }
 
     if (filters.use_last_visit && filters.last_visit_days) {
+      // attendance.marked_at — момент реальной отметки админом/преподом (через RPC).
+      // Считаем только реально посещённые (status='present'), иначе absent/cancelled
+      // тоже зачитываются как «приходил».
       const cutoff = new Date(Date.now() - filters.last_visit_days * 86400000).toISOString()
-      const { data: visits } = await supabase.from('attendance').select('student_id').gte('created_at', cutoff)
+      const { data: visits, error: e } = await supabase.from('attendance').select('student_id').eq('status', 'present').gte('marked_at', cutoff)
+      if (e) { alert('Ошибка фильтра «давно не приходил»: ' + e.message); setLoadingRecipients(false); return }
       const recentIds = new Set((visits || []).map(v => v.student_id))
       result = result.filter(c => !recentIds.has(c.id))
     }
 
     if (filters.use_loyalty && filters.loyalty_level) {
-      const { data: loyalty } = await supabase.from('client_loyalty').select('client_id').eq('level', filters.loyalty_level)
+      const { data: loyalty, error: e } = await supabase.from('client_loyalty').select('client_id').eq('level', filters.loyalty_level)
+      if (e) { alert('Ошибка фильтра по лояльности: ' + e.message); setLoadingRecipients(false); return }
       const loyalIds = new Set((loyalty || []).map(l => l.client_id))
       result = result.filter(c => loyalIds.has(c.id))
     }
 
+    if (!mountedRef.current) return
     setRecipients(result)
     setExcludedIds([])
     setShowPreview(true)
     setLoadingRecipients(false)
   }
 
+  const [savingTemplate, setSavingTemplate] = useState(false)
+  const [deletingTemplateId, setDeletingTemplateId] = useState(null)
+
   const handleSaveTemplate = async () => {
-    if (!templateName) return
-    await supabase.from('broadcast_templates').insert({ name: templateName, title, content, created_by: session.user.id })
+    if (savingTemplate || !templateName) return
+    setSavingTemplate(true)
+    const { error } = await supabase.from('broadcast_templates').insert({ name: templateName, title, content, created_by: session.user.id })
+    setSavingTemplate(false)
+    if (error) { alert('Не удалось сохранить шаблон: ' + error.message); return }
     setTemplateName(''); setShowSaveTemplate(false)
     loadTemplates()
   }
 
+  const handleDeleteTemplate = async (templateId) => {
+    if (deletingTemplateId) return
+    if (!confirm('Удалить шаблон?')) return
+    setDeletingTemplateId(templateId)
+    const { error } = await supabase.from('broadcast_templates').delete().eq('id', templateId)
+    setDeletingTemplateId(null)
+    if (error) { alert('Не удалось удалить шаблон: ' + error.message); return }
+    loadTemplates()
+  }
+
   const handleSend = async (status = 'sent') => {
+    if (saving) return
     if (!title || !content) { alert('Заполни заголовок и текст'); return }
     setSaving(true)
-    const { data: broadcast } = await supabase.from('broadcasts').insert({
-      title, content, channel: Object.entries(channels).filter(([,v]) => v).map(([k]) => k).join('+') || 'push', status,
+
+    const { data: broadcast, error: bErr } = await supabase.from('broadcasts').insert({
+      title, content,
+      channel: Object.entries(channels).filter(([,v]) => v).map(([k]) => k).join('+') || 'push',
+      status,
       scheduled_at: scheduledAt || null,
       sent_at: status === 'sent' ? new Date().toISOString() : null,
       created_by: session.user.id,
-      filter_type: 'combined',
+      // Сохраняем все параметры подбора аудитории — чтобы можно было повторить рассылку
+      // и видеть в истории под какой фильтр она ушла.
+      filter_type:                'combined',
+      filter_group_id:            (filters.use_group && filters.group_id) ? filters.group_id : null,
+      filter_subscription_status: filters.use_sub_status ? (filters.subscription_status || null) : null,
+      filter_ltv_min:             filters.use_ltv && filters.ltv_min !== '' ? Number(filters.ltv_min) : null,
+      filter_ltv_max:             filters.use_ltv && filters.ltv_max !== '' ? Number(filters.ltv_max) : null,
+      filter_age_min:             filters.use_age && filters.age_min !== '' ? Number(filters.age_min) : null,
+      filter_age_max:             filters.use_age && filters.age_max !== '' ? Number(filters.age_max) : null,
+      filter_last_visit_days:     filters.use_last_visit && filters.last_visit_days !== '' ? Number(filters.last_visit_days) : null,
+      filter_loyalty_level:       filters.use_loyalty ? (filters.loyalty_level || null) : null,
     }).select().single()
 
-    if (broadcast && recipients.length > 0) {
+    if (bErr || !broadcast) {
+      setSaving(false)
+      alert('Не удалось создать рассылку: ' + (bErr?.message || 'неизвестная ошибка'))
+      return
+    }
+
+    if (recipients.length > 0) {
       const finalRecipients = recipients.filter(r => !excludedIds.includes(r.id))
-      await supabase.from('broadcast_recipients').insert(
-        finalRecipients.map(r => ({ broadcast_id: broadcast.id, client_id: r.id }))
-      )
+      if (finalRecipients.length > 0) {
+        const { error: rErr } = await supabase.from('broadcast_recipients').insert(
+          finalRecipients.map(r => ({ broadcast_id: broadcast.id, client_id: r.id }))
+        )
+        if (rErr) {
+          setSaving(false)
+          alert('Рассылка создана, но получатели не сохранились: ' + rErr.message)
+          loadBroadcasts()
+          return
+        }
+      }
     }
 
     setTitle(''); setContent(''); setFilters({}); setScheduledAt(''); setChannels({ push: true, email: false })
@@ -425,6 +501,13 @@ export default function AdminBroadcasts({ session }) {
   const activeRecipients = recipients.filter(r => !excludedIds.includes(r.id))
   const STATUS_LABELS = { draft:'Черновик', scheduled:'Запланирована', sent:'Отправлена', cancelled:'Отменена' }
   const STATUS_COLORS = { draft:'#888', scheduled:'#f39c12', sent:'#27ae60', cancelled:'#e74c3c' }
+
+  // Колонка channel хранится строкой 'push' / 'email' / 'push+email' / ...
+  const formatChannel = (ch) => {
+    const parts = (ch || '').split('+').filter(Boolean)
+    const labels = { push: '📱 Пуш', email: '📧 Email' }
+    return parts.map(p => labels[p] || p).join(' + ') || '—'
+  }
 
   return (
     <div>
@@ -466,7 +549,10 @@ export default function AdminBroadcasts({ session }) {
                   <div style={{marginTop:12, display:'flex', gap:8}}>
                     <input value={templateName} onChange={e => setTemplateName(e.target.value)}
                       placeholder="Название шаблона" style={{...inputStyle, marginBottom:0, flex:1}} />
-                    <button onClick={handleSaveTemplate} style={{...btnPrimary, padding:'8px 14px', fontSize:12, whiteSpace:'nowrap'}}>Сохранить</button>
+                    <button onClick={handleSaveTemplate} disabled={savingTemplate || !templateName}
+                      style={{...btnPrimary, padding:'8px 14px', fontSize:12, whiteSpace:'nowrap', opacity: (savingTemplate || !templateName) ? 0.5 : 1}}>
+                      {savingTemplate ? '...' : 'Сохранить'}
+                    </button>
                   </div>
                 )}
               </div>
@@ -575,9 +661,9 @@ export default function AdminBroadcasts({ session }) {
                       style={{flex:1, padding:'7px', background:'#BFD900', border:'none', borderRadius:8, fontSize:12, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
                       Использовать
                     </button>
-                    <button onClick={async () => { if (confirm('Удалить шаблон?')) { await supabase.from('broadcast_templates').delete().eq('id', t.id); loadTemplates() } }}
-                      style={{padding:'7px 12px', background:'#fdecea', border:'none', borderRadius:8, fontSize:12, color:'#e74c3c', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-                      Удалить
+                    <button onClick={() => handleDeleteTemplate(t.id)} disabled={deletingTemplateId === t.id}
+                      style={{padding:'7px 12px', background:'#fdecea', border:'none', borderRadius:8, fontSize:12, color:'#e74c3c', cursor: deletingTemplateId === t.id ? 'default' : 'pointer', fontFamily:'Inter,sans-serif', opacity: deletingTemplateId === t.id ? 0.5 : 1}}>
+                      {deletingTemplateId === t.id ? '...' : 'Удалить'}
                     </button>
                   </div>
                 </div>
@@ -608,7 +694,7 @@ export default function AdminBroadcasts({ session }) {
                     <tr key={b.id} style={{borderBottom:'1px solid #f8f8f8'}}>
                       <td style={{padding:'12px 16px', fontSize:13, fontWeight:500, color:'#2a2a2a'}}
                         dangerouslySetInnerHTML={safeHtml(b.title)} />
-                      <td style={{padding:'12px 16px', fontSize:12, color:'#888'}}>{b.channel === 'push' ? '📱 Пуш' : '📧 Email'}</td>
+                      <td style={{padding:'12px 16px', fontSize:12, color:'#888'}}>{formatChannel(b.channel)}</td>
                       <td style={{padding:'12px 16px'}}>
                         <span style={{fontSize:11, fontWeight:600, color: STATUS_COLORS[b.status], background: STATUS_COLORS[b.status]+'22', padding:'2px 8px', borderRadius:6}}>
                           {STATUS_LABELS[b.status]}
