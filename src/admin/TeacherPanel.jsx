@@ -467,15 +467,38 @@ export default function TeacherPanel({ session }) {
 
     const now = new Date().toISOString()
     const future = new Date(Date.now() + 30*24*60*60*1000).toISOString()
-    const { data: sch } = await supabase.from('schedule')
-      .select(`*, groups(name, color),
-        bookings(id, student_id, status, profiles:student_id(full_name, first_name, last_name)),
-        indiv_student:profiles!schedule_indiv_student_id_fkey(id, full_name, first_name, last_name)`)
-      .eq('teacher_id', uid)
-      .gte('starts_at', now)
-      .lte('starts_at', future)
-      .order('starts_at')
-    setSchedule(sch || [])
+    const [ownSch, subSch] = await Promise.all([
+      supabase.from('schedule')
+        .select(`*, groups(name, color),
+          bookings(id, student_id, status, profiles:student_id(full_name, first_name, last_name)),
+          indiv_student:profiles!schedule_indiv_student_id_fkey(id, full_name, first_name, last_name),
+          substitution:teacher_substitutions!teacher_substitutions_schedule_id_fkey(substitute_teacher_id)`)
+        .eq('teacher_id', uid)
+        .gte('starts_at', now)
+        .lte('starts_at', future)
+        .order('starts_at'),
+      supabase.from('teacher_substitutions')
+        .select(`schedule:schedule!teacher_substitutions_schedule_id_fkey!inner(
+          *, groups(name, color),
+          bookings(id, student_id, status, profiles:student_id(full_name, first_name, last_name)),
+          indiv_student:profiles!schedule_indiv_student_id_fkey(id, full_name, first_name, last_name)
+        )`)
+        .eq('substitute_teacher_id', uid)
+        .gte('schedule.starts_at', now)
+        .lte('schedule.starts_at', future),
+    ])
+    const merged = new Map()
+    for (const row of (ownSch.data || [])) {
+      const isSub = (row.substitution || []).some(x => x.substitute_teacher_id === uid)
+      merged.set(row.id, { ...row, is_substitute: isSub })
+    }
+    for (const r of (subSch.data || [])) {
+      const s = r.schedule
+      if (!s) continue
+      const prev = merged.get(s.id)
+      merged.set(s.id, { ...(prev || s), is_substitute: true })
+    }
+    setSchedule(Array.from(merged.values()).sort((a,b) => a.starts_at.localeCompare(b.starts_at)))
 
     const { data: ta } = await supabase.from('task_assignees')
       .select('tasks(*)')
@@ -598,6 +621,11 @@ export default function TeacherPanel({ session }) {
             {isIndiv && (
               <div style={{fontSize:10, fontWeight:700, color:'#2980b9', background:'#e8f4fd', borderRadius:4, padding:'1px 6px', display:'inline-block', marginBottom:4, textTransform:'uppercase', letterSpacing:'0.06em'}}>
                 Индив
+              </div>
+            )}
+            {s.is_substitute && (
+              <div style={{fontSize:10, fontWeight:700, color:'#f39c12', background:'#fef9e7', borderRadius:4, padding:'1px 6px', display:'inline-block', marginBottom:4, marginLeft: isIndiv ? 4 : 0, textTransform:'uppercase', letterSpacing:'0.06em'}}>
+                Замена
               </div>
             )}
             <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a', marginBottom:2}}>
