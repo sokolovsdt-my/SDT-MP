@@ -8,7 +8,6 @@ const ROLE_LABELS = {
   manager: { label: 'Управляющий', color: '#2980b9', bg: '#e8f4fd' },
   admin: { label: 'Администратор', color: '#8e44ad', bg: '#f5eef8' },
   teacher: { label: 'Преподаватель', color: '#27ae60', bg: '#eafaf1' },
-  content_creator: { label: 'Контент-креатор', color: '#f39c12', bg: '#fef9e7' },
   other: { label: 'Другое', color: '#888', bg: '#f5f5f5' },
 }
 
@@ -36,7 +35,7 @@ export default function AdminStaff() {
     const { data: profiles } = await supabase
       .from('profiles')
       .select('*, staff_roles(*), staff_info(*), salary_tiers(*)')
-      .in('role', ['teacher','admin','manager','owner','content_creator','other'])
+      .in('role', ['teacher','admin','manager','owner','other'])
       .order('full_name')
     setStaff(profiles || [])
     setLoading(false)

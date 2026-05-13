@@ -9,7 +9,6 @@ const ROLE_LABELS = {
   manager: { label: 'Управляющий', color: '#2980b9', bg: '#e8f4fd' },
   admin: { label: 'Администратор', color: '#8e44ad', bg: '#f5eef8' },
   teacher: { label: 'Преподаватель', color: '#27ae60', bg: '#eafaf1' },
-  content_creator: { label: 'Контент-креатор', color: '#f39c12', bg: '#fef9e7' },
   other: { label: 'Другое', color: '#888', bg: '#f5f5f5' },
 }
 
@@ -187,7 +186,7 @@ function MainTab({ staff, onUpdate, isOwner }) {
     if (isOwner) {
       await supabase.from('staff_roles').delete().eq('staff_id', staff.id)
       if (selectedRoles.length > 0) {
-        const hierarchy = ['owner','manager','admin','teacher','content_creator','other']
+        const hierarchy = ['owner','manager','admin','teacher','other']
         const primaryRole = hierarchy.find(r => selectedRoles.includes(r))
         await supabase.from('staff_roles').insert(selectedRoles.map(r => ({
           staff_id: staff.id, role: r,

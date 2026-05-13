@@ -130,7 +130,7 @@ public/
 
 ### Профили и роли
 
-- **profiles** — `id, full_name, first_name, last_name, patronymic, avatar_url, bio, email, phone, role, birth_date, ad_source, ad_source_custom, bonus_rubles, bonus_coins, push_token, sort_order, telegram_id, telegram_username, created_at`. Основная таблица всех пользователей. `id` = `auth.users.id`. CHECK на `role`: `client/teacher/admin/manager/owner/content_creator/other`. Изменение `role` защищено триггером `prevent_unauthorized_role_change` — менять можно только через RPC или с админским JWT.
+- **profiles** — `id, full_name, first_name, last_name, patronymic, avatar_url, bio, email, phone, role, birth_date, ad_source, ad_source_custom, bonus_rubles, bonus_coins, push_token, sort_order, telegram_id, telegram_username, created_at`. Основная таблица всех пользователей. `id` = `auth.users.id`. CHECK на `role`: `client/teacher/admin/manager/owner/other`. Изменение `role` защищено триггером `prevent_unauthorized_role_change` — менять можно только через RPC или с админским JWT.
 - **staff_roles** — `staff_id, role, is_primary`. Доп. роли сотрудника (например, админ + преподаватель).
 - **staff_info** — `staff_id, hire_date, phone, contact`.
 - **salary_tiers** — `staff_id, role_context, tier_type, amount, tiers (jsonb), is_active`. **Источник истины для ставок.** `tier_type ∈ {salary, per_lesson, per_lesson_tiered, percentage}`. Для `per_lesson_tiered` ставка зависит от количества учеников — массив в `tiers`.
