@@ -13,7 +13,7 @@ supabase/
         └── index.ts
 ```
 
-Миграции БД и определения RPC‑функций пока живут только в Supabase (применяются через MCP `apply_migration`). При случае стоит их тоже перенести сюда (`supabase/migrations/<timestamp>_<name>.sql`) — для полноценной reproducibility и code review.
+Миграции БД и определения RPC‑функций ранее жили только в Supabase. Постепенно дублируем сюда в виде `supabase/migrations/<timestamp>_<name>.sql` — для reproducibility и code review. Новые миграции теперь сразу коммитим в репо тем же SQL, который применяется через MCP `apply_migration`.
 
 ## Workflow для edge‑функций
 
