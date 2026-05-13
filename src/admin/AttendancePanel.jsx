@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../supabase'
 import { parseMskNaive } from '../utils/tz'
 
@@ -15,6 +16,7 @@ const BASIS_LABELS = {
   single:       'Разовое',
   trial:        'Пробное',
   indiv:        'Индив',
+  event:        'Мероприятие',
   none:         'Без основания',
 }
 
@@ -67,7 +69,7 @@ function StatusButton({ status, isTrial, onChange, disabled }) {
   )
 }
 
-function StudentRow({ booking, onStatusChange, lessonStarted }) {
+function StudentRow({ booking, onStatusChange, lessonStarted, onNoBasis }) {
   const [status, setStatus] = useState(booking.attendance_status || 'none')
   const [saving, setSaving] = useState(false)
 
@@ -148,12 +150,71 @@ function StudentRow({ booking, onStatusChange, lessonStarted }) {
         </div>
       </div>
 
-      <StatusButton
-        status={status}
-        isTrial={isTrial}
-        onChange={handleChange}
-        disabled={saving || !lessonStarted}
-      />
+      {basis === 'none' && status === 'none' ? (
+        <button onClick={() => onNoBasis(booking)} disabled={!lessonStarted}
+          style={{
+            padding: '5px 10px', border: '1px solid #e74c3c', borderRadius: 8,
+            fontSize: 12, background: '#fdecea', color: '#e74c3c', fontWeight: 600,
+            cursor: lessonStarted ? 'pointer' : 'default', fontFamily: 'Inter,sans-serif',
+            opacity: lessonStarted ? 1 : 0.6, whiteSpace: 'nowrap', flexShrink: 0,
+          }}>
+          Нет абонемента
+        </button>
+      ) : (
+        <StatusButton
+          status={status}
+          isTrial={isTrial}
+          onChange={handleChange}
+          disabled={saving || !lessonStarted}
+        />
+      )}
+    </div>
+  )
+}
+
+function NoBasisModal({ booking, lesson, onClose, onMarkTrial }) {
+  const navigate = useNavigate()
+  const [marking, setMarking] = useState(false)
+  const allowTrial = lesson.lesson_type === 'group'
+  const studentName = booking.profiles?.full_name || booking.profiles?.email || 'Ученик'
+
+  const handleTrial = async () => {
+    if (marking) return
+    setMarking(true)
+    const ok = await onMarkTrial(booking)
+    setMarking(false)
+    if (ok) onClose()
+  }
+
+  const btn = (bg, color) => ({
+    width: '100%', padding: '12px', border: 'none', borderRadius: 10,
+    fontSize: 13, fontWeight: 700, color, background: bg,
+    cursor: 'pointer', fontFamily: 'Inter,sans-serif', marginBottom: 8,
+  })
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: 380, fontFamily: 'Inter,sans-serif' }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: '#2a2a2a', marginBottom: 4 }}>⚠️ Нет основания</div>
+        <div style={{ fontSize: 12, color: '#888', marginBottom: 20, lineHeight: 1.5 }}>
+          У <strong>{studentName}</strong> нет действующего {lesson.lesson_type === 'event' ? 'регистрации на это мероприятие' : 'абонемента под эту группу'}. Выберите действие:
+        </div>
+
+        <button onClick={() => navigate(`/admin/cashbox?client=${booking.student_id}`)} style={btn('#BFD900', '#2a2a2a')}>
+          🛒 Открыть кассу
+        </button>
+        <button onClick={() => navigate(`/admin/clients/${booking.student_id}`)} style={btn('#f5f5f5', '#2a2a2a')}>
+          👤 Карточка клиента
+        </button>
+        {allowTrial && (
+          <button onClick={handleTrial} disabled={marking} style={btn('#fef9e7', '#f39c12')}>
+            {marking ? 'Отмечаем...' : '🎁 Отметить как пробное'}
+          </button>
+        )}
+        <button onClick={onClose} style={{ width: '100%', padding: '10px', background: 'transparent', border: '1px solid #e0e0e0', borderRadius: 10, fontSize: 13, color: '#888', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+          Отмена
+        </button>
+      </div>
     </div>
   )
 }
@@ -245,6 +306,7 @@ export default function AttendancePanel({ lesson, session, onClose, teachers, on
   const [calcLoading, setCalcLoading] = useState(false)
   const [calcSaved, setCalcSaved] = useState(false)
   const [transferBooking, setTransferBooking] = useState(null)
+  const [noBasisBooking, setNoBasisBooking] = useState(null)
   const [showChangeTeacher, setShowChangeTeacher] = useState(false)
   const [newTeacherId, setNewTeacherId] = useState(lesson.teacher_id || '')
   const [showReschedule, setShowReschedule] = useState(false)
@@ -319,6 +381,18 @@ export default function AttendancePanel({ lesson, session, onClose, teachers, on
     const attMap = {}
     ;(attendanceData || []).forEach(a => { attMap[a.student_id] = a })
 
+    // Для event-занятий — кто зарегистрирован на это мероприятие. Используем
+    // как источник basis='event' до первой отметки (иначе UI кажет «Без основания»).
+    const eventRegSet = new Set()
+    if (lesson.lesson_type === 'event' && lesson.event_id) {
+      const { data: regs } = await supabase
+        .from('event_registrations')
+        .select('client_id')
+        .eq('event_id', lesson.event_id)
+        .neq('status', 'cancelled')
+      ;(regs || []).forEach(r => eventRegSet.add(r.client_id))
+    }
+
     const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' })
     const studentIds = (bookingsData || []).filter(b => !attMap[b.student_id]).map(b => b.student_id)
     const subMap = {}
@@ -349,10 +423,11 @@ export default function AttendancePanel({ lesson, session, onClose, teachers, on
     setBookings((bookingsData || []).map(b => {
       const att = attMap[b.student_id]
       const sub = subMap[b.student_id]
+      const eventBasis = eventRegSet.has(b.student_id) ? 'event' : null
       return {
         ...b,
         attendance_status: att?.status || 'none',
-        basis: att?.basis || sub?.basis || 'none',
+        basis: att?.basis || sub?.basis || eventBasis || 'none',
         subscription_expires: att?.subscription_expires || sub?.expires_at,
         attendance_id: att?.id,
         subscription_id: att?.subscription_id || sub?.id,
@@ -377,10 +452,16 @@ export default function AttendancePanel({ lesson, session, onClose, teachers, on
       return false
     }
 
+    return await callMarkAttendance(booking, newStatus, false)
+  }
+
+  // Общая логика вызова RPC: используется и из StatusButton, и из NoBasisModal (с p_mark_as_trial=true).
+  const callMarkAttendance = async (booking, newStatus, markAsTrial) => {
     const { data, error } = await supabase.rpc('mark_attendance', {
-      p_schedule_id: lesson.id,
-      p_student_id:  booking.student_id,
-      p_new_status:  newStatus,
+      p_schedule_id:   lesson.id,
+      p_student_id:    booking.student_id,
+      p_new_status:    newStatus,
+      p_mark_as_trial: markAsTrial,
     })
 
     if (error) {
@@ -396,12 +477,12 @@ export default function AttendancePanel({ lesson, session, onClose, teachers, on
         lesson_cancelled:  'Занятие отменено — отметка невозможна',
         not_your_lesson:   'Можно отмечать только свои занятия',
         out_of_visits:     `На абонементе нет свободных визитов (${data.visits_used ?? '?'} из ${data.visits_total ?? '?'})`,
+        no_valid_basis:    'Нет действующего основания для отметки «Пришёл». Оформите абонемент в кассе или отметьте как пробное.',
       }[data?.error] || `Не удалось сохранить отметку: ${data?.error || 'неизвестная ошибка'}`
       alert(msg)
       return false
     }
 
-    // Синхронизируем строку: используем серверные basis/subscription_id, чтобы UI не врал
     setBookings(prev => prev.map(b => b.id === booking.id ? {
       ...b,
       attendance_status: newStatus,
@@ -411,6 +492,8 @@ export default function AttendancePanel({ lesson, session, onClose, teachers, on
     } : b))
     return true
   }
+
+  const handleMarkTrial = (booking) => callMarkAttendance(booking, 'present', true)
 
   const calculateSalary = async () => {
     if (calcLoading) return
@@ -539,6 +622,10 @@ export default function AttendancePanel({ lesson, session, onClose, teachers, on
         <TransferModal booking={transferBooking} lesson={lesson} onClose={() => setTransferBooking(null)} onDone={() => { setTransferBooking(null); loadBookings() }} />
       )}
 
+      {noBasisBooking && (
+        <NoBasisModal booking={noBasisBooking} lesson={lesson} onClose={() => setNoBasisBooking(null)} onMarkTrial={handleMarkTrial} />
+      )}
+
       <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 480, background: '#fff', boxShadow: '-4px 0 20px rgba(0,0,0,0.1)', zIndex: 100, display: 'flex', flexDirection: 'column', fontFamily: 'Inter,sans-serif' }}>
         <div style={{ padding: '16px 20px', borderBottom: '1px solid #f0f0f0' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
@@ -587,7 +674,7 @@ export default function AttendancePanel({ lesson, session, onClose, teachers, on
           ) : bookings.length === 0 ? (
             <div style={{ textAlign: 'center', color: '#BDBDBD', padding: 40 }}>Никто не записан</div>
           ) : bookings.map(b => (
-            <StudentRow key={b.id} booking={b} onStatusChange={handleStatusChange} lessonStarted={Date.now() >= parseMskNaive(lesson.starts_at).getTime()} />
+            <StudentRow key={b.id} booking={b} onStatusChange={handleStatusChange} onNoBasis={setNoBasisBooking} lessonStarted={Date.now() >= parseMskNaive(lesson.starts_at).getTime()} />
           ))}
         </div>
 

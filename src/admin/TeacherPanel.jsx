@@ -583,6 +583,7 @@ export default function TeacherPanel({ session }) {
             lesson_cancelled:  'Занятие отменено — отметка невозможна',
             not_your_lesson:   'Можно отмечать только свои занятия',
             out_of_visits:     `На абонементе нет свободных визитов (${data.visits_used ?? '?'} из ${data.visits_total ?? '?'})`,
+            no_valid_basis:    'У ученика нет действующего основания. Передайте администратору — он оформит абонемент или отметит как пробное.',
           }[data?.error] || `Не удалось сохранить отметку: ${data?.error || 'неизвестная ошибка'}`)
       alert(msg)
     }

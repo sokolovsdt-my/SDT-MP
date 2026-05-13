@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabase'
 
 const inputStyle = { width:'100%', padding:'9px 12px', border:'1px solid #e8e8e8', borderRadius:10, fontSize:13, boxSizing:'border-box', fontFamily:'Inter,sans-serif' }
@@ -161,7 +162,25 @@ function SaleDetail({ sale }) {
 }
 
 export default function AdminCashbox({ session }) {
+  const [searchParams, setSearchParams] = useSearchParams()
   const [client, setClient] = useState(null)
+
+  // Предзаполнение клиента из ?client=<uuid> (приходим из AttendancePanel «Нет абонемента»).
+  // После загрузки убираем параметр из URL, чтобы при «Изменить» он не возвращался.
+  useEffect(() => {
+    const id = searchParams.get('client')
+    if (!id || client) return
+    supabase.from('profiles')
+      .select('id, full_name, email, phone, bonus_rubles, bonus_coins')
+      .eq('id', id).single()
+      .then(({ data }) => {
+        if (data) setClient(data)
+        const next = new URLSearchParams(searchParams)
+        next.delete('client')
+        setSearchParams(next, { replace: true })
+      })
+  }, [searchParams, client])
+
   const [representatives, setRepresentatives] = useState([])
   const [items, setItems] = useState([])
   const [groups, setGroups] = useState([])
