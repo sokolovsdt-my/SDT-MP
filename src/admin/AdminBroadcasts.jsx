@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabase'
 import { safeHtml } from '../utils/safeHtml'
-import { todayMsk, toMskDateStr, mskDayStartUtc, mskDayEndUtc } from '../utils/tz'
 
 const cardStyle = { background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', padding:20, marginBottom:16 }
 const inputStyle = { width:'100%', padding:'9px 12px', border:'1px solid #e8e8e8', borderRadius:10, fontSize:13, boxSizing:'border-box', fontFamily:'Inter,sans-serif' }
@@ -317,106 +316,44 @@ export default function AdminBroadcasts({ session }) {
     })))
   }
 
+  // Сборка payload для RPC: только реально включённые UI-фильтры пробрасываем дальше.
+  const buildRpcFilters = () => {
+    const f = {}
+    if (filters.use_product) {
+      if (filters.product_id)    f.product_id    = filters.product_id
+      if (filters.purchase_from) f.purchase_from = filters.purchase_from
+      if (filters.purchase_to)   f.purchase_to   = filters.purchase_to
+    }
+    if (filters.no_active_sub) f.no_active_sub = true
+    if (filters.use_group && filters.group_id) f.group_ids = [filters.group_id]
+    if (filters.use_sub_status) f.subscription_status = filters.subscription_status || 'active'
+    if (filters.use_ltv) {
+      if (filters.ltv_min !== '' && filters.ltv_min != null) f.ltv_min = Number(filters.ltv_min)
+      if (filters.ltv_max !== '' && filters.ltv_max != null) f.ltv_max = Number(filters.ltv_max)
+    }
+    if (filters.use_age) {
+      if (filters.age_min !== '' && filters.age_min != null) f.age_min = Number(filters.age_min)
+      if (filters.age_max !== '' && filters.age_max != null) f.age_max = Number(filters.age_max)
+    }
+    if (filters.use_last_visit && filters.last_visit_days) f.last_visit_days = Number(filters.last_visit_days)
+    if (filters.use_loyalty && filters.loyalty_level) f.loyalty_levels = [filters.loyalty_level]
+    return f
+  }
+
   const loadRecipients = async () => {
     setLoadingRecipients(true)
-    const today = todayMsk()
-    const in7 = toMskDateStr(new Date(Date.now() + 7*86400000))
-    const ago30 = toMskDateStr(new Date(Date.now() - 30*86400000))
-
-    let query = supabase.from('profiles').select('id, full_name, email, phone, birth_date').eq('role', 'client')
-
-    if (filters.use_age) {
-      const now = new Date()
-      if (filters.age_min) {
-        const maxBirth = new Date(now.getFullYear() - Number(filters.age_min), now.getMonth(), now.getDate()).toISOString().split('T')[0]
-        query = query.lte('birth_date', maxBirth)
-      }
-      if (filters.age_max) {
-        const minBirth = new Date(now.getFullYear() - Number(filters.age_max) - 1, now.getMonth(), now.getDate()).toISOString().split('T')[0]
-        query = query.gte('birth_date', minBirth)
-      }
-    }
-
-    const { data: clients, error: clientsErr } = await query
-    if (clientsErr) {
-      alert('Не удалось загрузить клиентов: ' + clientsErr.message)
-      setLoadingRecipients(false); return
-    }
-    let result = clients || []
-
-    if (filters.use_product) {
-      let salesQuery = supabase.from('sales').select('client_id').eq('is_cancelled', false)
-      if (filters.product_id) salesQuery = salesQuery.eq('product_id', filters.product_id)
-      // sales.sale_date — UTC naive (через default now()). Используем UTC-границы.
-      if (filters.purchase_from) salesQuery = salesQuery.gte('sale_date', mskDayStartUtc(filters.purchase_from))
-      if (filters.purchase_to)   salesQuery = salesQuery.lte('sale_date', mskDayEndUtc(filters.purchase_to))
-      const { data: sales, error: salesErr } = await salesQuery
-      if (salesErr) { alert('Ошибка фильтра по продажам: ' + salesErr.message); setLoadingRecipients(false); return }
-      const clientIds = new Set((sales || []).map(s => s.client_id))
-      result = result.filter(c => clientIds.has(c.id))
-    }
-
-    if (filters.no_active_sub) {
-      const { data: activeSubs, error: e } = await supabase.from('subscriptions').select('student_id').gte('expires_at', today).eq('is_frozen', false)
-      if (e) { alert('Ошибка фильтра «без абонемента»: ' + e.message); setLoadingRecipients(false); return }
-      const activeIds = new Set((activeSubs || []).map(s => s.student_id))
-      result = result.filter(c => !activeIds.has(c.id))
-    }
-
-    if (filters.use_group && filters.group_id) {
-      const { data: subs, error: e } = await supabase.from('subscription_allowed_groups')
-        .select('subscription_id, subscriptions:subscription_id(student_id)')
-        .eq('group_id', filters.group_id)
-      if (e) { alert('Ошибка фильтра по группе: ' + e.message); setLoadingRecipients(false); return }
-      const clientIds = new Set((subs || []).map(s => s.subscriptions?.student_id).filter(Boolean))
-      result = result.filter(c => clientIds.has(c.id))
-    }
-
-    if (filters.use_sub_status) {
-      let subQuery = supabase.from('subscriptions').select('student_id')
-      const status = filters.subscription_status || 'active'
-      if (status === 'active') subQuery = subQuery.gte('expires_at', today)
-      if (status === 'expiring') subQuery = subQuery.gte('expires_at', today).lte('expires_at', in7)
-      if (status === 'expired') subQuery = subQuery.lt('expires_at', today).gte('expires_at', ago30)
-      const { data: subs, error: e } = await subQuery
-      if (e) { alert('Ошибка фильтра по статусу абонемента: ' + e.message); setLoadingRecipients(false); return }
-      const clientIds = new Set((subs || []).map(s => s.student_id))
-      result = result.filter(c => clientIds.has(c.id))
-    }
-
-    if (filters.use_ltv) {
-      const { data: sales, error: e } = await supabase.from('sales').select('client_id, amount_paid').eq('is_cancelled', false)
-      if (e) { alert('Ошибка фильтра по LTV: ' + e.message); setLoadingRecipients(false); return }
-      const ltvMap = {}
-      ;(sales || []).forEach(s => { ltvMap[s.client_id] = (ltvMap[s.client_id] || 0) + Number(s.amount_paid) })
-      result = result.filter(c => {
-        const ltv = ltvMap[c.id] || 0
-        if (filters.ltv_min && ltv < Number(filters.ltv_min)) return false
-        if (filters.ltv_max && ltv > Number(filters.ltv_max)) return false
-        return true
-      })
-    }
-
-    if (filters.use_last_visit && filters.last_visit_days) {
-      // attendance.marked_at — момент реальной отметки админом/преподом (через RPC).
-      // Считаем только реально посещённые (status='present'), иначе absent/cancelled
-      // тоже зачитываются как «приходил».
-      const cutoff = new Date(Date.now() - filters.last_visit_days * 86400000).toISOString()
-      const { data: visits, error: e } = await supabase.from('attendance').select('student_id').eq('status', 'present').gte('marked_at', cutoff)
-      if (e) { alert('Ошибка фильтра «давно не приходил»: ' + e.message); setLoadingRecipients(false); return }
-      const recentIds = new Set((visits || []).map(v => v.student_id))
-      result = result.filter(c => !recentIds.has(c.id))
-    }
-
-    if (filters.use_loyalty && filters.loyalty_level) {
-      const { data: loyalty, error: e } = await supabase.from('client_loyalty').select('client_id').eq('level', filters.loyalty_level)
-      if (e) { alert('Ошибка фильтра по лояльности: ' + e.message); setLoadingRecipients(false); return }
-      const loyalIds = new Set((loyalty || []).map(l => l.client_id))
-      result = result.filter(c => loyalIds.has(c.id))
-    }
-
+    const { data, error } = await supabase.rpc('recipients_for_broadcast', { p_filters: buildRpcFilters() })
     if (!mountedRef.current) return
-    setRecipients(result)
+    if (error) {
+      const msg = {
+        not_authenticated: 'Сессия истекла, войдите заново',
+        forbidden:         'Недостаточно прав для подбора аудитории',
+      }[error.message] || `Не удалось подобрать аудиторию: ${error.message}`
+      alert(msg)
+      setLoadingRecipients(false)
+      return
+    }
+    setRecipients(data || [])
     setExcludedIds([])
     setShowPreview(true)
     setLoadingRecipients(false)
