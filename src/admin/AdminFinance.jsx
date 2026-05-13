@@ -55,6 +55,9 @@ function getPeriodRange(period) {
     from = new Date(y, qStart, 1); to = new Date(y, qStart + 3, 0)
   }
   else if (period === 'year') { from = new Date(y, 0, 1); to = new Date(y, 11, 31) }
+  // 'all' — нижняя граница задаётся «давно» (2020-01-01), верхняя — сегодня.
+  // Используется в FinanceIndivs; основной фильтр периода в Sales/Detail его не предлагает.
+  else if (period === 'all') { from = new Date(2020, 0, 1); to = new Date(y, m, d) }
   return { from: toMskDateStr(from), to: toMskDateStr(to) }
 }
 
@@ -1158,6 +1161,154 @@ function FinanceExpenses({ session }) {
     </div>
   )
 }
+// ─── FinanceIndivs ──────────────────────────────────────────────────────────
+// Аналитика по индив-занятиям. Доступна только owner (вкладка под общим
+// owner-only гардом /admin/finance).
+const INDIV_PERIODS = [
+  ['today', 'День'], ['week', 'Неделя'], ['month', 'Месяц'], ['year', 'Год'], ['all', 'Всё время']
+]
+
+function FinanceIndivs() {
+  const [period, setPeriod] = useState('month')
+  const [loading, setLoading] = useState(true)
+  const [revenue, setRevenue] = useState(0)
+  const [salesCount, setSalesCount] = useState(0)
+  const [topTeachers, setTopTeachers] = useState([])
+  const [slots, setSlots] = useState({ total: 0, used: 0 })
+
+  const range = getPeriodRange(period)
+
+  useEffect(() => { load() }, [period])
+
+  const load = async () => {
+    setLoading(true)
+
+    // 1. Sales по индивам — выручка и кол-во.
+    const { data: sales } = await supabase.from('sales')
+      .select('total_net, teacher_id, teacher:profiles!sales_teacher_id_fkey(full_name)')
+      .eq('product_type', 'indiv')
+      .eq('is_cancelled', false)
+      .gte('sale_date', mskDayStartUtc(range.from))
+      .lte('sale_date', mskDayEndUtc(range.to))
+
+    const total = (sales || []).reduce((s, x) => s + Number(x.total_net || 0), 0)
+    setRevenue(total)
+    setSalesCount((sales || []).length)
+
+    // 2. Топ-3 препода по выручке.
+    const byTeacher = new Map()
+    ;(sales || []).forEach(s => {
+      if (!s.teacher_id) return
+      const cur = byTeacher.get(s.teacher_id) || { id: s.teacher_id, name: s.teacher?.full_name || '—', sum: 0, count: 0 }
+      cur.sum += Number(s.total_net || 0)
+      cur.count += 1
+      byTeacher.set(s.teacher_id, cur)
+    })
+    const top = Array.from(byTeacher.values()).sort((a, b) => b.sum - a.sum).slice(0, 3)
+    setTopTeachers(top)
+
+    // 3. Загрузка слотов: confirmed заявки / активные слоты в периоде.
+    const [{ data: slotData }, { data: reqData }] = await Promise.all([
+      supabase.from('teacher_slot_dates')
+        .select('id', { count: 'exact', head: false })
+        .eq('is_active', true)
+        .gte('date', range.from)
+        .lte('date', range.to),
+      supabase.from('indiv_requests')
+        .select('id', { count: 'exact', head: false })
+        .eq('status', 'confirmed')
+        .gte('slot_date', range.from)
+        .lte('slot_date', range.to),
+    ])
+    setSlots({
+      total: (slotData || []).length,
+      used:  (reqData  || []).length,
+    })
+
+    setLoading(false)
+  }
+
+  const utilization = slots.total > 0 ? Math.round(slots.used / slots.total * 100) : null
+  const avgCheck = salesCount > 0 ? Math.round(revenue / salesCount) : 0
+
+  return (
+    <div>
+      {/* Период */}
+      <div style={{display:'flex', gap:6, marginBottom:16, flexWrap:'wrap'}}>
+        {INDIV_PERIODS.map(([v, l]) => (
+          <button key={v} onClick={() => setPeriod(v)} style={chipStyle(period === v)}>{l}</button>
+        ))}
+      </div>
+
+      {loading ? (
+        <div style={{textAlign:'center', color:'#BDBDBD', padding:40}}>Загрузка...</div>
+      ) : (
+        <>
+          {/* Топ-цифры */}
+          <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12, marginBottom:16}}>
+            <div style={cardStyle}>
+              <div style={{fontSize:11, color:'#BDBDBD', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6}}>Выручка по индивам</div>
+              <div style={{fontSize:26, fontWeight:300, color:'#2a2a2a'}}>{fmtMoney(revenue)}</div>
+            </div>
+            <div style={cardStyle}>
+              <div style={{fontSize:11, color:'#BDBDBD', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6}}>Продаж индивов</div>
+              <div style={{fontSize:26, fontWeight:300, color:'#2a2a2a'}}>{salesCount}</div>
+            </div>
+            <div style={cardStyle}>
+              <div style={{fontSize:11, color:'#BDBDBD', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6}}>Средний чек</div>
+              <div style={{fontSize:26, fontWeight:300, color:'#2a2a2a'}}>{fmtMoney(avgCheck)}</div>
+            </div>
+          </div>
+
+          {/* Топ-3 преподавателя */}
+          <div style={cardStyle}>
+            <div style={titleStyle}>Топ-3 преподавателя по выручке</div>
+            <div style={hintStyle}>За выбранный период, по `sales.teacher_id`</div>
+            {topTeachers.length === 0 ? (
+              <div style={{fontSize:13, color:'#BDBDBD', padding:'8px 0'}}>Нет продаж индивов в периоде</div>
+            ) : (() => {
+              const max = topTeachers[0]?.sum || 1
+              const medals = ['🥇', '🥈', '🥉']
+              return topTeachers.map((t, i) => (
+                <div key={t.id} style={{padding:'10px 0', borderBottom: i < topTeachers.length - 1 ? '1px solid #f5f5f5' : 'none'}}>
+                  <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6}}>
+                    <div style={{fontSize:13, color:'#2a2a2a', fontWeight:500}}>
+                      <span style={{marginRight:8}}>{medals[i]}</span>{t.name}
+                    </div>
+                    <div style={{fontSize:13, fontWeight:600, color:'#2a2a2a'}}>{fmtMoney(t.sum)} <span style={{fontSize:11, color:'#BDBDBD', fontWeight:400}}>· {t.count}</span></div>
+                  </div>
+                  <div style={{background:'#f5f5f5', borderRadius:4, height:6, overflow:'hidden'}}>
+                    <div style={{background:'#BFD900', height:6, width:`${(t.sum / max) * 100}%`}} />
+                  </div>
+                </div>
+              ))
+            })()}
+          </div>
+
+          {/* Загрузка слотов */}
+          <div style={cardStyle}>
+            <div style={titleStyle}>Загрузка слотов</div>
+            <div style={hintStyle}>Подтверждённые индивы / активные слоты в периоде (по `slot_date`)</div>
+            {slots.total === 0 ? (
+              <div style={{fontSize:13, color:'#BDBDBD', padding:'8px 0'}}>Слотов в периоде нет</div>
+            ) : (
+              <>
+                <div style={{display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:8}}>
+                  <div style={{fontSize:32, fontWeight:300, color: utilization >= 70 ? '#27ae60' : utilization >= 30 ? '#f39c12' : '#e74c3c'}}>{utilization}%</div>
+                  <div style={{fontSize:13, color:'#888'}}>{slots.used} из {slots.total}</div>
+                </div>
+                <div style={{background:'#f5f5f5', borderRadius:4, height:8, overflow:'hidden'}}>
+                  <div style={{background: utilization >= 70 ? '#27ae60' : utilization >= 30 ? '#f39c12' : '#e74c3c', height:8, width:`${Math.min(utilization, 100)}%`, transition:'width 0.3s'}} />
+                </div>
+              </>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 function FinanceLoyalty({ session }) {
   const [loading, setLoading] = useState(true)
   const [metrics, setMetrics] = useState({ active: 0, expiringSoon: 0, expired30: 0, avgLifetimeMonths: 0 })
@@ -1472,6 +1623,7 @@ export default function AdminFinance({ session }) {
     { id: 'sales', label: 'Продажи' },
     { id: 'expenses', label: 'Расходы' },
     { id: 'detail', label: 'Детализация' },
+    { id: 'indivs', label: 'Индивы' },
     { id: 'loyalty', label: 'Лояльность' },
     { id: 'settings', label: 'Настройки' },
   ]
@@ -1491,6 +1643,7 @@ export default function AdminFinance({ session }) {
       {tab === 'sales' && <FinanceSales session={session} />}
       {tab === 'expenses' && <FinanceExpenses session={session} />}
       {tab === 'detail' && <FinanceDetail />}
+      {tab === 'indivs' && <FinanceIndivs />}
       {tab === 'loyalty' && <FinanceLoyalty session={session} />}
       {tab === 'settings' && <FinanceSettings />}
     </div>
