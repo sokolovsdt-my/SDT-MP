@@ -211,46 +211,34 @@ export default function Shop({ session }) {
   }
 
   const handleBook = async (dateStr, slot) => {
+    if (savingSlot) return
     setBookingSlot(slot.id)
     setBookingError('')
     setSavingSlot(true)
-    try {
-      const { data: existing } = await supabase
-        .from('indiv_requests')
-        .select('id')
-        .eq('client_id', session.user.id)
-        .eq('teacher_id', selectedTeacher)
-        .eq('slot_date', dateStr)
-        .eq('start_time', slot.start_time)
-        .in('status', ['pending', 'confirmed'])
-        .maybeSingle()
-
-      if (existing) {
-        setBookingError('Вы уже записаны на этот слот')
-        setSavingSlot(false)
-        setBookingSlot(null)
-        return
-      }
-
-      await supabase.from('indiv_requests').insert({
-        client_id: session.user.id,
-        teacher_id: selectedTeacher,
-        slot_date: dateStr,
-        start_time: slot.start_time,
-        end_time: slot.end_time,
-        package_id: clientPackage?.id || null,
-        status: 'pending',
-        created_by: session.user.id,
-      })
-
-      const d = new Date(dateStr + 'T00:00:00')
-      setBookingDone(`${DAYS_SHORT[d.getDay()]}, ${d.getDate()} ${MONTHS[d.getMonth()]}, ${slot.start_time.slice(0,5)}–${slot.end_time.slice(0,5)}`)
-      loadMyRequests(selectedTeacher)
-    } catch {
-      setBookingError('Ошибка при записи')
-    }
+    const { data, error } = await supabase.rpc('create_indiv_request', {
+      p_teacher_id: selectedTeacher,
+      p_slot_date:  dateStr,
+      p_start_time: slot.start_time,
+      p_end_time:   slot.end_time,
+    })
     setSavingSlot(false)
     setBookingSlot(null)
+    if (error) { setBookingError('Ошибка сети: ' + error.message); return }
+    if (!data?.ok) {
+      const msg = {
+        not_authenticated:     'Сессия истекла, войдите заново',
+        invalid_params:        'Некорректные параметры записи',
+        invalid_time_range:    'Время окончания должно быть позже начала',
+        slot_in_past:          'Слот уже в прошлом — обновите страницу',
+        slot_not_found:        'Слот недоступен — обновите страницу',
+        slot_taken:            'Этот слот только что заняли — обновите страницу',
+        already_booked_by_you: 'Вы уже записаны на этот слот',
+      }[data?.error] || `Не удалось записаться: ${data?.error || 'неизвестная ошибка'}`
+      setBookingError(msg); return
+    }
+    const d = new Date(dateStr + 'T00:00:00')
+    setBookingDone(`${DAYS_SHORT[d.getDay()]}, ${d.getDate()} ${MONTHS[d.getMonth()]}, ${slot.start_time.slice(0,5)}–${slot.end_time.slice(0,5)}`)
+    loadMyRequests(selectedTeacher)
   }
 
   // Группируем слоты по дате

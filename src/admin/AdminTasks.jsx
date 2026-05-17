@@ -183,7 +183,25 @@ function IndivRequestCard({ request, onUpdate }) {
   }
 
   const handleReject = async () => {
-    await supabase.from('indiv_requests').update({ status: 'rejected', reject_reason: rejectReason || null }).eq('id', request.id)
+    const isConfirmedReq = request.status === 'confirmed'
+    const ask = isConfirmedReq
+      ? 'Отменить подтверждённое занятие? Связанный урок будет удалён из расписания.'
+      : null
+    if (ask && !confirm(ask)) return
+    const { data, error } = await supabase.rpc('cancel_indiv_request', {
+      p_request_id: request.id,
+      p_reason:     rejectReason || null,
+    })
+    if (error) { alert('Ошибка сети: ' + error.message); return }
+    if (!data?.ok) {
+      const msg = {
+        not_authenticated: 'Сессия истекла, войдите заново',
+        forbidden:         'Недостаточно прав',
+        request_not_found: 'Заявка не найдена',
+        not_cancellable:   `Заявку нельзя отменить (статус: ${data.current_status})`,
+      }[data?.error] || `Не удалось отменить: ${data?.error || 'неизвестная ошибка'}`
+      alert(msg); return
+    }
     setShowReject(false)
     onUpdate()
   }
@@ -217,17 +235,23 @@ function IndivRequestCard({ request, onUpdate }) {
             {!isConfirmed && <button onClick={() => setShowHallModal(true)} style={btn({background:'#BFD900',borderColor:'#BFD900',color:'#2a2a2a'})}>Назначить зал</button>}
             {isConfirmed && <button onClick={() => window.location.href='/admin/schedule'} style={btn({background:'#eafaf1',borderColor:'#a9dfbf',color:'#27ae60'})}>Открыть расписание</button>}
             <button onClick={() => setShowContactModal(true)} style={btn()}>Написать клиенту</button>
-            {!isConfirmed && <button onClick={() => setShowReject(true)} style={btn({background:'#fdecea',borderColor:'#f5b7b1',color:'#c0392b'})}>Отклонить</button>}
+            <button onClick={() => setShowReject(true)} style={btn({background:'#fdecea',borderColor:'#f5b7b1',color:'#c0392b'})}>
+              {isConfirmed ? 'Отменить занятие' : 'Отклонить'}
+            </button>
           </div>
         )}
         {showReject && (
           <div style={{marginTop:12,background:'#f9f9f9',borderRadius:10,padding:12}}>
-            <div style={{fontSize:12,color:'#888',marginBottom:6,fontWeight:600}}>Причина отклонения (необязательно)</div>
+            <div style={{fontSize:12,color:'#888',marginBottom:6,fontWeight:600}}>
+              {isConfirmed ? 'Причина отмены (необязательно)' : 'Причина отклонения (необязательно)'}
+            </div>
             <input value={rejectReason} onChange={e=>setRejectReason(e.target.value)}
               placeholder="Например: препод недоступен в это время"
               style={{width:'100%',padding:'8px 12px',border:'1px solid #e8e8e8',borderRadius:8,fontSize:13,boxSizing:'border-box',fontFamily:'Inter,sans-serif',marginBottom:8}} />
             <div style={{display:'flex',gap:8}}>
-              <button onClick={handleReject} style={{...btn({background:'#e74c3c',borderColor:'#e74c3c',color:'#fff'}), flex:1}}>Подтвердить отклонение</button>
+              <button onClick={handleReject} style={{...btn({background:'#e74c3c',borderColor:'#e74c3c',color:'#fff'}), flex:1}}>
+                {isConfirmed ? 'Подтвердить отмену' : 'Подтвердить отклонение'}
+              </button>
               <button onClick={() => setShowReject(false)} style={btn()}>Отмена</button>
             </div>
           </div>

@@ -88,28 +88,57 @@ function ProductPicker({ onAdd }) {
 
   const loadProducts = async () => {
     setLoading(true); setSelectedProduct('')
+
+    // Индив-пакеты живут в отдельной таблице indiv_packages со своим преподом,
+    // не в products. Каталог индивов на клиенте (Shop/Team) читает её же —
+    // касса должна продавать ровно то, что клиент видит.
+    if (type === 'indiv') {
+      const { data } = await supabase.from('indiv_packages')
+        .select('id, name, price, visits_count, duration_days, teacher_id, teacher:profiles!indiv_packages_teacher_id_fkey(id, full_name)')
+        .eq('is_active', true)
+        .order('sort_order')
+      const items = (data || []).map(p => ({
+        id: p.id,
+        name: p.name,
+        price: p.price,
+        teacher_id: p.teacher_id,
+        teacher_name: p.teacher?.full_name || null,
+        meta: `${p.visits_count} зан. · ${p.duration_days} дн.`,
+      }))
+      setProducts(items)
+      setLoading(false)
+      return
+    }
+
     const { data } = await supabase.from('products')
-      .select('*, product_indivs(teacher_id, profiles:teacher_id(full_name)), product_subscriptions(available_from_day, available_to_day)')
+      .select('*, product_subscriptions(available_from_day, available_to_day)')
       .eq('type', type).eq('is_active', true).order('price')
 
-    const today = new Date().getDate() // текущий день месяца (1-31)
+    const today = new Date().getDate()
     const filtered = (data || []).filter(p => {
       const ps = p.product_subscriptions?.[0]
-      if (!ps?.available_from_day || !ps?.available_to_day) return true // нет ограничений — показываем
+      if (!ps?.available_from_day || !ps?.available_to_day) return true
       return today >= ps.available_from_day && today <= ps.available_to_day
     })
 
-    setProducts(filtered)
+    setProducts(filtered.map(p => ({ id: p.id, name: p.name, price: p.price, teacher_id: null, teacher_name: null, meta: null })))
     setLoading(false)
   }
 
   const handleAdd = () => {
     const p = products.find(p => p.id === selectedProduct)
     if (!p) return
-    const teacherId = p.product_indivs?.[0]?.teacher_id || null
-    const teacherName = p.product_indivs?.[0]?.profiles?.full_name || null
-    onAdd({ product_id: p.id, product_type: type, product_name: p.name, price: p.price, teacher_id: teacherId, teacher_name: teacherName })
+    onAdd({ product_id: p.id, product_type: type, product_name: p.name, price: p.price, teacher_id: p.teacher_id || null, teacher_name: p.teacher_name || null })
     setSelectedProduct('')
+  }
+
+  // Для индивов важно показать преподавателя — иначе нельзя отличить два
+  // одинаковых «5 занятий» у разных педагогов.
+  const optionLabel = (p) => {
+    const parts = [p.name]
+    if (p.teacher_name) parts.push(p.teacher_name)
+    if (p.meta) parts.push(p.meta)
+    return `${parts.join(' · ')} — ${fmtMoney(p.price)}`
   }
 
   return (
@@ -124,7 +153,7 @@ function ProductPicker({ onAdd }) {
       <div style={{display:'flex', gap:8}}>
         <select value={selectedProduct} onChange={e => setSelectedProduct(e.target.value)} style={{...inputStyle, flex:1}}>
           <option value="">{loading ? 'Загрузка...' : products.length === 0 ? 'Нет продуктов' : 'Выберите продукт'}</option>
-          {products.map(p => <option key={p.id} value={p.id}>{p.name} — {fmtMoney(p.price)}</option>)}
+          {products.map(p => <option key={p.id} value={p.id}>{optionLabel(p)}</option>)}
         </select>
         <button onClick={handleAdd} disabled={!selectedProduct} style={{...primaryBtn, fontSize:12, padding:'9px 16px', opacity: selectedProduct ? 1 : 0.5}}>
           + В чек
@@ -306,6 +335,8 @@ export default function AdminCashbox({ session }) {
         insufficient_bonus_rubles: `На балансе только ${data.balance ?? 0} ₽, нужно ${data.required ?? bonusRublesUsed} ₽`,
         discount_exceeds_subtotal: `Скидка + бонусы (${(data.discount ?? 0) + (data.bonus ?? 0)} ₽) больше суммы чека (${data.subtotal ?? 0} ₽)`,
         groups_required:          'Для абонемента/услуги нужно выбрать хотя бы одну группу',
+        indiv_package_required:   'Для индив-позиции не выбран пакет',
+        indiv_package_not_found:  'Индив-пакет не найден или отключён — обновите страницу',
       }[data?.error] || `Не удалось оформить продажу: ${data?.error || 'неизвестная ошибка'}`
       alert(msg)
       setSaving(false); return
