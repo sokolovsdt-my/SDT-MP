@@ -55,16 +55,19 @@ export default function Team({ session }) {
 
     const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' })
     const future = new Date(Date.now() + 30*24*60*60*1000).toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' })
-    const { data: sl } = await supabase
-      .from('teacher_slot_dates')
-      .select('*')
-      .eq('teacher_id', id)
-      .eq('is_active', true)
-      .gte('date', today)
-      .lte('date', future)
-      .order('date')
-      .order('start_time')
-    setSlots(sl || [])
+    const [{ data: sl }, { data: busy }] = await Promise.all([
+      supabase.from('teacher_slot_dates').select('*')
+        .eq('teacher_id', id).eq('is_active', true)
+        .gte('date', today).lte('date', future)
+        .order('date').order('start_time'),
+      // БД-гарантия (partial UNIQUE) уже не даст создать вторую заявку,
+      // но без UX-фильтра клиент жмёт «Записаться» и получает slot_taken.
+      supabase.from('indiv_requests').select('slot_date, start_time')
+        .eq('teacher_id', id).in('status', ['pending','confirmed'])
+        .gte('slot_date', today),
+    ])
+    const busySet = new Set((busy || []).map(b => `${b.slot_date}:${b.start_time}`))
+    setSlots((sl || []).filter(s => !busySet.has(`${s.date}:${s.start_time}`)))
 
     if (session?.user?.id) {
       const { data: pkg } = await supabase

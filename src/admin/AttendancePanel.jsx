@@ -476,8 +476,9 @@ export default function AttendancePanel({ lesson, session, onClose, teachers, on
         lesson_not_found:  'Занятие не найдено',
         lesson_cancelled:  'Занятие отменено — отметка невозможна',
         not_your_lesson:   'Можно отмечать только свои занятия',
-        out_of_visits:     `На абонементе нет свободных визитов (${data.visits_used ?? '?'} из ${data.visits_total ?? '?'})`,
-        no_valid_basis:    'Нет действующего основания для отметки «Пришёл». Оформите абонемент в кассе или отметьте как пробное.',
+        out_of_visits:       `На абонементе нет свободных визитов (${data.visits_used ?? '?'} из ${data.visits_total ?? '?'})`,
+        indiv_out_of_visits: `На индив-пакете нет свободных визитов (${data.visits_used ?? '?'} из ${data.visits_total ?? '?'}). Оформите новый пакет в кассе.`,
+        no_valid_basis:      'Нет действующего основания для отметки «Пришёл». Оформите абонемент в кассе или отметьте как пробное.',
       }[data?.error] || `Не удалось сохранить отметку: ${data?.error || 'неизвестная ошибка'}`
       alert(msg)
       return false
