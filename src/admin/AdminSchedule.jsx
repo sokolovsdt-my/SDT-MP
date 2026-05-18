@@ -563,7 +563,9 @@ export default function AdminSchedule({ session }) {
     </div>
   )
 
-  const EventBlock = ({ ev, width='95%', left='2%' }) => {
+  // showTime=false для week — карточка узкая, время и так читается из сетки
+  // слева, дубль внутри карточки только перекрывает бейдж счётчика.
+  const EventBlock = ({ ev, width='95%', left='2%', showTime=true }) => {
     const color = getEventColor(ev, groupColorMap, groupNameMap)
     const { top, height } = getEventStyle(ev)
     const title = ev.groups?.name || ev.title || (ev.student ? `Индив: ${ev.student.full_name}` : ev.event_id ? 'Мероприятие' : 'Занятие')
@@ -598,7 +600,7 @@ export default function AdminSchedule({ session }) {
           </div>
         )}
         <div style={{fontSize:10, fontWeight:700, color: color.text, marginTop: isCancelled ? 14 : 0}}>
-          <div style={{whiteSpace:'nowrap'}}>{formatTime(ev.starts_at)}–{formatTime(ev.ends_at)}</div>
+          {showTime && <div style={{whiteSpace:'nowrap'}}>{formatTime(ev.starts_at)}–{formatTime(ev.ends_at)}</div>}
           <div style={{wordBreak:'break-word', lineHeight:1.2}}>{title}</div>
           {ev.teacher && <div style={{fontWeight:400, opacity:0.8, marginTop:1}}>{ev.teacher.full_name}</div>}
         </div>
@@ -773,7 +775,7 @@ export default function AdminSchedule({ session }) {
                 {getWeekDays(currentDate).map((d, i) => (
                   <div key={i} style={{flex:1, borderRight:'1px solid #f0f0f0', position:'relative', height:totalHeight}}>
                     <HourLines />
-                    {eventsForDay(d).map(ev => <EventBlock key={ev.id} ev={ev} />)}
+                    {eventsForDay(d).map(ev => <EventBlock key={ev.id} ev={ev} showTime={false} />)}
                     {eventDatesForDay(d).map(ed => (
                       <div key={ed.id} style={{
                         position:'absolute',
