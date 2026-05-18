@@ -438,7 +438,12 @@ export default function AdminSchedule({ session }) {
     // экономим ~6x RTT при загрузке расписания.
     const [evRes, allStaffRes, teacherRolesRes, sRes, eventsDataRes, edDataRes, gRes] = await Promise.all([
       supabase.from('schedule')
-        .select('*, groups(name), teacher:profiles!schedule_teacher_id_fkey(full_name), student:profiles!schedule_indiv_student_id_fkey(full_name)')
+        .select(`*,
+          groups(name),
+          teacher:profiles!schedule_teacher_id_fkey(full_name),
+          student:profiles!schedule_indiv_student_id_fkey(full_name),
+          bookings(id, status),
+          event:events!schedule_event_id_fkey(max_participants, event_registrations(client_id, status))`)
         .gte('starts_at', mskDayStartNaive(fromMsk))
         .lte('starts_at', mskDayEndNaive(toMsk))
         .order('starts_at'),
@@ -481,6 +486,18 @@ export default function AdminSchedule({ session }) {
   })
 
   const eventsForDay = (date) => filteredEvents.filter(ev => isSameMskDay(ev.starts_at, date))
+
+  // Сколько человек записано на занятие. Группа — bookings(status='booked'),
+  // индив — 1 (по indiv_student_id), event — event_registrations≠cancelled
+  // (общий счётчик регистраций на event, без привязки к конкретной дате —
+  // в схеме per-date регистраций нет).
+  const bookingCount = (ev) => {
+    if (ev.indiv_student_id) return 1
+    if (ev.event_id) return (ev.event?.event_registrations || []).filter(r => r.status !== 'cancelled').length
+    return (ev.bookings || []).filter(b => b.status === 'booked').length
+  }
+  // Лимит мест — только у events.
+  const bookingCap = (ev) => ev.event_id ? (ev.event?.max_participants || null) : null
 
   const eventDatesForDay = (date) => {
     const dateStr = date.toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' })
@@ -552,6 +569,11 @@ export default function AdminSchedule({ session }) {
     const title = ev.groups?.name || ev.title || (ev.student ? `Индив: ${ev.student.full_name}` : ev.event_id ? 'Мероприятие' : 'Занятие')
     const isShort = height < 36
     const isCancelled = ev.is_cancelled
+    const cnt = bookingCount(ev)
+    const cap = bookingCap(ev)
+    // На отменённых счётчик не показываем (визиты возвращены при cancel_lesson,
+    // фактическое число записавшихся уже не важно).
+    const showCount = !isCancelled && cnt !== null
     return (
       <div onClick={() => handleEventClick(ev)} style={{
         position:'absolute', top, left, width, height,
@@ -564,6 +586,15 @@ export default function AdminSchedule({ session }) {
         {isCancelled && (
           <div style={{position:'absolute', top:0, left:0, right:0, background:'#e74c3c', color:'#fff', fontSize:9, fontWeight:700, letterSpacing:'0.05em', padding:'2px 6px', textAlign:'center'}}>
             ОТМЕНЕНО
+          </div>
+        )}
+        {showCount && (
+          <div style={{position:'absolute', top: isCancelled ? 16 : 2, right:3,
+            fontSize:9, fontWeight:700, color: color.text,
+            background:'rgba(255,255,255,0.88)',
+            padding:'1px 5px', borderRadius:8, lineHeight:1.4,
+            border:`1px solid ${color.border}`}}>
+            {isShort ? cnt : `👥 ${cnt}${cap ? `/${cap}` : ''}`}
           </div>
         )}
         <div style={{fontSize:10, fontWeight:700, color: color.text, marginTop: isCancelled ? 14 : 0}}>
@@ -787,10 +818,11 @@ export default function AdminSchedule({ session }) {
                       {dayEvs.slice(0,3).map(ev => {
                         const color = getEventColor(ev, groupColorMap, groupNameMap)
                         const title = ev.groups?.name || ev.title || 'Индив'
+                        const cnt = ev.is_cancelled ? null : bookingCount(ev)
                         return (
                           <div key={ev.id} onClick={e => {e.stopPropagation(); handleEventClick(ev)}}
                             style={{background:color.bg, border:`1px solid ${color.border}`, borderRadius:4, padding:'1px 5px', marginBottom:2, fontSize:10, color:color.text, fontWeight:600, overflow:'hidden', whiteSpace:'nowrap', textOverflow:'ellipsis'}}>
-                            {formatTime(ev.starts_at)} {title}
+                            {formatTime(ev.starts_at)} {title}{cnt !== null && ` · 👥${cnt}`}
                           </div>
                         )
                       })}
