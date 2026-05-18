@@ -13,6 +13,7 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "jsr:@supabase/supabase-js@2"
+import xss from "npm:xss@^1"
 
 // ─── CORS ──────────────────────────────────────────────────────────────────
 // supabase.functions.invoke() из браузера триггерит preflight (Vercel != Supabase
@@ -101,11 +102,63 @@ function stripHtml(html: string): string {
     .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').trim()
 }
 
+// HTML-санитайз для email-канала. Раньше тело уходило как сырое HTML из
+// broadcasts.content — XSS-вектор при утечке админ-аккаунта. Используем
+// npm:xss — чистый JS без DOM-зависимостей (isomorphic-dompurify тянет
+// jsdom, который не работает в Deno edge runtime). Запрещаем script/style/
+// iframe/object/embed/form, on*-обработчики, javascript:-URL.
+function sanitizeEmailHtml(html: string): string {
+  return xss(html || '', {
+    whiteList: {
+      a: ['href', 'title', 'target', 'rel'],
+      b: [], strong: [], i: [], em: [], u: [], s: [],
+      p: [], br: [], hr: [],
+      h1: [], h2: [], h3: [], h4: [], h5: [], h6: [],
+      ul: [], ol: [], li: [],
+      blockquote: [], pre: [], code: [],
+      div: [], span: [],
+      img: ['src', 'alt', 'width', 'height'],
+      table: [], thead: [], tbody: [], tr: [], td: ['colspan', 'rowspan'], th: ['colspan', 'rowspan'],
+    },
+    stripIgnoreTag:        true,
+    stripIgnoreTagBody:    ['script', 'style'],
+    allowCommentTag:       false,
+    css:                   false, // никаких inline-style
+  })
+}
+
 function json(body: any, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
     headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
   })
+}
+
+// ─── Авторизация ─────────────────────────────────────────────────────────────
+// Два пути: cron-secret (для pg_cron) или user JWT с ролью admin/manager/owner.
+// Cron-secret хранится в vault.service_role_key (32 случайных байта base64).
+// Раньше там был anon JWT (публичный) — любой мог дёрнуть edge.
+// verify_jwt=false на gateway, потому что cron-secret не JWT.
+async function authorize(req: Request, sb: any): Promise<{ ok: true, mode: 'cron' | 'admin', userId?: string } | { ok: false, error: string, status: number }> {
+  const authHeader = req.headers.get('Authorization') || ''
+  if (!authHeader.startsWith('Bearer ')) return { ok: false, error: 'missing_auth', status: 401 }
+  const token = authHeader.slice(7).trim()
+  if (!token) return { ok: false, error: 'missing_auth', status: 401 }
+
+  // 1. Cron-secret: читаем из vault через RPC и сравниваем
+  const { data: cronSecret } = await sb.rpc('_get_cron_secret')
+  if (cronSecret && cronSecret === token) {
+    return { ok: true, mode: 'cron' }
+  }
+
+  // 2. User JWT — проверка подписи через auth.getUser, потом роль через profiles
+  const { data: { user }, error: uErr } = await sb.auth.getUser(token)
+  if (uErr || !user) return { ok: false, error: 'invalid_jwt', status: 401 }
+  const { data: profile } = await sb.from('profiles').select('role').eq('id', user.id).maybeSingle()
+  if (!profile || !['admin', 'manager', 'owner'].includes(profile.role)) {
+    return { ok: false, error: 'forbidden', status: 403 }
+  }
+  return { ok: true, mode: 'admin', userId: user.id }
 }
 
 // ─── Main handler ──────────────────────────────────────────────────────────
@@ -120,19 +173,24 @@ Deno.serve(async (req) => {
   const RESEND_KEY    = Deno.env.get('RESEND_API_KEY')
   const RESEND_FROM   = Deno.env.get('RESEND_FROM') || 'SDT <noreply@example.com>'
 
+  const sb = createClient(SUPABASE_URL, SERVICE_KEY)
+
+  // Авторизация ДО парсинга тела — чтобы 401/403 уходили без побочек.
+  const auth = await authorize(req, sb)
+  if (!auth.ok) return json({ ok: false, error: auth.error }, auth.status)
+
   let payload: any
   try { payload = await req.json() } catch { return json({ ok: false, error: 'invalid_json' }, 400) }
   const broadcastId = payload?.broadcast_id
   if (!broadcastId) return json({ ok: false, error: 'no_broadcast_id' }, 400)
 
-  const sb = createClient(SUPABASE_URL, SERVICE_KEY)
-
-  // Атомарный claim: переводим в 'sending' только если ещё не отправлена.
+  // Атомарный claim: только 'scheduled'/'draft'. Уже отправленные ('sent')
+  // повторно не отправляем — раньше 'sent' тоже claim'ил → replay-атака.
   const { data: claim, error: claimErr } = await sb
     .from('broadcasts')
     .update({ status: 'sending' })
     .eq('id', broadcastId)
-    .in('status', ['scheduled', 'sent', 'draft'])
+    .in('status', ['scheduled', 'draft'])
     .select('id, title, content, channel')
     .maybeSingle()
 
@@ -172,6 +230,9 @@ Deno.serve(async (req) => {
 
   const titleText = stripHtml(claim.title)
   const bodyText  = stripHtml(claim.content)
+  // Для email-канала отдельно санитизируем HTML — иначе сырое тело из
+  // RichEditor могло бы пронести произвольный JS через утечку аккаунта.
+  const emailHtml = sanitizeEmailHtml(claim.content || '')
 
   let sentPush = 0, sentEmail = 0, failed = 0
 
@@ -189,7 +250,7 @@ Deno.serve(async (req) => {
 
     if (wantEmail && RESEND_KEY && profile?.email) {
       try {
-        await sendEmail(RESEND_KEY, RESEND_FROM, profile.email, titleText, claim.content || '')
+        await sendEmail(RESEND_KEY, RESEND_FROM, profile.email, titleText, emailHtml)
         sentEmail++; any = true
       } catch (e) { errs.push('email: ' + (e as Error).message) }
     }
