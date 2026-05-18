@@ -514,32 +514,44 @@ export default function AdminSchedule({ session }) {
 
   const handleEventClick = (ev) => { setEditingEvent(ev); setShowEditForm(false); setShowSubModal(false) }
 
-  const handleDeleteEvent = async (ev) => {
-    if (ev.repeat_id) { setPendingDelete(ev); setShowSeriesModal(true) }
-    else {
-      if (!confirm('Удалить занятие?')) return
-      await supabase.from('schedule_history').insert({
-        schedule_id: ev.id, action: 'deleted',
-        author_id: session.user.id, comment: 'Занятие удалено'
-      })
-      await supabase.from('schedule').delete().eq('id', ev.id)
-      setEditingEvent(null); loadAll()
+  // Общий обработчик результата delete_lesson(_series) — алерт + reload.
+  const handleDeleteResult = (data, error) => {
+    if (error) { alert('Ошибка сети: ' + error.message); return false }
+    if (!data?.ok) {
+      const msg = {
+        not_authenticated: 'Сессия истекла, войдите заново',
+        forbidden:         'Недостаточно прав',
+        invalid_scope:     'Неверный режим удаления серии',
+        lesson_not_found:  'Занятие не найдено',
+      }[data?.error] || `Не удалось удалить: ${data?.error || 'неизвестная ошибка'}`
+      alert(msg); return false
     }
+    const refunded = (data.refunded_visits || 0) + (data.refunded_indiv_visits || 0)
+    const parts = []
+    if (data.deleted_count > 1) parts.push(`Удалено занятий: ${data.deleted_count}`)
+    if (refunded > 0)           parts.push(`Возвращено визитов: ${refunded}`)
+    if (data.removed_payments > 0) parts.push('Зарплата отозвана')
+    if (parts.length > 0) alert(parts.join('\n'))
+    return true
+  }
+
+  const handleDeleteEvent = async (ev) => {
+    if (ev.repeat_id) { setPendingDelete(ev); setShowSeriesModal(true); return }
+    if (!confirm('Удалить занятие?\n\nЕсли кто-то был отмечен «Пришёл» — визиты вернутся в их абонементы. Зарплата за этот урок будет отозвана.')) return
+    const { data, error } = await supabase.rpc('delete_lesson', { p_schedule_id: ev.id })
+    if (!handleDeleteResult(data, error)) return
+    setEditingEvent(null); loadAll()
   }
 
   const handleSeriesChoice = async (choice) => {
     const ev = pendingDelete || editingEvent
     if (!ev) return
-    if (choice === 'one') {
-      await supabase.from('schedule_history').insert({
-        schedule_id: ev.id, action: 'deleted',
-        author_id: session.user.id, comment: 'Удалено одно занятие из серии'
-      })
-      await supabase.from('schedule').delete().eq('id', ev.id)
-    } else if (choice === 'future') {
-      await supabase.from('schedule').delete().eq('repeat_id', ev.repeat_id).gte('starts_at', ev.starts_at)
-    } else {
-      await supabase.from('schedule').delete().eq('repeat_id', ev.repeat_id)
+    const { data, error } = await supabase.rpc('delete_lesson_series', {
+      p_schedule_id: ev.id, p_scope: choice,  // 'one' | 'future' | 'all'
+    })
+    if (!handleDeleteResult(data, error)) {
+      setShowSeriesModal(false); setPendingDelete(null)
+      return
     }
     setShowSeriesModal(false); setPendingDelete(null); setEditingEvent(null); setShowEditForm(false); loadAll()
   }

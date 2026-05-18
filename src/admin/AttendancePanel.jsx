@@ -564,18 +564,58 @@ export default function AttendancePanel({ lesson, session, onClose, teachers, on
   }
 
   const handleChangeTeacher = async () => {
-    if (!newTeacherId) return
+    if (!newTeacherId || saving) return
     setSaving(true)
-    await supabase.from('schedule').update({ teacher_id: newTeacherId }).eq('id', lesson.id)
-    setSaving(false); setShowChangeTeacher(false); onLessonUpdate?.()
+    // RPC change_lesson_teacher: проверка роли + что новый user — реально teacher,
+    // откат сохранённой зарплаты (delete from lesson_payments), update teacher_id,
+    // аудит в schedule_history.
+    const { data, error } = await supabase.rpc('change_lesson_teacher', {
+      p_schedule_id: lesson.id, p_new_teacher_id: newTeacherId,
+    })
+    setSaving(false)
+    if (error) { alert('Ошибка сети: ' + error.message); return }
+    if (!data?.ok) {
+      const msg = {
+        not_authenticated:  'Сессия истекла, войдите заново',
+        forbidden:          'Недостаточно прав',
+        lesson_not_found:   'Занятие не найдено',
+        lesson_cancelled:   'Занятие отменено',
+        same_teacher:       'Выбран тот же преподаватель',
+        teacher_not_found:  'Преподаватель не найден',
+        not_a_teacher:      'У выбранного пользователя нет роли «teacher»',
+      }[data?.error] || `Не удалось заменить: ${data?.error || 'неизвестная ошибка'}`
+      alert(msg); return
+    }
+    if (data.removed_payments > 0) alert('Преподаватель заменён. Зарплата за этот урок отозвана.')
+    setShowChangeTeacher(false); onLessonUpdate?.()
   }
 
   const handleReschedule = async () => {
-    if (!newDate || !newTimeFrom || !newTimeTo) return
+    if (!newDate || !newTimeFrom || !newTimeTo || saving) return
     setSaving(true)
-    const toLocalISO = (dateStr, timeStr) => { const d = new Date(`${dateStr}T${timeStr}`); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 19) }
-    await supabase.from('schedule').update({ starts_at: toLocalISO(newDate, newTimeFrom), ends_at: toLocalISO(newDate, newTimeTo) }).eq('id', lesson.id)
-    setSaving(false); setShowReschedule(false); onLessonUpdate?.()
+    // RPC reschedule_lesson: проверка роли + advisory_lock на зал + проверка
+    // hall_conflict + аудит. starts_at/ends_at — MSK naive (без TZ-маркера),
+    // как требует схема.
+    const toMskNaive = (dateStr, timeStr) => `${dateStr}T${timeStr}:00`
+    const { data, error } = await supabase.rpc('reschedule_lesson', {
+      p_schedule_id:   lesson.id,
+      p_new_starts_at: toMskNaive(newDate, newTimeFrom),
+      p_new_ends_at:   toMskNaive(newDate, newTimeTo),
+    })
+    setSaving(false)
+    if (error) { alert('Ошибка сети: ' + error.message); return }
+    if (!data?.ok) {
+      const msg = {
+        not_authenticated:  'Сессия истекла, войдите заново',
+        forbidden:          'Недостаточно прав',
+        invalid_time_range: 'Конец занятия должен быть позже начала',
+        lesson_not_found:   'Занятие не найдено',
+        lesson_cancelled:   'Занятие отменено',
+        hall_conflict:      `Зал «${data.hall}» уже занят на это время — выберите другой слот`,
+      }[data?.error] || `Не удалось перенести: ${data?.error || 'неизвестная ошибка'}`
+      alert(msg); return
+    }
+    setShowReschedule(false); onLessonUpdate?.()
   }
 
   const handleCancel = async () => {

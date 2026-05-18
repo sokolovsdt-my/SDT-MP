@@ -513,24 +513,39 @@ function PurchasesTab({ clientId, userRole, session }) {
     if (!dateValue || !dateReason.trim()) return
     setDateSaving(true)
     const { subId, field, productSub } = dateModal
-    const { data:{ user } } = await supabase.auth.getUser()
-    const sub = purchases.find(p=>p.subscription?.id===subId)?.subscription
-    const oldVal = sub?.[field]||null
-    const newDate = new Date(dateValue)
-    newDate.setHours(12,0,0,0)
-    const updates = { [field]:newDate.toISOString() }
-    if (field==='activated_at' && recalcExpires && productSub) {
+    // RPC admin_update_subscription делает FOR UPDATE + аудит в
+    // subscription_date_changes + проверку visits_used<=visits_total.
+    // Передаём ISO YYYY-MM-DD (date), не toISOString — RPC ожидает date.
+    const payload = { [field]: dateValue }
+    if (field === 'activated_at' && recalcExpires && productSub) {
+      const base = new Date(dateValue + 'T12:00:00')
+      let exp = null
       if (productSub.fixed_end_day) {
-        const d = new Date(newDate); d.setMonth(d.getMonth()+1); d.setDate(productSub.fixed_end_day)
-        updates.expires_at = d.toISOString()
+        const d = new Date(base); d.setMonth(d.getMonth() + 1); d.setDate(productSub.fixed_end_day)
+        exp = d.toISOString().slice(0, 10)
       } else if (productSub.duration_days) {
-        const d = new Date(newDate); d.setDate(d.getDate()+productSub.duration_days)
-        updates.expires_at = d.toISOString()
+        const d = new Date(base); d.setDate(d.getDate() + productSub.duration_days)
+        exp = d.toISOString().slice(0, 10)
       }
+      if (exp) payload.expires_at = exp
     }
-    await supabase.from('subscriptions').update(updates).eq('id',subId)
-    await supabase.from('subscription_date_changes').insert({ subscription_id:subId, field, old_value:oldVal, new_value:newDate.toISOString(), reason:dateReason, changed_by:user.id })
-    setDateModal(null); setDateSaving(false)
+    const { data, error } = await supabase.rpc('admin_update_subscription', {
+      p_sub_id: subId, p_payload: payload, p_reason: dateReason,
+    })
+    setDateSaving(false)
+    if (error) { alert('Ошибка сети: ' + error.message); return }
+    if (!data?.ok) {
+      const msg = {
+        not_authenticated:           'Сессия истекла, войдите заново',
+        forbidden:                   'Недостаточно прав',
+        reason_required:             'Укажите причину',
+        subscription_not_found:      'Подписка не найдена',
+        visits_used_negative:        'Использованных визитов не может быть меньше 0',
+        visits_used_exceeds_total:   `Использовано (${data.visits_used}) больше общего числа (${data.visits_total})`,
+      }[data?.error] || `Не удалось обновить: ${data?.error || 'неизвестная ошибка'}`
+      alert(msg); return
+    }
+    setDateModal(null)
     await load()
   }
 
@@ -1290,21 +1305,31 @@ export default function AdminClientCard({ session }) {
   }, [id])
 
   const handleAddBonus = async () => {
-    if (!bonusAmount||!bonusReason.trim()) return
+    if (!bonusAmount || !bonusReason.trim()) return
     const amount = parseInt(bonusAmount)
-    const { data:{ user } } = await supabase.auth.getUser()
-    const finalAmount = bonusOperation==='debit' ? -Math.abs(amount) : Math.abs(amount)
-    await supabase.from('bonus_history').insert({
-      student_id:id, type:bonusType, amount:finalAmount, reason:bonusReason, created_by:user.id,
-      operation:bonusOperation, client_reason:bonusOperation==='credit'?'manual_credit':'manual_debit'
+    const delta = bonusOperation === 'debit' ? -Math.abs(amount) : Math.abs(amount)
+    // RPC admin_adjust_coins / admin_adjust_rubles — атомарно, без гонок,
+    // с проверкой роли и баланса на сервере, аудитом в bonus_history.
+    const rpcName = bonusType === 'rubles' ? 'admin_adjust_rubles' : 'admin_adjust_coins'
+    const { data, error } = await supabase.rpc(rpcName, {
+      p_client_id: id, p_delta: delta, p_reason: bonusReason,
     })
-    const field = bonusType==='rubles'?'bonus_rubles':'bonus_coins'
-    const current = bonusType==='rubles'?client.bonus_rubles:client.bonus_coins
-    const newVal = Math.max(0,(current||0)+finalAmount)
-    await supabase.from('profiles').update({ [field]:newVal }).eq('id',id)
-    setClient({ ...client, [field]:newVal })
-    const { data: hist } = await supabase.from('bonus_history').select('*, created_by_profile:profiles!bonus_history_created_by_fkey(full_name,email)').eq('student_id',id).order('created_at',{ ascending:false })
-    setBonusHistory(hist||[])
+    if (error) { alert('Ошибка сети: ' + error.message); return }
+    if (!data?.ok) {
+      const msg = {
+        not_authenticated:   'Сессия истекла, войдите заново',
+        forbidden:           'Недостаточно прав',
+        invalid_delta:       'Сумма должна быть больше нуля',
+        reason_required:     'Укажите причину',
+        client_not_found:    'Клиент не найден',
+        insufficient_balance: `Недостаточно средств на балансе (${data.balance ?? 0}, нужно ${data.required ?? amount})`,
+      }[data?.error] || `Не удалось выполнить: ${data?.error || 'неизвестная ошибка'}`
+      alert(msg); return
+    }
+    const field = bonusType === 'rubles' ? 'bonus_rubles' : 'bonus_coins'
+    setClient({ ...client, [field]: data.new_balance })
+    const { data: hist } = await supabase.from('bonus_history').select('*, created_by_profile:profiles!bonus_history_created_by_fkey(full_name,email)').eq('student_id', id).order('created_at', { ascending: false })
+    setBonusHistory(hist || [])
     setBonusAmount(''); setBonusReason('')
   }
 
