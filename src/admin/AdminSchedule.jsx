@@ -605,7 +605,7 @@ export default function AdminSchedule({ session }) {
         <div style={{fontSize:10, fontWeight:700, color: color.text, marginTop: isCancelled ? 14 : 0}}>
           <div style={{whiteSpace:'nowrap'}}>
             {formatTime(ev.starts_at)}–{formatTime(ev.ends_at)}
-            {showCount && inline && <span style={{opacity:0.7, fontWeight:600}}> · {countLabel}</span>}
+            {showCount && inline && <span style={{opacity:0.7, fontWeight:600}}> ({countLabel})</span>}
           </div>
           <div style={{wordBreak:'break-word', lineHeight:1.2}}>{title}</div>
           {ev.teacher && <div style={{fontWeight:400, opacity:0.8, marginTop:1}}>{ev.teacher.full_name}</div>}
