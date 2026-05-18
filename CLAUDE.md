@@ -418,36 +418,83 @@ if (!data?.ok) {
 
 ## Остаток аудита
 
-Бэклог из аудита на момент `3406124`. Закрытые пункты не перечисляются — историю смотри в `git log` по префиксам выше. Ссылки на строки могут смещаться, но имена функций/файлов стабильны.
+Бэклог по результатам полного аудита проекта (на момент `467092d`). Структура: P0 → срочно, P1 → ближайший спринт, P2 → плановые улучшения, P3 → когда дотянутся руки. Закрытые исторически пункты (раздел «🔴 Критичные» с коммитами `512900d`..`538f548`, ранние «🟢 Низкие» по префиксу `fix(low)`) не дублируются — смотри `git log`.
 
-### 🔴 Критичные
+### 🔴 P0 — критично, потенциальная потеря данных/денег
 
-Все закрыты (см. коммиты с `512900d` по `538f548`). Если найдёшь новый — добавь сюда.
+- **S1. Edge-функции `send-broadcast` и `send-auto-broadcast` без авторизации.** [supabase/functions/send-broadcast/index.ts](supabase/functions/send-broadcast/index.ts), [send-auto-broadcast/index.ts](supabase/functions/send-auto-broadcast/index.ts). `Deno.serve` принимает POST с `broadcast_id`, ходит под `SERVICE_ROLE_KEY`, JWT не проверяет, CORS `*`. Любой, знающий URL и id рассылки, может перепустить её всем клиентам. Дополнительно `send-broadcast` claim'ит и `status='sent'` (`.in('status', ['scheduled','sent','draft'])`) — повторная отправка любой ранее ушедшей рассылки. **План:** `verify_jwt=true` + проверка роли вызывающего (`admin/manager/owner`) либо service_role для cron; узкий CORS-allowlist; claim только `'scheduled'/'draft'`.
+- **S2. RLS выключен на трёх публичных таблицах:** `bookings`, `indiv_requests`, `teacher_slot_dates`. Любой авторизованный клиент через `.from('bookings').delete()/update()` может стереть/отменить чужой booking. `indiv_requests` — может прочитать чужие заявки. `teacher_slot_dates` — может вставить/удалить слоты от имени любого препода. **План:** включить RLS + написать правильные политики (для `bookings`: own SELECT/INSERT, UPDATE/DELETE через RPC; `indiv_requests`: own SELECT + staff SELECT + INSERT/UPDATE deny; `teacher_slot_dates`: public SELECT + INSERT/UPDATE/DELETE только staff/own teacher).
+- **S3. Email-канал рассылок — нет HTML-санитайза.** [send-broadcast/index.ts](supabase/functions/send-broadcast/index.ts) `stripHtml` (regex) применяется только для push; для email уходит **сырой HTML** из `broadcasts.content`. RichEditor + утечка админа = XSS в email клиентов/партнёров. **План:** `sanitize-html` или `isomorphic-dompurify` в edge.
+- **S4. Прямой UPDATE балансов в обход RPC.** [AdminClientCard.jsx:1297-1304](src/admin/AdminClientCard.jsx:1297) `handleAddBonus` — read-modify-write `bonus_rubles`/`bonus_coins` (гонка); [AdminClientCard.jsx:531](src/admin/AdminClientCard.jsx:531) `handleSaveDate` — прямой `subscriptions.update({visits_used,expires_at,...})`. Прямое нарушение запрета CLAUDE.md «мутации денег/визитов — только RPC». **План:** RPC `admin_adjust_rubles(client, delta, reason)` по аналогии с `admin_adjust_coins`; RPC `update_subscription_dates(sub_id, payload)` с `FOR UPDATE` + аудит в `subscription_date_changes`.
+- **S5. Прямой DELETE/UPDATE `schedule` админом — каскад без возврата визитов/зарплат.** [AdminSchedule.jsx:521-526](src/admin/AdminSchedule.jsx:521) `handleDeleteEvent`/`handleSeriesChoice` — FK-каскад чистит attendance/bookings/lesson_payments, но визиты не возвращаются. [AttendancePanel.jsx:573-579](src/admin/AttendancePanel.jsx:573) `handleReschedule`/`handleChangeTeacher` — прямой `update` без advisory_lock на зал. **План:** RPC `delete_lesson` (внутри cancel_lesson + delete), `reschedule_lesson` (advisory_lock + zal-check + аудит), `change_lesson_teacher` (откат уже посчитанной зарплаты + пересчёт).
 
-### 🟠 Высокие
+### 🟠 P1 — высокие, ближайший спринт
 
-- **STAFF-whitelist на клиенте** ([App.jsx:179](src/App.jsx:179)). Сейчас это UX-фильтр от случайных magic-link логинов сотрудников — реальной защиты нет, любой может убрать ветку из бандла. Должно быть в Supabase Auth Hook или RLS-политике на signInWithOtp. *(Отложено.)*
-- **Реферальная ссылка `user.id.slice(0,8)`** ([Profile.jsx:432](src/pages/Profile.jsx:432)). 8 hex символов uuid — не криптостойкая. Если рефералка начисляет бонусы, простой перебор даст чужой код. Заменить на отдельный `referral_codes` с настоящим случайным токеном или хотя бы HMAC от `user.id`. *(Отложено.)*
-- **1 legacy-подписка без групп в БД.** На момент `8471e23` — одна активная подписка осталась с пустым `subscription_allowed_groups`. `mark_attendance` RPC по-прежнему считает её «универсальной» (фолбэк для backward-compat). Новые подписки через `create_sale` без групп уже отклоняются (`groups_required`). При необходимости — точечный data-fix через миграцию.
-- **Индив-flow: уведомлений нет.** Препод не узнаёт о новой заявке, клиент — о подтверждении/отклонении. Edge-функция или trigger на `indiv_requests` INSERT/UPDATE. *(Отложено.)*
+- **S6. Клиент редактирует `profiles` напрямую** включая `birth_date`/`email`/`phone` — [Profile.jsx:677](src/pages/Profile.jsx:677). `birth_date` управляет авторассылкой → клиент может поставить ДР на завтра и спровоцировать рассылку. **План:** RPC `update_my_profile(payload)` с блокировкой `birth_date`/`email`/`phone` после первого ввода или rate-limit «не чаще раза в 90 дней».
+- **S7. `prize_requests` без серверной проверки** — [Bonus.jsx:24](src/pages/Bonus.jsx:24) клиент может закидать админа заявками. **План:** RPC `request_prize(prize_id)` с проверкой баланса/стока/дубля.
+- **S8. `cancel_sale` возвращает 100% бонусов даже если визиты потрачены** — клиент получает обратно SDTшки + успел сходить. **План:** пропорциональный возврат `bonus * (1 - visits_used/visits_total)`.
+- **S9. Возврат визита в замороженную/истёкшую подписку** — `cancel_lesson` безусловно `visits_used--`, визит виснет на мёртвой подписке. **План:** если `is_frozen` или `expires_at<today` — конвертировать в `bonus_rubles` по цене визита (`price / visits_total`).
+- **S10. Реферальная ссылка — fake-feature.** [Profile.jsx:599-622](src/pages/Profile.jsx:599) копируется, но `?ref=` нигде не парсится, нет колонки `referrer_id`, нет начисления. **План:** либо удалить UI, либо реализовать (колонка + парсинг при signup + RPC `apply_referral_bonus`). Уже упоминалось как «отложено» — но сейчас попало в P1, потому что UI обещает то, чего нет.
+- **S11. Перекрёстные push** — [Profile.jsx:626](src/pages/Profile.jsx:626) `upsert push_token` оставляет дубли, один FCM-токен висит на нескольких профилях. **План:** перед upsert — `update profiles set push_token=null where push_token=$1 and id<>$2`.
+- **S12. `bookings.update({status:'cancelled'})` клиентом без проверки времени** — [Schedule.jsx:152](src/pages/Schedule.jsx:152), [Profile.jsx:198](src/pages/Profile.jsx:198). UI-гард скрывает кнопку, но прямой запрос работает. **План:** RPC `cancel_booking(booking_id)` с 12-часовым барьером (как для индивов).
+- **S13. Bundle splitting** — [vite.config.js](vite.config.js) пустой, все админ-страницы импортируются eager → клиентская мобилка тащит ~7000 строк ненужного админ-кода. **План:** `React.lazy()` + `Suspense` для `/admin/*` и `/teacher/*`; `manualChunks: {vendor, supabase, firebase}`.
+- **S14. AdminFinance без `useMemo`** — на весь проект 1 `useMemo` (AdminLayout). `FinanceSales.filter().sort().reduce()` крутится на каждый кейстрок. При 1000+ продаж — лаги. **План:** `useMemo` по ключевым вычислениям в AdminFinance/AdminClientCard/AdminSchedule.
+- **S15. Задачи без ассайни + без эскалации** — [AdminTasks.jsx:551](src/admin/AdminTasks.jsx:551). Создать «безответственную» задачу легко, просроченные — только красный бейдж. **План:** алерт при создании без ассайни; cron `notify_overdue_tasks` (раз в час) → push ответственным.
+- **STAFF-whitelist на клиенте** ([App.jsx:179](src/App.jsx:179)). Реальной защиты нет, любой может убрать ветку из бандла. **План:** Supabase Auth Hook или RLS на signInWithOtp.
+- **Индив-flow: уведомлений нет.** Edge или trigger на `indiv_requests` INSERT/UPDATE → push преподу/клиенту.
+- **AdminFinance loyalty/groups attendance без даты-фильтра** ([AdminFinance.jsx:1402](src/admin/AdminFinance.jsx:1402)) — тянет всю историю present-посещений всех активных абонементщиков. Растёт линейно во времени. **План:** `.gte('marked_at', mskDayStartUtc(ago60))` либо RPC `loyalty_last_visits` с агрегацией.
+- **TeacherPanel: `attendance`/`bookings` без лимита** ([TeacherPanel.jsx:513,522](src/admin/TeacherPanel.jsx:513)) — за всю историю препода для расчёта статистики и ДР. **План:** RPC `teacher_stats(month_start)` с COUNT/DISTINCT в БД.
 
-### 🟡 Средние
+### 🟡 P2 — средние, плановые улучшения
 
-**Логика клиентской мобилки:**
-- **Глубокие ссылки клиента не работают** ([App.jsx:55](src/App.jsx:55)): `*` ловит всё кроме `/admin` и `/teacher`, редиректит на `/`. Поделиться ссылкой на `/profile` нельзя, кнопка «Назад» браузера ломает навигацию. Перевод клиента на react-router — заметная работа.
+- **S16. `is_closed` группы не проверяется при клиентской записи** ([Schedule.jsx:105](src/pages/Schedule.jsx:105)). Клиент с подходящим абонементом запишется в закрытую группу. **План:** join `groups(is_closed)` + скрытие/блокировка записи.
+- **S17. Возрастная валидация** — у групп нет min/max age, у events `age_info text` (свободная строка). **План:** `groups.age_min/age_max` + проверка в RPC `book_lesson`/в UI.
+- **S18. Истёкшие `pending` индив-заявки занимают слот** — partial UNIQUE блокирует. **План:** pg_cron job (раз в час) → `pending` старше 48ч → `cancelled` + уведомление.
+- **S19. Дубль кода: PeriodPicker + chip/card/inputStyle** — AdminFinance × 4 раза, ещё AdminCashbox/AdminClientCard. ~500 строк копипасты. **План:** `src/components/PeriodPicker.jsx`, `src/utils/styles.js`.
+- **S20. ILIKE-поиск без trgm-индекса** — AdminCashbox/Broadcasts/AttendancePanel/ClientCard. При 1000+ клиентах full table scan. **План:** `CREATE EXTENSION pg_trgm; CREATE INDEX profiles_search_idx ON profiles USING GIN ((full_name||...) gin_trgm_ops)`.
+- **S21. Прокидывание `session` prop + localStorage-«роутер»** — больно при добавлении страниц, и глубокие ссылки не работают. **План:** `SessionContext` + `react-router` для клиента (`/`, `/schedule`, `/profile`).
+- **S22. PostgREST `.or(...ilike.%${val}%)` без escape** — запятые/скобки/звёздочки ломают парсер. **План:** `escapeIlike(val)` в utils.
+- **S23. Картинки без `loading="lazy"` и без srcset** — все аватарки/призы/мерч в полном размере. **План:** `loading="lazy" decoding="async"` + Supabase Image Transformations (`?width=200&quality=80`).
+- **S24. Контраст `#BFD900` на белом ≈1.7:1 (WCAG fail) + Inter не подгружен.** **План:** запрет `#BFD900` на белом для текста (только `#6a7700`); `<link>` на Inter (или self-host).
+- **S25. SW без `notificationclick`** — клик по пушу не открывает приложение в нужном месте. **План:** добавить `clients.openWindow(data.url)` в [firebase-messaging-sw.js](public/firebase-messaging-sw.js).
+- **1 legacy-подписка без групп.** На момент `8471e23` — одна активная подписка с пустым `subscription_allowed_groups`. `mark_attendance` считает её «универсальной» через фолбэк. Новые подписки через `create_sale` уже отклоняются (`groups_required`). При необходимости — точечный data-fix.
+- **Глубокие ссылки клиента не работают** ([App.jsx:55](src/App.jsx:55)) — закрывается переходом на react-router (S21).
+- **`alert/confirm` непоследовательны** — часть критичных действий без подтверждения.
+- **Hardcoded Firebase ключи в SW** ([firebase-messaging-sw.js](public/firebase-messaging-sw.js)) при том что в [firebase.js](src/firebase.js) они в env — двойной источник истины.
+- **ESLint flat config** не включает `react-hooks/exhaustive-deps` уровнем `error` — десятки молчаливых нарушений.
+- **Кликабельные `<div>` вместо `<button>`** в карточках списков (новости, продажи, расписание).
+- **AdminClientCard SchedulesTab без `.limit()`** ([AdminClientCard.jsx:343-350](src/admin/AdminClientCard.jsx:343)). **План:** `.limit(100)` + «показать ещё».
+- **AdminCashbox `today + 'T00:00:00'`** ([AdminCashbox.jsx:262](src/admin/AdminCashbox.jsx:262)) — нарушение правила TZ. Та же ошибка в [AdminStaffCard.jsx:649](src/admin/AdminStaffCard.jsx:649).
+- **`AdminBroadcasts.handleSendTest` ставит `status:'sent'` ДО фактической отправки** ([AdminBroadcasts.jsx:863-887](src/admin/AdminBroadcasts.jsx:863)) — на UI рассылка выглядит успешной даже при провале edge; повторный тест уходит дважды (см. S1 про claim).
+- **AdminSchedule грузит ВСЕХ клиентов студии при открытии** ([AdminSchedule.jsx:447](src/admin/AdminSchedule.jsx:447)). **План:** ленивый поиск как в `ClientSearch`.
 
-**State и производительность:**
-- **Отсутствие cancel-флага в useEffect** в большинстве `pages/*` (Profile, Schedule, Shop, Team, Bonus и др.) и в нескольких местах в `admin/*`. Home, AdminLayout и useUserRole уже исправлены. Остальные — низкий риск (setState на размонтированном даёт warning, не падает), массивная работа.
+### 🟢 P3 — низкие, фоном
 
-**Инфра и UX:**
-- **Hardcoded Firebase ключи в SW** ([firebase-messaging-sw.js](public/firebase-messaging-sw.js)) при том что в [firebase.js](src/firebase.js) они в env — двойной источник истины. Firebase apiKey по факту публичный, но при ротации сломается SW.
-- **ESLint flat config** не включает `react-hooks/exhaustive-deps` уровнем `error`. Куча `useEffect` с устаревшими зависимостями проходит молча. Включение даст десятки новых ошибок — нужен отдельный refactoring-блок.
-- **`alert/confirm` непоследовательны** — часть критичных действий (отмена занятия в Schedule.jsx клиента) без подтверждения, часть с нативным confirm.
-- **Кликабельные `<div>` вместо `<button>`** в карточках списков (новости, продажи, расписание), аватарка с overlay по hover. `BottomNav` уже переведён на `<button>` (a11y win), остальные места — массивная работа.
+- **Отметка `present` без проверки «занятие сегодня»** — можно отметить завтрашний урок.
+- **Push-token в клиентском `select`** ([AdminBroadcasts handleManualSearch](src/admin/AdminBroadcasts.jsx)) — утечка позволяет напрямую слать FCM. **План:** не выбирать `push_token` в клиентских select, только в edge.
+- **CHECK-констрейнты на enum-статусы** (`bookings.status`, `tasks.status`, `prize_requests.status`, `indiv_requests.status`) — проверить, есть ли в БД.
+- **`firebase` импортируется целиком** — проверить subpath-импорты `firebase/app` + `firebase/messaging`.
+- **AdminLayout polling 30s** при `document.hidden` тоже тикает — добавить pause.
+- **`toLocalDateStr` дубль** в AdminClientCard/AdminCashbox — переключить на `toMskDateStr` из `utils/tz.js`.
+- **Реферальный код `user.id.slice(0,8)`** — 8 hex символов, не криптостойко. Решается вместе с S10.
+- **`profiles.update({role:...})` без RPC** ([AdminClientCard.jsx:197](src/admin/AdminClientCard.jsx:197)) — триггер `prevent_unauthorized_role_change` должен ловить, но логика на клиенте предполагает обход. Лучше — RPC `admin_set_role`.
+- **`AutoTab` последовательные `await` в цикле** ([AdminBroadcasts.jsx:549](src/admin/AdminBroadcasts.jsx:549)) — `Promise.all`.
+- **Отсутствие cancel-флага в useEffect** в pages/*.
 
-### 🟢 Низкие
+### План разработки
 
-Все закрыты — см. `git log` по префиксу `fix(low)`. Добавляй сюда новые точечные мелочи по мере находок.
+В порядке приоритета — 4 параллельных трека:
+
+**Трек 1 «Закрыть критические дыры» (1-2 недели):** S1-S5 целиком.
+**Трек 2 «Замкнуть бизнес-логику» (2-3 недели):** S6-S12 + уведомления для индивов + онлайн-оплата (заменить заглушку «Оплата скоро будет доступна»).
+**Трек 3 «Производительность и UX» (2 недели, параллельно):** S13, S14, S20, S22, S23, S25.
+**Трек 4 «Технический долг» (3-4 недели фоном):** S19, S21, S16, S17, S18, очистка дубликатов и мёртвых таблиц (`staff_salary_settings`, `product_indivs`, `products(type='indiv')`); включить `react-hooks/exhaustive-deps`; смоук-тесты денежного контура через `do $$ assert ... $$`.
+
+**Продуктовые идеи на будущее:**
+- Уведомления о расписании (push за день/час), лента уведомлений в клиентском UI, кошелёк/история бонусов клиенту, «отзыв о занятии» — высокая ценность, низкая стоимость.
+- CSV-экспорт, iCal-выгрузка препода, воронка продаж в AdminFinance.
+- Онлайн-оплата (ЮKassa/Tinkoff), автопредложение замены при отмене урока, мультистудийность через `studio_id`.
+- TypeScript (поэтапно), Vitest (хотя бы для tz.js/plural.js/денежного контура), feature flags через `finance_settings`.
 
 ### Как пополнять список
 
