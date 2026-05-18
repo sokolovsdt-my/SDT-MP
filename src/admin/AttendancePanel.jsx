@@ -478,7 +478,9 @@ export default function AttendancePanel({ lesson, session, onClose, teachers, on
         not_your_lesson:   'Можно отмечать только свои занятия',
         out_of_visits:       `На абонементе нет свободных визитов (${data.visits_used ?? '?'} из ${data.visits_total ?? '?'})`,
         indiv_out_of_visits: `На индив-пакете нет свободных визитов (${data.visits_used ?? '?'} из ${data.visits_total ?? '?'}). Оформите новый пакет в кассе.`,
-        no_valid_basis:      'Нет действующего основания для отметки «Пришёл». Оформите абонемент в кассе или отметьте как пробное.',
+        no_valid_basis:      data?.lesson_type === 'indiv'
+          ? 'Нет оплаченного пакета на индив. Оформите пакет в кассе.'
+          : 'Нет действующего основания для отметки «Пришёл». Оформите абонемент в кассе или отметьте как пробное.',
       }[data?.error] || `Не удалось сохранить отметку: ${data?.error || 'неизвестная ошибка'}`
       alert(msg)
       return false
@@ -615,6 +617,11 @@ export default function AttendancePanel({ lesson, session, onClose, teachers, on
   const presentCount = bookings.filter(b => b.attendance_status === 'present').length
   const absentCount = bookings.filter(b => b.attendance_status === 'absent').length
   const isPast = parseMskNaive(lesson.ends_at) < new Date()
+  // Отмена занятия запрещена с момента старта: занятие уже идёт/прошло —
+  // отменять задним числом нельзя (зарплата/визиты уже могли быть проведены,
+  // и для пришедших учеников «отмена» выглядит как отъём оплаченного визита).
+  // На уровне UI; серверный гард не нужен — это полит. правило, не race.
+  const hasStarted = parseMskNaive(lesson.starts_at) <= new Date()
   const inputStyle = { width: '100%', padding: '8px 12px', border: '1px solid #e8e8e8', borderRadius: 8, fontSize: 13, boxSizing: 'border-box', fontFamily: 'Inter,sans-serif' }
 
   return (
@@ -750,8 +757,15 @@ export default function AttendancePanel({ lesson, session, onClose, teachers, on
             <button onClick={() => {}} style={{ flex: 1, padding: '8px', background: '#fafde8', border: '1px solid #BFD900', borderRadius: 8, fontSize: 12, color: '#6a7700', cursor: 'pointer', fontWeight: 600, fontFamily: 'Inter,sans-serif' }}>✉️ Написать</button>
             <button onClick={() => setShowChangeTeacher(true)} style={{ flex: 1, padding: '8px', background: '#f5f5f5', border: 'none', borderRadius: 8, fontSize: 12, color: '#888', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>👤 Заменить</button>
             <button onClick={() => setShowReschedule(true)} style={{ flex: 1, padding: '8px', background: '#f5f5f5', border: 'none', borderRadius: 8, fontSize: 12, color: '#888', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>📅 Перенести</button>
-            <button onClick={handleCancel} disabled={lesson.is_cancelled} style={{ flex: 1, padding: '8px', background: lesson.is_cancelled ? '#f5f5f5' : '#fdecea', border: 'none', borderRadius: 8, fontSize: 12, color: lesson.is_cancelled ? '#BDBDBD' : '#e74c3c', cursor: lesson.is_cancelled ? 'default' : 'pointer', fontFamily: 'Inter,sans-serif' }}>
-              {lesson.is_cancelled ? 'Отменено' : '✕ Отменить'}
+            <button onClick={handleCancel} disabled={lesson.is_cancelled || hasStarted}
+              title={hasStarted && !lesson.is_cancelled ? 'Занятие уже началось — отмена недоступна' : undefined}
+              style={{ flex: 1, padding: '8px',
+                background: (lesson.is_cancelled || hasStarted) ? '#f5f5f5' : '#fdecea',
+                border: 'none', borderRadius: 8, fontSize: 12,
+                color: (lesson.is_cancelled || hasStarted) ? '#BDBDBD' : '#e74c3c',
+                cursor: (lesson.is_cancelled || hasStarted) ? 'default' : 'pointer',
+                fontFamily: 'Inter,sans-serif' }}>
+              {lesson.is_cancelled ? 'Отменено' : hasStarted ? '✕ Уже началось' : '✕ Отменить'}
             </button>
           </div>
         )}
