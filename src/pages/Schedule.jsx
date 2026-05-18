@@ -212,6 +212,10 @@ export default function Schedule({ session, onShop }) {
           const sub = getSubstitution(cls)
           const isIndiv = !!cls.indiv_student_id
           const isEvent = !!cls.event_id
+          // Запись/отмена бессмысленны если занятие уже стартовало.
+          // Фильтр БД грубый (по дню), поэтому для сегодняшнего дня после
+          // времени старта кнопку прячем.
+          const hasStarted = parseMskNaive(cls.starts_at) <= new Date()
 
           return (
             <div key={cls.id} style={{
@@ -237,7 +241,7 @@ export default function Schedule({ session, onShop }) {
                   ) : null}
                 </div>
 
-                {!isIndiv && (
+                {!isIndiv && !hasStarted && (
                   <button
                     onClick={() => isBooked ? handleCancel(cls) : handleBook(cls)}
                     style={{
