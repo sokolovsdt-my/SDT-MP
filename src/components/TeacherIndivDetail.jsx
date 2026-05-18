@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
 import { plural } from '../utils/plural'
+import { parseMskNaive } from '../utils/tz'
 
 // ─── Общий блок для индив-флоу клиента ────────────────────────────────────────
 // Используется в src/pages/Shop.jsx (категория «Индивы») и src/pages/Team.jsx.
@@ -202,6 +203,10 @@ export default function TeacherIndivDetail({ teacherId, session }) {
               {myRequests.map(r => {
                 const d = new Date(r.slot_date + 'T00:00:00')
                 const isPending = r.status === 'pending'
+                // Заявка уже стартовала / прошла — отмена бессмысленна
+                // (RPC всё равно отобьёт too_late для confirmed, но дёргать его
+                // нет смысла — кнопку прячем).
+                const hasStarted = parseMskNaive(`${r.slot_date}T${r.start_time}`) <= new Date()
                 return (
                   <div key={r.id} style={{display:'flex', justifyContent:'space-between', alignItems:'center', background:'#fff', borderRadius:12, padding:'10px 14px', marginBottom:6, border:'1px solid #f0f0f0', borderLeft:`3px solid ${isPending ? '#f39c12' : '#27ae60'}`}}>
                     <div style={{flex:1, minWidth:0}}>
@@ -210,10 +215,12 @@ export default function TeacherIndivDetail({ teacherId, session }) {
                         {isPending ? '⏳ Ожидает подтверждения' : '✓ Подтверждено'}
                       </span>
                     </div>
-                    <button onClick={() => handleCancelRequest(r)} disabled={cancellingId === r.id}
-                      style={{fontSize:11, color:'#e74c3c', background:'none', border:'1px solid #fdecea', borderRadius:8, padding:'4px 12px', cursor: cancellingId === r.id ? 'default' : 'pointer', fontFamily:'Inter,sans-serif', flexShrink:0, marginLeft:8, opacity: cancellingId === r.id ? 0.5 : 1}}>
-                      Отменить
-                    </button>
+                    {!hasStarted && (
+                      <button onClick={() => handleCancelRequest(r)} disabled={cancellingId === r.id}
+                        style={{fontSize:11, color:'#e74c3c', background:'none', border:'1px solid #fdecea', borderRadius:8, padding:'4px 12px', cursor: cancellingId === r.id ? 'default' : 'pointer', fontFamily:'Inter,sans-serif', flexShrink:0, marginLeft:8, opacity: cancellingId === r.id ? 0.5 : 1}}>
+                        Отменить
+                      </button>
+                    )}
                   </div>
                 )
               })}
