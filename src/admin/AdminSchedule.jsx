@@ -563,9 +563,11 @@ export default function AdminSchedule({ session }) {
     </div>
   )
 
-  // showTime=false для week — карточка узкая, время и так читается из сетки
-  // слева, дубль внутри карточки только перекрывает бейдж счётчика.
-  const EventBlock = ({ ev, width='95%', left='2%', showTime=true }) => {
+  // inline=true (week) — счётчик внутри строки времени: «18:00–19:00 · 1».
+  // На узких карточках абсолютный бейдж в углу перекрывал «00» во времени —
+  // inline-формат не зависит от ширины. На широких (day) — оставлен
+  // абсолютный бейдж с иконкой 👥.
+  const EventBlock = ({ ev, width='95%', left='2%', inline=false }) => {
     const color = getEventColor(ev, groupColorMap, groupNameMap)
     const { top, height } = getEventStyle(ev)
     const title = ev.groups?.name || ev.title || (ev.student ? `Индив: ${ev.student.full_name}` : ev.event_id ? 'Мероприятие' : 'Занятие')
@@ -576,6 +578,7 @@ export default function AdminSchedule({ session }) {
     // На отменённых счётчик не показываем (визиты возвращены при cancel_lesson,
     // фактическое число записавшихся уже не важно).
     const showCount = !isCancelled && cnt !== null
+    const countLabel = cap ? `${cnt}/${cap}` : `${cnt}`
     return (
       <div onClick={() => handleEventClick(ev)} style={{
         position:'absolute', top, left, width, height,
@@ -590,17 +593,20 @@ export default function AdminSchedule({ session }) {
             ОТМЕНЕНО
           </div>
         )}
-        {showCount && (
+        {showCount && !inline && (
           <div style={{position:'absolute', top: isCancelled ? 16 : 2, right:3,
             fontSize:9, fontWeight:700, color: color.text,
             background:'rgba(255,255,255,0.88)',
             padding:'1px 5px', borderRadius:8, lineHeight:1.4,
             border:`1px solid ${color.border}`}}>
-            {isShort ? cnt : `👥 ${cnt}${cap ? `/${cap}` : ''}`}
+            👥 {countLabel}
           </div>
         )}
         <div style={{fontSize:10, fontWeight:700, color: color.text, marginTop: isCancelled ? 14 : 0}}>
-          {showTime && <div style={{whiteSpace:'nowrap'}}>{formatTime(ev.starts_at)}–{formatTime(ev.ends_at)}</div>}
+          <div style={{whiteSpace:'nowrap'}}>
+            {formatTime(ev.starts_at)}–{formatTime(ev.ends_at)}
+            {showCount && inline && <span style={{opacity:0.7, fontWeight:600}}> · {countLabel}</span>}
+          </div>
           <div style={{wordBreak:'break-word', lineHeight:1.2}}>{title}</div>
           {ev.teacher && <div style={{fontWeight:400, opacity:0.8, marginTop:1}}>{ev.teacher.full_name}</div>}
         </div>
@@ -775,7 +781,7 @@ export default function AdminSchedule({ session }) {
                 {getWeekDays(currentDate).map((d, i) => (
                   <div key={i} style={{flex:1, borderRight:'1px solid #f0f0f0', position:'relative', height:totalHeight}}>
                     <HourLines />
-                    {eventsForDay(d).map(ev => <EventBlock key={ev.id} ev={ev} showTime={false} />)}
+                    {eventsForDay(d).map(ev => <EventBlock key={ev.id} ev={ev} inline />)}
                     {eventDatesForDay(d).map(ed => (
                       <div key={ed.id} style={{
                         position:'absolute',
