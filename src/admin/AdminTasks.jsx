@@ -149,6 +149,7 @@ function HallModal({ request, onClose, onConfirm }) {
 
 // ─── Карточка запроса на индив ────────────────────────────────────────────────
 function IndivRequestCard({ request, onUpdate }) {
+  const navigate = useNavigate()
   const [showHallModal, setShowHallModal] = useState(false)
   const [showContactModal, setShowContactModal] = useState(false)
   const [showReject, setShowReject] = useState(false)
@@ -233,7 +234,7 @@ function IndivRequestCard({ request, onUpdate }) {
         {!isRejected && (
           <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
             {!isConfirmed && <button onClick={() => setShowHallModal(true)} style={btn({background:'#BFD900',borderColor:'#BFD900',color:'#2a2a2a'})}>Назначить зал</button>}
-            {isConfirmed && <button onClick={() => window.location.href='/admin/schedule'} style={btn({background:'#eafaf1',borderColor:'#a9dfbf',color:'#27ae60'})}>Открыть расписание</button>}
+            {isConfirmed && <button onClick={() => navigate('/admin/schedule')} style={btn({background:'#eafaf1',borderColor:'#a9dfbf',color:'#27ae60'})}>Открыть расписание</button>}
             <button onClick={() => setShowContactModal(true)} style={btn()}>Написать клиенту</button>
             <button onClick={() => setShowReject(true)} style={btn({background:'#fdecea',borderColor:'#f5b7b1',color:'#c0392b'})}>
               {isConfirmed ? 'Отменить занятие' : 'Отклонить'}

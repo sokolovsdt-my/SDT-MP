@@ -1,34 +1,20 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
-import { plural } from '../utils/plural'
-
-const DAYS_SHORT = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб']
-const MONTHS = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек']
+import TeacherIndivDetail from '../components/TeacherIndivDetail'
 
 export default function Team({ session }) {
   const [teachers, setTeachers] = useState([])
   const [selected, setSelected] = useState(() => localStorage.getItem('team_selected') || null)
   const [teacherData, setTeacherData] = useState(null)
-  const [indivProducts, setIndivProducts] = useState([])
-  const [slots, setSlots] = useState([])
   const [groups, setGroups] = useState([])
   const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState(() => localStorage.getItem('team_tab') || 'info')
-  const [clientPackage, setClientPackage] = useState(null)
-  const [bookingSlot, setBookingSlot] = useState(null)
-  const [bookingDone, setBookingDone] = useState(null)
-  const [bookingError, setBookingError] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [myRequests, setMyRequests] = useState([])
-  const [cancellingId, setCancellingId] = useState(null)
 
-  const goSelect = (id) => { setSelected(id); localStorage.setItem('team_selected', id || ''); setBookingDone(null); setBookingError('') }
-  const goTab = (t) => { setTab(t); localStorage.setItem('team_tab', t) }
+  const goSelect = (id) => { setSelected(id); localStorage.setItem('team_selected', id || '') }
 
   useEffect(() => { loadTeachers() }, [])
   useEffect(() => {
     if (selected) loadTeacher(selected)
-    else setTeacherData(null)
+    else { setTeacherData(null); setGroups([]) }
   }, [selected])
 
   const loadTeachers = async () => {
@@ -41,126 +27,16 @@ export default function Team({ session }) {
     setLoading(false)
   }
 
+  // Только то, что Team-страница рисует САМА (аватар + bio + список групп).
+  // Всё, что про пакеты/слоты/заявки — общий компонент TeacherIndivDetail.
   const loadTeacher = async (id) => {
     setLoading(true)
     const { data: profile } = await supabase.from('profiles').select('id, full_name, first_name, last_name, avatar_url, bio').eq('id', id).single()
     setTeacherData(profile)
-
     const { data: grps } = await supabase.from('schedule').select('groups(name)').eq('teacher_id', id).not('group_id', 'is', null)
-    const uniqueGroups = [...new Set((grps || []).map(g => g.groups?.name).filter(Boolean))]
-    setGroups(uniqueGroups)
-
-    const { data: pkgs } = await supabase.from('indiv_packages').select('*').eq('teacher_id', id).eq('is_active', true).order('sort_order')
-    setIndivProducts(pkgs || [])
-
-    const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' })
-    const future = new Date(Date.now() + 30*24*60*60*1000).toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' })
-    const [{ data: sl }, { data: busy }] = await Promise.all([
-      supabase.from('teacher_slot_dates').select('*')
-        .eq('teacher_id', id).eq('is_active', true)
-        .gte('date', today).lte('date', future)
-        .order('date').order('start_time'),
-      // БД-гарантия (partial UNIQUE) уже не даст создать вторую заявку,
-      // но без UX-фильтра клиент жмёт «Записаться» и получает slot_taken.
-      supabase.from('indiv_requests').select('slot_date, start_time')
-        .eq('teacher_id', id).in('status', ['pending','confirmed'])
-        .gte('slot_date', today),
-    ])
-    const busySet = new Set((busy || []).map(b => `${b.slot_date}:${b.start_time}`))
-    setSlots((sl || []).filter(s => !busySet.has(`${s.date}:${s.start_time}`)))
-
-    if (session?.user?.id) {
-      const { data: pkg } = await supabase
-        .from('indiv_subscriptions')
-        .select('id, visits_total, visits_used, expires_at')
-        .eq('client_id', session.user.id)
-        .eq('teacher_id', id)
-        .eq('is_frozen', false)
-        .or(`expires_at.is.null,expires_at.gte.${today}`)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-      // Безлимит-пакет: visits_total = null. Не сравниваем — NaN-comparisons дают false.
-      const isValid = pkg && (pkg.visits_total === null || pkg.visits_used < pkg.visits_total)
-      setClientPackage(isValid ? pkg : null)
-      await loadMyRequests(id)
-    }
-
+    setGroups([...new Set((grps || []).map(g => g.groups?.name).filter(Boolean))])
     setLoading(false)
   }
-
-  const loadMyRequests = async (teacherId) => {
-    const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' })
-    const { data } = await supabase
-      .from('indiv_requests')
-      .select('id, slot_date, start_time, end_time, hall, status')
-      .eq('client_id', session.user.id)
-      .eq('teacher_id', teacherId)
-      .in('status', ['pending', 'confirmed'])
-      .gte('slot_date', today)
-      .order('slot_date').order('start_time')
-    setMyRequests(data || [])
-  }
-
-  const handleCancelRequest = async (req) => {
-    if (cancellingId) return
-    const ask = req.status === 'confirmed'
-      ? 'Отменить подтверждённое занятие? Преподаватель будет уведомлён.'
-      : 'Отменить заявку на индив?'
-    if (!confirm(ask)) return
-    setCancellingId(req.id)
-    const { data, error } = await supabase.rpc('cancel_indiv_request', { p_request_id: req.id })
-    setCancellingId(null)
-    if (error) { alert('Ошибка сети: ' + error.message); return }
-    if (!data?.ok) {
-      const msg = {
-        not_authenticated: 'Сессия истекла, войдите заново',
-        forbidden:         'Можно отменять только свои заявки',
-        request_not_found: 'Заявка не найдена',
-        not_cancellable:   `Заявку нельзя отменить (статус: ${data.current_status})`,
-        too_late:          `До занятия меньше 12 часов (${data.hours_left}ч). Обратись к администратору.`,
-      }[data?.error] || `Не удалось отменить: ${data?.error || 'неизвестная ошибка'}`
-      alert(msg); return
-    }
-    loadMyRequests(selected)
-  }
-
-  const handleBook = async (dateStr, slot) => {
-    if (saving) return
-    setBookingSlot(slot.id)
-    setBookingError('')
-    setSaving(true)
-    const { data, error } = await supabase.rpc('create_indiv_request', {
-      p_teacher_id: selected,
-      p_slot_date:  dateStr,
-      p_start_time: slot.start_time,
-      p_end_time:   slot.end_time,
-    })
-    setSaving(false)
-    setBookingSlot(null)
-    if (error) { setBookingError('Ошибка сети: ' + error.message); return }
-    if (!data?.ok) {
-      const msg = {
-        not_authenticated:     'Сессия истекла, войдите заново',
-        invalid_params:        'Некорректные параметры записи',
-        invalid_time_range:    'Время окончания должно быть позже начала',
-        slot_in_past:          'Слот уже в прошлом — обновите страницу',
-        slot_not_found:        'Слот недоступен — обновите страницу',
-        slot_taken:            'Этот слот только что заняли — обновите страницу',
-        already_booked_by_you: 'Вы уже записаны на этот слот',
-      }[data?.error] || `Не удалось записаться: ${data?.error || 'неизвестная ошибка'}`
-      setBookingError(msg); return
-    }
-    const d = new Date(dateStr + 'T00:00:00')
-    setBookingDone(`${DAYS_SHORT[d.getDay()]}, ${d.getDate()} ${MONTHS[d.getMonth()]}, ${slot.start_time.slice(0,5)}–${slot.end_time.slice(0,5)}`)
-    loadMyRequests(selected)
-  }
-
-  const slotsByDate = {}
-  slots.forEach(s => {
-    if (!slotsByDate[s.date]) slotsByDate[s.date] = []
-    slotsByDate[s.date].push(s)
-  })
 
   const initials = (t) => {
     const name = t.full_name || `${t.first_name || ''} ${t.last_name || ''}`.trim()
@@ -201,123 +77,7 @@ export default function Team({ session }) {
           </div>
         )}
 
-        <div style={{display:'flex', borderBottom:'1px solid #f0f0f0', marginBottom:16}}>
-          {[['info','О преподе'],['indiv','Пакеты'],['slots','Записаться']].map(([v,l]) => (
-            <div key={v} onClick={() => goTab(v)}
-              style={{padding:'10px 16px', fontSize:13, cursor:'pointer', color:tab===v?'#2a2a2a':'#BDBDBD', borderBottom:tab===v?'2px solid #BFD900':'2px solid transparent', fontWeight:tab===v?600:400}}>
-              {l}
-            </div>
-          ))}
-        </div>
-
-        {tab === 'info' && (
-          <div style={{paddingBottom:20}}>
-            {groups.length === 0 && !teacherData.bio && (
-              <div style={{fontSize:13, color:'#BDBDBD', textAlign:'center', padding:20}}>Нет информации</div>
-            )}
-          </div>
-        )}
-
-        {tab === 'indiv' && (
-          <div style={{paddingBottom:20}}>
-            {indivProducts.length === 0 ? (
-              <div style={{textAlign:'center', color:'#BDBDBD', padding:40, fontSize:13}}>Индивы не настроены</div>
-            ) : indivProducts.map(p => (
-              <div key={p.id} style={{background:'#fff', borderRadius:16, border:'1px solid #f0f0f0', padding:16, marginBottom:12}}>
-                <div style={{fontSize:15, fontWeight:600, color:'#2a2a2a', marginBottom:4}}>{p.name}</div>
-                <div style={{fontSize:11, color:'#BDBDBD', marginBottom:12}}>
-                  {p.visits_count} {plural(p.visits_count, ['занятие','занятия','занятий'])} · {p.duration_days} {plural(p.duration_days, ['день','дня','дней'])}
-                </div>
-                <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                  <div style={{fontSize:20, color:'#2a2a2a', fontWeight:300}}>{Number(p.price).toLocaleString('ru-RU')} <span style={{fontSize:12, color:'#BDBDBD'}}>₽</span></div>
-                  <button onClick={() => alert('Оплата скоро будет доступна!')}
-                    style={{background:'#BFD900', border:'none', borderRadius:12, padding:'9px 20px', fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-                    Купить
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {tab === 'slots' && (
-          <div style={{paddingBottom:20}}>
-            {clientPackage ? (
-              <div style={{background:'#eafaf1', borderRadius:12, padding:'10px 14px', marginBottom:16, fontSize:13, color:'#27ae60'}}>
-                ✓ Есть пакет · осталось {clientPackage.visits_total - clientPackage.visits_used} занятий
-              </div>
-            ) : (
-              <div style={{background:'#fef9e7', borderRadius:12, padding:'10px 14px', marginBottom:16, fontSize:13, color:'#f39c12'}}>
-                Нет активного пакета — после записи нужно оплатить индив
-              </div>
-            )}
-
-            {myRequests.length > 0 && (
-              <div style={{marginBottom:16}}>
-                <div style={{fontSize:11, color:'#BDBDBD', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8}}>Ваши заявки</div>
-                {myRequests.map(r => {
-                  const d = new Date(r.slot_date + 'T00:00:00')
-                  const isPending = r.status === 'pending'
-                  return (
-                    <div key={r.id} style={{display:'flex', justifyContent:'space-between', alignItems:'center', background:'#fff', borderRadius:12, padding:'10px 14px', marginBottom:6, border:'1px solid #f0f0f0', borderLeft:`3px solid ${isPending ? '#f39c12' : '#27ae60'}`}}>
-                      <div style={{flex:1, minWidth:0}}>
-                        <div style={{fontSize:13, color:'#2a2a2a'}}>{DAYS_SHORT[d.getDay()]}, {d.getDate()} {MONTHS[d.getMonth()]} · {r.start_time.slice(0,5)}–{r.end_time.slice(0,5)}</div>
-                        <span style={{display:'inline-block', marginTop:4, fontSize:11, fontWeight:600, color: isPending ? '#f39c12' : '#27ae60', background: isPending ? '#fef9e7' : '#eafaf1', padding:'2px 8px', borderRadius:6}}>
-                          {isPending ? '⏳ Ожидает подтверждения' : '✓ Подтверждено'}
-                        </span>
-                      </div>
-                      <button onClick={() => handleCancelRequest(r)} disabled={cancellingId === r.id}
-                        style={{fontSize:11, color:'#e74c3c', background:'none', border:'1px solid #fdecea', borderRadius:8, padding:'4px 12px', cursor: cancellingId === r.id ? 'default' : 'pointer', fontFamily:'Inter,sans-serif', flexShrink:0, marginLeft:8, opacity: cancellingId === r.id ? 0.5 : 1}}>
-                        Отменить
-                      </button>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-
-            {bookingDone && (
-              <div style={{background:'#eafaf1', borderRadius:12, padding:16, marginBottom:16, textAlign:'center'}}>
-                <div style={{fontSize:20, marginBottom:6}}>✅</div>
-                <div style={{fontSize:14, fontWeight:600, color:'#27ae60', marginBottom:4}}>Запрос отправлен!</div>
-                <div style={{fontSize:12, color:'#888'}}>{bookingDone}</div>
-                <div style={{fontSize:12, color:'#888', marginTop:4}}>Администратор подтвердит запись и свяжется с вами</div>
-                <button onClick={() => setBookingDone(null)}
-                  style={{marginTop:12, background:'#BFD900', border:'none', borderRadius:10, padding:'8px 20px', fontSize:13, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif'}}>
-                  Записаться ещё
-                </button>
-              </div>
-            )}
-
-            {bookingError && (
-              <div style={{background:'#fdecea', borderRadius:10, padding:'10px 14px', marginBottom:12, fontSize:13, color:'#e74c3c'}}>{bookingError}</div>
-            )}
-
-            {Object.keys(slotsByDate).length === 0 ? (
-              <div style={{textAlign:'center', color:'#BDBDBD', padding:40, fontSize:13}}>Расписание не указано</div>
-            ) : Object.entries(slotsByDate).map(([dateStr, daySlots]) => {
-              const d = new Date(dateStr + 'T00:00:00')
-              return (
-                <div key={dateStr} style={{marginBottom:16}}>
-                  <div style={{fontSize:13, fontWeight:600, color:'#2a2a2a', marginBottom:8}}>
-                    {DAYS_SHORT[d.getDay()]}, {d.getDate()} {MONTHS[d.getMonth()]}
-                  </div>
-                  {daySlots.map(s => (
-                    <div key={s.id} style={{display:'flex', justifyContent:'space-between', alignItems:'center', background:'#fff', borderRadius:12, padding:'10px 14px', marginBottom:6, border:'1px solid #f0f0f0'}}>
-                      <div style={{fontSize:13, color:'#2a2a2a'}}>{s.start_time.slice(0,5)} — {s.end_time.slice(0,5)}</div>
-                      <button
-                        disabled={saving && bookingSlot === s.id}
-                        onClick={() => handleBook(dateStr, s)}
-                        style={{background:'#BFD900', border:'none', borderRadius:8, padding:'6px 16px', fontSize:12, fontWeight:700, color:'#2a2a2a', cursor:'pointer', fontFamily:'Inter,sans-serif', opacity: saving && bookingSlot === s.id ? 0.5 : 1}}>
-                        {saving && bookingSlot === s.id ? '...' : 'Записаться'}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )
-            })}
-          </div>
-        )}
+        <TeacherIndivDetail teacherId={selected} session={session} />
       </div>
     </div>
   )
