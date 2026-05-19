@@ -344,13 +344,23 @@ function FinanceSales({ session }) {
       }[data?.error] || `Не удалось отменить: ${data?.error || 'неизвестная ошибка'}`
       alert(msg); return
     }
-    const cancelled = (data.cancelled_sale_ids || []).length
-    const frozen    = (data.frozen_subscription_ids || []).length
+    const cancelled    = (data.cancelled_sale_ids || []).length
+    const frozen       = (data.frozen_subscription_ids || []).length
+    const frozenIndiv  = (data.frozen_indiv_subscription_ids || []).length
+    const fullCharge   = data.full_bonus_paid || 0
+    const refunded     = data.refunded_bonus_rubles || 0
+    const withheld     = Math.max(0, fullCharge - refunded)
     const summary = [
       `Отменено позиций: ${cancelled}`,
-      frozen > 0 ? `Заморожено абонементов: ${frozen}` : null,
-      data.refunded_bonus_rubles > 0 ? `Возвращено бонусов: ${data.refunded_bonus_rubles} ₽` : null,
-      data.visits_already_used ? '⚠ По одному из абонементов уже были посещения — визиты не возвращаются.' : null,
+      (frozen + frozenIndiv) > 0 ? `Заморожено абонементов: ${frozen + frozenIndiv}` : null,
+      refunded > 0
+        ? (withheld > 0
+            ? `Возвращено бонусов: ${refunded} ₽ из ${fullCharge} ₽ (удержано ${withheld} ₽ за уже использованные занятия)`
+            : `Возвращено бонусов: ${refunded} ₽`)
+        : (fullCharge > 0
+            ? `Бонусы не возвращены: абонемент использован полностью (${fullCharge} ₽ списано безвозвратно)`
+            : null),
+      data.visits_already_used ? '⚠ По одному из абонементов уже были посещения — визиты остаются у клиента.' : null,
     ].filter(Boolean).join('\n')
     alert(summary)
     load()

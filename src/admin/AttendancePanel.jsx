@@ -635,8 +635,11 @@ export default function AttendancePanel({ lesson, session, onClose, teachers, on
       }[data?.error] || `Не удалось отменить: ${data?.error || 'неизвестная ошибка'}`
       alert(msg); return
     }
+    const refundedTotal = (data.refunded_visits || 0) + (data.refunded_indiv_visits || 0)
+    const converted     = data.converted_to_rubles || 0
     const parts = [
-      `Возвращено визитов: ${data.refunded_visits}`,
+      refundedTotal > 0 ? `Возвращено визитов: ${refundedTotal}` : null,
+      converted > 0 ? `Компенсация за мёртвые абонементы: ${converted} ₽ (зачислены в бонусы)` : null,
       data.removed_payments > 0 ? 'Зарплата за урок отозвана' : null,
     ].filter(Boolean)
     if (parts.length > 0) alert(parts.join('\n'))
