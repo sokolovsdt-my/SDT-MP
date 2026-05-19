@@ -1414,10 +1414,18 @@ function FinanceLoyalty({ session }) {
     const studentIds = [...new Set((activeSubs || []).map(s => s.student_id))]
     let lastVisitByStudent = {}
     if (studentIds.length > 0) {
+      // attendance.marked_at — UTC naive (default now()). Тянуть всю историю
+      // больно: на студии с 5к клиентов растёт линейно во времени. Ограничиваем
+      // последними 90 днями — этого достаточно для расчёта «не ходят 10+ дней».
+      // attendance.marked_at прямо в строке; schedule.starts_at нужен для
+      // фактического дня занятия, а не момента отметки.
+      const ago90 = new Date(); ago90.setDate(ago90.getDate() - 90)
+      const ago90Iso = mskDayStartUtc(toMskDateStr(ago90))
       const { data: att } = await supabase.from('attendance')
-        .select('student_id, schedule:schedule_id(starts_at)')
+        .select('student_id, marked_at, schedule:schedule_id(starts_at)')
         .in('student_id', studentIds)
         .eq('status', 'present')
+        .gte('marked_at', ago90Iso)
       ;(att || []).forEach(a => {
         const ts = a.schedule?.starts_at
         if (!ts) return

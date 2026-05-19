@@ -287,6 +287,9 @@ function TaskForm({ session, staff, clients, onSave, onCancel }) {
 
   const handleSave = async () => {
     if (!form.title) return
+    if (assignees.length === 0) {
+      if (!confirm('Задача создаётся без ответственного — её никто не увидит в фильтре «Мои задачи» и эскалация просроченных не сработает.\n\nСохранить всё равно?')) return
+    }
     const { data: task } = await supabase.from('tasks').insert({ ...form, created_by: session.user.id, deadline: form.deadline || null, task_type: 'regular' }).select().single()
     if (assignees.length > 0) await supabase.from('task_assignees').insert(assignees.map(uid => ({ task_id: task.id, user_id: uid })))
     if (!form.is_group && clientId) {

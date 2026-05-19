@@ -510,14 +510,14 @@ export default function TeacherPanel({ session }) {
       .eq('status', 'pending')
     setIndivPendingCount(count || 0)
 
-    const { data: att } = await supabase.from('attendance')
-      .select('created_at, student_id')
-      .eq('teacher_id', uid)
-      .eq('status', 'present')
-    const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0,0,0,0)
-    const uniqueStudents = new Set((att || []).map(a => a.student_id)).size
-    const thisMonth = (att || []).filter(a => new Date(a.created_at) >= monthStart).length
-    setStats({ lessons: att?.length || 0, students: uniqueStudents, thisMonth })
+    // Статистика преподавателя через RPC — раньше тянули всю историю
+    // attendance препода на клиент. Теперь агрегация COUNT/COUNT DISTINCT в БД.
+    const { data: tsData } = await supabase.rpc('teacher_stats')
+    if (tsData?.ok) {
+      setStats({ lessons: tsData.lessons || 0, students: tsData.students || 0, thisMonth: tsData.this_month || 0 })
+    } else {
+      setStats({ lessons: 0, students: 0, thisMonth: 0 })
+    }
 
     const { data: groupIds } = await supabase.from('schedule')
       .select('group_id').eq('teacher_id', uid).not('group_id', 'is', null)

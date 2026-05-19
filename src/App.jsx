@@ -213,8 +213,16 @@ function Login() {
     e.preventDefault()
     if (!email) { setError('Введите email'); return }
     setLoading(true); setError('')
-    const STAFF = ['sokolov-ruslan2014@ya.ru', 'syuziedancer@mail.ru']
-    if (STAFF.includes(email.toLowerCase())) {
+    // STAFF-whitelist теперь в БД (public.staff_whitelist) — единый источник
+    // правды. Серверный гард: триггер profiles_staff_password_check блокирует
+    // создание профиля для whitelisted email без пароля в auth.users.
+    // UI-проверка ниже даёт понятную ошибку до отправки OTP.
+    const { data: row } = await supabase
+      .from('staff_whitelist')
+      .select('email')
+      .ilike('email', email.trim())
+      .maybeSingle()
+    if (row) {
       setError('Сотрудники входят только по паролю'); setLoading(false); return
     }
     const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false } })
