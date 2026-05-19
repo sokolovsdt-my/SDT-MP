@@ -44,6 +44,14 @@ export default function Schedule({ session, onShop }) {
   const [showPushBanner, setShowPushBanner] = useState(false)
   const [loading, setLoading] = useState(true)
   const [dayEvents, setDayEvents] = useState([])
+  // birth_date нужен для S17 (возрастная валидация групп). Подгружаем один
+  // раз при монтировании; если null — UI не блочит запись, серверный
+  // триггер тоже не блочит (см. prevent_invalid_booking).
+  const [birthDate, setBirthDate] = useState(null)
+  useEffect(() => {
+    supabase.from('profiles').select('birth_date').eq('id', session.user.id).maybeSingle()
+      .then(({ data }) => setBirthDate(data?.birth_date || null))
+  }, [session.user.id])
 
   const goDay = (i) => { setActiveDay(i); localStorage.setItem('schedule_day', i) }
 
@@ -71,7 +79,7 @@ export default function Schedule({ session, onShop }) {
         .from('schedule')
         .select(`
           *,
-          groups(name, color),
+          groups(name, color, is_closed, age_min, age_max),
           teacher:profiles!schedule_teacher_id_fkey(full_name, first_name),
           substitution:teacher_substitutions!teacher_substitutions_schedule_id_fkey(
             original_teacher:profiles!teacher_substitutions_original_teacher_id_fkey(full_name, first_name),
@@ -102,8 +110,32 @@ export default function Schedule({ session, onShop }) {
 
   const formatTime = (dt) => parseMskNaive(dt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' })
 
+  // S16+S17: проверка is_closed и возраста до запроса. Триггер
+  // prevent_invalid_booking на сервере дублирует те же гарды.
+  const bookingBlocker = (cls) => {
+    const g = cls.groups
+    if (!g) return null
+    if (g.is_closed) return 'Эта группа закрыта для записи. Обратись к администратору.'
+    if (g.age_min != null || g.age_max != null) {
+      if (!birthDate) {
+        return 'Чтобы записаться, заполни дату рождения в профиле — у этой группы есть возрастные ограничения.'
+      }
+      const bd = new Date(birthDate)
+      const today = new Date()
+      let age = today.getFullYear() - bd.getFullYear()
+      const m = today.getMonth() - bd.getMonth()
+      if (m < 0 || (m === 0 && today.getDate() < bd.getDate())) age--
+      if (g.age_min != null && age < g.age_min) return `Эта группа для возраста от ${g.age_min} лет.`
+      if (g.age_max != null && age > g.age_max) return `Эта группа для возраста до ${g.age_max} лет.`
+    }
+    return null
+  }
+
   const handleBook = async (cls) => {
     if (booked.includes(cls.id)) return
+
+    const blocker = bookingBlocker(cls)
+    if (blocker) { alert(blocker); return }
 
     const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' })
     const { data: subs } = await supabase
@@ -134,16 +166,21 @@ export default function Schedule({ session, onShop }) {
       status: 'booked',
     })
 
-    if (!error) {
-      setBooked(prev => [...prev, cls.id])
-      // Баннер показываем только если push-разрешение ещё не дано/не запрошено
-      // и пользователь ранее не нажимал «Не сейчас».
-      const dismissed = localStorage.getItem('push_banner_dismissed') === '1'
-      const perm = typeof Notification !== 'undefined' ? Notification.permission : 'denied'
-      if (!dismissed && perm === 'default') setShowPushBanner(true)
-      // Перезагружаем bookings чтобы получить id для отмены
-      loadBooked()
+    if (error) {
+      // Серверный триггер prevent_invalid_booking даёт код через PostgrestError.
+      const m = (error.message || '').toLowerCase()
+      if (m.includes('group_closed'))   { alert('Эта группа закрыта для записи. Обратись к администратору.'); return }
+      if (m.includes('age_below_min'))  { alert('Эта группа для другого возраста (младше требуемого).'); return }
+      if (m.includes('age_above_max'))  { alert('Эта группа для другого возраста (старше требуемого).'); return }
+      alert('Не удалось записаться: ' + error.message)
+      return
     }
+
+    setBooked(prev => [...prev, cls.id])
+    const dismissed = localStorage.getItem('push_banner_dismissed') === '1'
+    const perm = typeof Notification !== 'undefined' ? Notification.permission : 'denied'
+    if (!dismissed && perm === 'default') setShowPushBanner(true)
+    loadBooked()
   }
 
   const handleCancel = async (cls) => {
@@ -247,20 +284,36 @@ export default function Schedule({ session, onShop }) {
                   ) : null}
                 </div>
 
-                {!isIndiv && !hasStarted && (
-                  <button
-                    onClick={() => isBooked ? handleCancel(cls) : handleBook(cls)}
-                    style={{
-                      background: isBooked ? '#fdecea' : '#BFD900',
-                      color: isBooked ? '#e74c3c' : '#2a2a2a',
-                      border: isBooked ? '1px solid #fdecea' : 'none',
-                      borderRadius: 10, padding: '7px 13px',
-                      fontSize: 11, fontWeight: 700, cursor: 'pointer',
-                      whiteSpace: 'nowrap', fontFamily: 'Inter,sans-serif', flexShrink: 0
-                    }}>
-                    {isBooked ? 'Отменить ✕' : 'Записаться'}
-                  </button>
-                )}
+                {!isIndiv && !hasStarted && (() => {
+                  const blocker = isBooked ? null : bookingBlocker(cls)
+                  if (blocker) {
+                    return (
+                      <div title={blocker} style={{
+                        background: '#f5f5f5', color: '#888',
+                        borderRadius: 10, padding: '7px 11px',
+                        fontSize: 11, fontWeight: 600,
+                        whiteSpace: 'nowrap', flexShrink: 0,
+                        maxWidth: 130, textAlign: 'center', lineHeight: 1.3
+                      }}>
+                        {cls.groups?.is_closed ? '🔒 Закрыта' : `👶 ${cls.groups?.age_min ?? '0'}${cls.groups?.age_max != null ? `–${cls.groups.age_max}` : '+'} лет`}
+                      </div>
+                    )
+                  }
+                  return (
+                    <button
+                      onClick={() => isBooked ? handleCancel(cls) : handleBook(cls)}
+                      style={{
+                        background: isBooked ? '#fdecea' : '#BFD900',
+                        color: isBooked ? '#e74c3c' : '#2a2a2a',
+                        border: isBooked ? '1px solid #fdecea' : 'none',
+                        borderRadius: 10, padding: '7px 13px',
+                        fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                        whiteSpace: 'nowrap', fontFamily: 'Inter,sans-serif', flexShrink: 0
+                      }}>
+                      {isBooked ? 'Отменить ✕' : 'Записаться'}
+                    </button>
+                  )
+                })()}
               </div>
             </div>
           )

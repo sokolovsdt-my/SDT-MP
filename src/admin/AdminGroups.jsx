@@ -27,7 +27,7 @@ export default function AdminGroups() {
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState(null)
-  const [form, setForm] = useState({ name:'', description:'', color:'', is_closed:false, teacher_id:'' })
+  const [form, setForm] = useState({ name:'', description:'', color:'', is_closed:false, teacher_id:'', age_min:'', age_max:'' })
   const [saving, setSaving] = useState(false)
 
   useEffect(() => { loadAll() }, [])
@@ -37,7 +37,7 @@ export default function AdminGroups() {
     if (editId && groups.length > 0) {
       const g = groups.find(g => g.id === editId)
       if (g) {
-        setForm({ name:g.name, description:g.description||'', color:g.color||'', is_closed:g.is_closed||false, teacher_id:g.teacher_id||'' })
+        setForm({ name:g.name, description:g.description||'', color:g.color||'', is_closed:g.is_closed||false, teacher_id:g.teacher_id||'', age_min:g.age_min ?? '', age_max:g.age_max ?? '' })
         setEditingId(g.id)
         setShowForm(true)
       }
@@ -58,12 +58,12 @@ export default function AdminGroups() {
   }
 
   const resetForm = () => {
-    setForm({ name:'', description:'', color:'', is_closed:false, teacher_id:'' })
+    setForm({ name:'', description:'', color:'', is_closed:false, teacher_id:'', age_min:'', age_max:'' })
     setEditingId(null)
   }
 
   const handleStartEdit = (g) => {
-    setForm({ name:g.name, description:g.description||'', color:g.color||'', is_closed:g.is_closed||false, teacher_id:g.teacher_id||'' })
+    setForm({ name:g.name, description:g.description||'', color:g.color||'', is_closed:g.is_closed||false, teacher_id:g.teacher_id||'', age_min:g.age_min ?? '', age_max:g.age_max ?? '' })
     setEditingId(g.id)
     setShowForm(true)
     const next = new URLSearchParams(searchParams)
@@ -81,6 +81,14 @@ export default function AdminGroups() {
       color: form.color || null,
       is_closed: form.is_closed,
       teacher_id: form.teacher_id || null,
+      // S17: возрастной диапазон для серверной валидации в prevent_invalid_booking.
+      // Парсим как int, пустую строку → null (без ограничения).
+      age_min: form.age_min === '' ? null : Math.max(0, parseInt(form.age_min) || 0),
+      age_max: form.age_max === '' ? null : Math.max(0, parseInt(form.age_max) || 0),
+    }
+    if (payload.age_min != null && payload.age_max != null && payload.age_min > payload.age_max) {
+      alert('Минимальный возраст не может быть больше максимального')
+      setSaving(false); return
     }
     if (editingId) {
       const { error } = await supabase.from('groups').update(payload).eq('id', editingId)
@@ -155,11 +163,22 @@ export default function AdminGroups() {
           </select>
           <label style={labelStyle}>Цвет в расписании</label>
           {colorPicker(form.color, (c) => setForm({...form, color:c}))}
+          <label style={labelStyle}>Возрастной диапазон</label>
+          <div style={{display:'flex', gap:8, marginBottom:12, alignItems:'center'}}>
+            <input type="number" min="0" max="120" placeholder="от" value={form.age_min}
+              onChange={e => setForm({...form, age_min:e.target.value})}
+              style={{...inputStyle, width:90}} />
+            <span style={{fontSize:13, color:'#888'}}>—</span>
+            <input type="number" min="0" max="120" placeholder="до" value={form.age_max}
+              onChange={e => setForm({...form, age_max:e.target.value})}
+              style={{...inputStyle, width:90}} />
+            <span style={{fontSize:11, color:'#BDBDBD'}}>лет (пусто = без ограничений)</span>
+          </div>
           <label style={{display:'flex', alignItems:'center', gap:10, fontSize:13, color:'#2a2a2a', cursor:'pointer', marginBottom:16}}>
             <input type="checkbox" checked={form.is_closed} onChange={e => setForm({...form, is_closed:e.target.checked})} style={{width:16, height:16, cursor:'pointer'}} />
             <div>
               <div style={{fontWeight:600}}>🔒 Закрытая группа</div>
-              <div style={{fontSize:11, color:'#888', marginTop:2}}>В кассе при продаже абонемента эта группа будет без галочки по умолчанию</div>
+              <div style={{fontSize:11, color:'#888', marginTop:2}}>В кассе при продаже абонемента эта группа будет без галочки по умолчанию. Клиент не сможет записаться напрямую из приложения.</div>
             </div>
           </label>
           <div style={{display:'flex', gap:8}}>
@@ -186,9 +205,14 @@ export default function AdminGroups() {
                 {g.name.match(/№([\d]+[А-Яа-яA-Za-z]*)/)?.[1] || g.name.match(/\d+[А-Яа-яA-Za-z]*/)?.[0] || g.name[0]}
               </div>
               <div style={{flex:1}}>
-                <div style={{display:'flex', alignItems:'center', gap:8, marginBottom:3}}>
+                <div style={{display:'flex', alignItems:'center', gap:8, marginBottom:3, flexWrap:'wrap'}}>
                   <span style={{fontSize:15, fontWeight:600, color:'#2a2a2a'}}>{g.name}</span>
                   {g.is_closed && <span style={{background:'#fdecea', color:'#e74c3c', padding:'2px 8px', borderRadius:6, fontSize:11, fontWeight:600}}>🔒 Закрытая</span>}
+                  {(g.age_min != null || g.age_max != null) && (
+                    <span style={{background:'#e8f4fd', color:'#2980b9', padding:'2px 8px', borderRadius:6, fontSize:11, fontWeight:600}}>
+                      👶 {g.age_min ?? '0'}{g.age_max != null ? `–${g.age_max}` : '+'} лет
+                    </span>
+                  )}
                 </div>
                 <div style={{display:'flex', gap:12, alignItems:'center'}}>
                   {g.description && <div style={{fontSize:12, color:'#888'}}>{g.description}</div>}
