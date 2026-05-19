@@ -30,7 +30,10 @@ export default function AvatarUpload({ userId, currentUrl, size = 52, onUpload, 
       // Раньше `?t=` копился в profiles.avatar_url с каждой перезагрузкой аватара.
       const cleanUrl = data.publicUrl
       const uiUrl = cleanUrl + '?t=' + Date.now()
-      await supabase.from('profiles').update({ avatar_url: cleanUrl }).eq('id', userId)
+      // Прямой UPDATE profiles запрещён триггером для client/teacher — идём через RPC.
+      // Для admin/manager/owner RPC тоже корректно отрабатывает (whitelist полей).
+      const { error: rpcError } = await supabase.rpc('update_my_profile', { p_payload: { avatar_url: cleanUrl } })
+      if (rpcError) throw rpcError
       if (onUpload) onUpload(uiUrl)
     } catch (err) {
       alert('Ошибка загрузки: ' + err.message)

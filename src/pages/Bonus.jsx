@@ -21,7 +21,23 @@ function PrizesTab({ userId, userCoins }) {
   const handleRequest = async (prize) => {
     if (requesting) return
     setRequesting(prize.id)
-    await supabase.from('prize_requests').insert({ prize_id: prize.id, client_id: userId, status: 'pending' })
+    const { data, error } = await supabase.rpc('request_prize', { p_prize_id: prize.id })
+    if (error) {
+      setRequesting(null)
+      alert('Ошибка сети: ' + error.message); return
+    }
+    if (!data?.ok) {
+      setRequesting(null)
+      const msg = {
+        not_authenticated:    'Сессия истекла, войдите заново',
+        prize_not_found:      'Приз не найден',
+        prize_inactive:       'Приз снят с раздачи',
+        out_of_stock:         'Этот приз закончился',
+        insufficient_balance: `Не хватает SDTшек (нужно ${data.price}, есть ${data.balance})`,
+        already_pending:      'Вы уже подали заявку на этот приз',
+      }[data?.error] || `Не удалось подать заявку: ${data?.error || 'неизвестная ошибка'}`
+      alert(msg); return
+    }
     const { data: r } = await supabase.from('prize_requests').select('*, prize:prizes(name)').eq('client_id', userId).order('created_at', { ascending: false })
     setMyRequests(r || [])
     setRequesting(null)

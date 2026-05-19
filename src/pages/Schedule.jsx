@@ -149,14 +149,20 @@ export default function Schedule({ session, onShop }) {
   const handleCancel = async (cls) => {
     const bookingId = bookingIds[cls.id]
     if (!bookingId) return
-    const { error } = await supabase
-      .from('bookings')
-      .update({ status: 'cancelled' })
-      .eq('id', bookingId)
-    if (!error) {
-      setBooked(prev => prev.filter(id => id !== cls.id))
-      setBookingIds(prev => { const n = { ...prev }; delete n[cls.id]; return n })
+    const { data, error } = await supabase.rpc('cancel_booking', { p_booking_id: bookingId })
+    if (error) { alert('Ошибка сети: ' + error.message); return }
+    if (!data?.ok) {
+      const msg = {
+        not_authenticated: 'Сессия истекла, войдите заново',
+        forbidden:         'Можно отменять только свои записи',
+        booking_not_found: 'Запись не найдена',
+        already_cancelled: 'Запись уже отменена',
+        too_late:          `До занятия меньше 12 часов (${data.hours_left}ч). Обратись к администратору.`,
+      }[data?.error] || `Не удалось отменить: ${data?.error || 'неизвестная ошибка'}`
+      alert(msg); return
     }
+    setBooked(prev => prev.filter(id => id !== cls.id))
+    setBookingIds(prev => { const n = { ...prev }; delete n[cls.id]; return n })
   }
 
   const getTeacherName = (cls) => {
@@ -297,7 +303,7 @@ export default function Schedule({ session, onShop }) {
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
             <button onClick={async () => {
               const token = await requestPermission()
-              if (token) await supabase.from('profiles').upsert({ id: session.user.id, push_token: token })
+              if (token) await supabase.rpc('register_push_token', { p_token: token })
               setShowPushBanner(false)
             }} style={{ flex: 1, padding: '10px', background: '#BFD900', border: 'none', borderRadius: 12, fontSize: 13, fontWeight: 700, color: '#2a2a2a', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
               Включить

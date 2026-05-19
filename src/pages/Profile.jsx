@@ -195,8 +195,19 @@ function MyLessons({ session, onBack }) {
     if (!confirm('Отменить запись на занятие?')) return
     const id = lessonId.replace('booking-', '')
     setCancelling(true)
-    await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', id)
+    const { data, error } = await supabase.rpc('cancel_booking', { p_booking_id: id })
     setCancelling(false)
+    if (error) { alert('Ошибка сети: ' + error.message); return }
+    if (!data?.ok) {
+      const msg = {
+        not_authenticated: 'Сессия истекла, войдите заново',
+        forbidden:         'Можно отменять только свои записи',
+        booking_not_found: 'Запись не найдена',
+        already_cancelled: 'Запись уже отменена',
+        too_late:          `До занятия меньше 12 часов (${data.hours_left}ч). Обратись к администратору.`,
+      }[data?.error] || `Не удалось отменить: ${data?.error || 'неизвестная ошибка'}`
+      alert(msg); return
+    }
     load()
   }
 
@@ -625,7 +636,10 @@ function Referral({ session, onBack }) {
           </div>
           <button onClick={async () => {
             const token = await requestPermission()
-            if (token) { await supabase.from('profiles').upsert({ id: session.user.id, push_token: token }); alert('Уведомления включены! ✅') }
+            if (!token) return
+            const { error } = await supabase.rpc('register_push_token', { p_token: token })
+            if (error) { alert('Не удалось включить уведомления: ' + error.message); return }
+            alert('Уведомления включены! ✅')
           }} style={{ width: '100%', padding: 12, background: '#BFD900', border: 'none', borderRadius: 12, fontSize: 13, fontWeight: 700, color: '#2a2a2a', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
             Включить уведомления
           </button>
@@ -667,24 +681,35 @@ export default function Profile({ session }) {
   }
 
   const handleSave = async () => {
+    if (saving) return
     setSaving(true)
-    // trim() убирает случайные пробелы по краям из всех частей ФИО, иначе они
-    // утекают в БД и потом ломают поиск/сравнения.
     const last  = form.last_name?.trim()  || null
     const first = form.first_name?.trim() || null
     const patro = form.patronymic?.trim() || null
-    const full_name = [last, first, patro].filter(Boolean).join(' ') || null
-    const { error } = await supabase.from('profiles').update({
-      full_name, last_name: last, first_name: first, patronymic: patro,
-      phone: form.phone?.trim() || null,
-      birth_date: form.birth_date || null,
-      email: form.email?.trim() || null,
-    }).eq('id', session.user.id)
-    if (!error) {
-      setProfile(p => ({ ...p, last_name: last, first_name: first, patronymic: patro, full_name }))
-      setSaved(true); setTimeout(() => { setSaved(false); goScreen(null) }, 1500)
-    }
+    const { data, error } = await supabase.rpc('update_my_profile', {
+      p_payload: {
+        last_name:  last,
+        first_name: first,
+        patronymic: patro,
+        phone:      form.phone?.trim() || null,
+        birth_date: form.birth_date || null,
+        email:      form.email?.trim() || null,
+      },
+    })
     setSaving(false)
+    if (error) { alert('Ошибка сети: ' + error.message); return }
+    if (!data?.ok) {
+      const msg = {
+        not_authenticated:       'Сессия истекла, войдите заново',
+        profile_not_found:       'Профиль не найден',
+        birth_date_already_set:  'Дата рождения уже заполнена. Чтобы её изменить, обратись к администратору.',
+        email_already_set:       'Email уже заполнен. Чтобы его изменить, обратись к администратору.',
+        phone_already_set:       'Телефон уже заполнен. Чтобы его изменить, обратись к администратору.',
+      }[data?.error] || `Не удалось сохранить: ${data?.error || 'неизвестная ошибка'}`
+      alert(msg); return
+    }
+    setProfile(p => ({ ...p, last_name: last, first_name: first, patronymic: patro, full_name: data.full_name }))
+    setSaved(true); setTimeout(() => { setSaved(false); goScreen(null) }, 1500)
   }
 
   const isTechEmail = session.user.email?.startsWith('tg_')
