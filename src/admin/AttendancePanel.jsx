@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../supabase'
 import { parseMskNaive } from '../utils/tz'
+import { escapeIlike } from '../utils/postgrest'
 
 const STATUS_OPTIONS = [
   { value: 'none',        label: 'Не отмечен',  color: '#BDBDBD', bg: '#f5f5f5' },
@@ -550,7 +551,7 @@ export default function AttendancePanel({ lesson, session, onClose, teachers, on
   const handleSearch = async (val) => {
     setSearch(val)
     if (val.length < 2) { setSearchResults([]); return }
-    const { data } = await supabase.from('profiles').select('id, full_name, email, phone').eq('role', 'client').ilike('full_name', `%${val}%`)
+    const { data } = await supabase.from('profiles').select('id, full_name, email, phone').eq('role', 'client').ilike('full_name', `%${escapeIlike(val)}%`)
     setSearchResults(data || [])
   }
 

@@ -187,7 +187,7 @@ export default function Shop({ session }) {
       <div>
         <div style={{ background:'#fff', borderRadius:20, border:'1px solid #f0f0f0', overflow:'hidden', marginBottom:12, opacity:cardVisible?1:0, transform:cardVisible?'translateY(0)':'translateY(-10px)', transition:'opacity 0.25s ease, transform 0.25s ease' }}>
           <div style={{position:'relative', aspectRatio:'4/3', overflow:'hidden', background:'#f0f0f0'}}>
-            {activeProduct.image_url ? <img src={activeProduct.image_url} alt="" style={{width:'100%', height:'100%', objectFit:'cover', display:'block'}} /> : <div style={{width:'100%', height:'100%', background:'#f5f5f5', display:'flex', alignItems:'center', justifyContent:'center', fontSize:48}}>📦</div>}
+            {activeProduct.image_url ? <img loading="lazy" decoding="async" src={activeProduct.image_url} alt="" style={{width:'100%', height:'100%', objectFit:'cover', display:'block'}} /> : <div style={{width:'100%', height:'100%', background:'#f5f5f5', display:'flex', alignItems:'center', justifyContent:'center', fontSize:48}}>📦</div>}
             {activeProduct.badge_text && <div style={{position:'absolute', top:12, left:12}}><span style={{fontSize:11, fontWeight:700, padding:'4px 12px', borderRadius:20, background:(activeProduct.badge_color||'#BFD900')+'ee', color: activeProduct.badge_color === '#BFD900' || activeProduct.badge_color === '#f39c12' ? '#2a2a2a' : '#fff'}}>{activeProduct.badge_text}</span></div>}
             {totalStock > 0 && totalStock <= 5 && <div style={{position:'absolute', top:12, right:12, background:'rgba(0,0,0,0.5)', color:'#fff', fontSize:11, padding:'3px 10px', borderRadius:20}}>Осталось {totalStock} шт</div>}
           </div>
@@ -229,7 +229,7 @@ export default function Shop({ session }) {
         {otherProducts.length > 0 && (
           <div>
             <div style={{fontSize:11,color:'#BDBDBD',textTransform:'uppercase',letterSpacing:'0.06em',fontWeight:600,marginBottom:10}}>Ещё в магазине</div>
-            {otherProducts.map((op,idx) => { const opStock=(op.merch_variants||[]).filter(v=>v.is_active).reduce((s,v)=>s+v.stock_count,0); const opMinPrice=Math.min(...(op.merch_variants||[]).filter(v=>v.is_active&&v.stock_count>0).map(v=>v.price).filter(Boolean)); return <div key={op.id} onClick={() => switchProduct(op.id)} style={{background:'#fff',borderRadius:14,border:'1px solid #f0f0f0',display:'flex',gap:12,padding:12,alignItems:'center',marginBottom:8,cursor:'pointer',opacity:cardVisible?1:0,transform:cardVisible?'translateY(0)':'translateY(-8px)',transition:`opacity ${0.3+idx*0.06}s ease, transform ${0.3+idx*0.06}s ease`}}>{op.image_url?<img src={op.image_url} alt="" style={{width:60,height:60,borderRadius:10,objectFit:'cover',flexShrink:0}} />:<div style={{width:60,height:60,borderRadius:10,background:'#f5f5f5',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:24}}>📦</div>}<div style={{flex:1,minWidth:0}}><div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap',marginBottom:3}}><span style={{fontSize:14,fontWeight:600,color:'#2a2a2a'}}>{op.name}</span>{op.badge_text&&<span style={{fontSize:10,fontWeight:600,padding:'2px 8px',borderRadius:20,background:(op.badge_color||'#BFD900')+'22',color:op.badge_color||'#6a7700'}}>{op.badge_text}</span>}</div><span style={{fontSize:12,color:opStock===0?'#e74c3c':opStock<=3?'#f39c12':'#888'}}>{opStock===0?'Нет в наличии':opStock<=3?`Осталось ${opStock} шт`:isFinite(opMinPrice)?`от ${opMinPrice.toLocaleString('ru-RU')} ₽`:'—'}</span></div><span style={{fontSize:18,color:'#BDBDBD',flexShrink:0}}>›</span></div> })}
+            {otherProducts.map((op,idx) => { const opStock=(op.merch_variants||[]).filter(v=>v.is_active).reduce((s,v)=>s+v.stock_count,0); const opMinPrice=Math.min(...(op.merch_variants||[]).filter(v=>v.is_active&&v.stock_count>0).map(v=>v.price).filter(Boolean)); return <div key={op.id} onClick={() => switchProduct(op.id)} style={{background:'#fff',borderRadius:14,border:'1px solid #f0f0f0',display:'flex',gap:12,padding:12,alignItems:'center',marginBottom:8,cursor:'pointer',opacity:cardVisible?1:0,transform:cardVisible?'translateY(0)':'translateY(-8px)',transition:`opacity ${0.3+idx*0.06}s ease, transform ${0.3+idx*0.06}s ease`}}>{op.image_url?<img loading="lazy" decoding="async" src={op.image_url} alt="" style={{width:60,height:60,borderRadius:10,objectFit:'cover',flexShrink:0}} />:<div style={{width:60,height:60,borderRadius:10,background:'#f5f5f5',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:24}}>📦</div>}<div style={{flex:1,minWidth:0}}><div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap',marginBottom:3}}><span style={{fontSize:14,fontWeight:600,color:'#2a2a2a'}}>{op.name}</span>{op.badge_text&&<span style={{fontSize:10,fontWeight:600,padding:'2px 8px',borderRadius:20,background:(op.badge_color||'#BFD900')+'22',color:op.badge_color||'#6a7700'}}>{op.badge_text}</span>}</div><span style={{fontSize:12,color:opStock===0?'#e74c3c':opStock<=3?'#f39c12':'#888'}}>{opStock===0?'Нет в наличии':opStock<=3?`Осталось ${opStock} шт`:isFinite(opMinPrice)?`от ${opMinPrice.toLocaleString('ru-RU')} ₽`:'—'}</span></div><span style={{fontSize:18,color:'#BDBDBD',flexShrink:0}}>›</span></div> })}
           </div>
         )}
       </div>
@@ -243,7 +243,7 @@ export default function Shop({ session }) {
         <div onClick={() => goTeacher(null)} style={{cursor:'pointer', color:'#BDBDBD', fontSize:20}}>←</div>
         <div style={{fontSize:16, fontWeight:600, color:'#2a2a2a'}}>{getName(teacherData)}</div>
       </div>
-      {teacherData.avatar_url && <div style={{display:'flex', justifyContent:'center', marginBottom:16}}><img src={teacherData.avatar_url} alt="" style={{width:200, height:200, objectFit:'cover', borderRadius:16}} /></div>}
+      {teacherData.avatar_url && <div style={{display:'flex', justifyContent:'center', marginBottom:16}}><img loading="lazy" decoding="async" src={teacherData.avatar_url} alt="" style={{width:200, height:200, objectFit:'cover', borderRadius:16}} /></div>}
       {teacherData.bio && <div style={{fontSize:13, color:'#888', lineHeight:1.6, marginBottom:12}}>{teacherData.bio}</div>}
       {groups.length > 0 && (
         <div style={{marginBottom:16}}>
@@ -262,7 +262,7 @@ export default function Shop({ session }) {
       <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:12}}>
         {teachers.map(t => (
           <div key={t.id} onClick={() => goTeacher(t.id)} style={{background:'#fff', borderRadius:16, overflow:'hidden', border:'1px solid #f0f0f0', cursor:'pointer'}}>
-            {t.avatar_url ? <img src={t.avatar_url} alt="" style={{width:'100%', height:140, objectFit:'cover'}} /> : (
+            {t.avatar_url ? <img loading="lazy" decoding="async" src={t.avatar_url} alt="" style={{width:'100%', height:140, objectFit:'cover'}} /> : (
               <div style={{width:'100%', height:140, background:'linear-gradient(135deg, #2a2a2a, #444)', display:'flex', alignItems:'center', justifyContent:'center'}}>
                 <div style={{width:48, height:48, background:'#BFD900', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, fontWeight:700, color:'#2a2a2a'}}>{initials(t)}</div>
               </div>
@@ -301,7 +301,7 @@ export default function Shop({ session }) {
             const priceStr = tiers.length > 0 ? `от ${Math.min(...tiers.map(t => t.price)).toLocaleString('ru-RU')} ₽` : ev.price ? `${Number(ev.price).toLocaleString('ru-RU')} ₽` : null
             return (
               <div key={ev.id} style={{background:'#fff', borderRadius:20, border:'1px solid #f0f0f0', overflow:'hidden', marginBottom:12}}>
-                {ev.image_url && <img src={ev.image_url} alt="" style={{width:'100%', aspectRatio:'16/9', objectFit:'cover', display:'block'}} />}
+                {ev.image_url && <img loading="lazy" decoding="async" src={ev.image_url} alt="" style={{width:'100%', aspectRatio:'16/9', objectFit:'cover', display:'block'}} />}
                 <div style={{padding:16}}>
                   <div style={{fontSize:16, fontWeight:600, color:'#2a2a2a', marginBottom:6}}>{ev.name}</div>
                   {dateStr && <div style={{fontSize:12, color:'#2980b9', marginBottom:6}}>📅 {dateStr}</div>}

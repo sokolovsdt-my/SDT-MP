@@ -48,7 +48,7 @@ export default function AvatarUpload({ userId, currentUrl, size = 52, onUpload, 
       <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleFileChange} style={{ display:'none' }} />
       <div style={{ width:size, height:size, borderRadius:'50%', overflow:'hidden', background:'#BFD900', display:'flex', alignItems:'center', justifyContent:'center', fontSize:size*0.35, fontWeight:700, color:'#2a2a2a', position:'relative' }}>
         {currentUrl
-          ? <img src={currentUrl} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+          ? <img loading="lazy" decoding="async" src={currentUrl} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
           : <span>{initials}</span>
         }
         {/* Постоянная иконка в углу — видна и на тач-устройствах. Hover-overlay убран. */}

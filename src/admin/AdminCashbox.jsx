@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabase'
 import { todayMsk, mskDayStartUtc, mskDayEndUtc } from '../utils/tz'
+import { escapeIlike } from '../utils/postgrest'
 
 const inputStyle = { width:'100%', padding:'9px 12px', border:'1px solid #e8e8e8', borderRadius:10, fontSize:13, boxSizing:'border-box', fontFamily:'Inter,sans-serif' }
 const labelStyle = { fontSize:12, color:'#888', marginBottom:6, fontWeight:600, display:'block' }
@@ -38,7 +39,7 @@ function ClientSearch({ onSelect }) {
     const { data } = await supabase.from('profiles')
       .select('id, full_name, email, phone, bonus_rubles, bonus_coins')
       .eq('role', 'client')
-      .or(`full_name.ilike.%${val}%,phone.ilike.%${val}%,email.ilike.%${val}%`)
+      .or(`full_name.ilike.%${escapeIlike(val)}%,phone.ilike.%${escapeIlike(val)}%,email.ilike.%${escapeIlike(val)}%`)
       .limit(8)
     setResults(data || [])
   }

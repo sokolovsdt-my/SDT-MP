@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabase'
 import { safeHtml } from '../utils/safeHtml'
+import { escapeIlike } from '../utils/postgrest'
 
 const cardStyle = { background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', padding:20, marginBottom:16 }
 const inputStyle = { width:'100%', padding:'9px 12px', border:'1px solid #e8e8e8', borderRadius:10, fontSize:13, boxSizing:'border-box', fontFamily:'Inter,sans-serif' }
@@ -838,7 +839,7 @@ export default function AdminBroadcasts({ session }) {
     const { data } = await supabase.from('profiles')
       .select('id, full_name, email, phone, push_token')
       .eq('role', 'client')
-      .or(`full_name.ilike.%${val}%,phone.ilike.%${val}%,email.ilike.%${val}%`)
+      .or(`full_name.ilike.%${escapeIlike(val)}%,phone.ilike.%${escapeIlike(val)}%,email.ilike.%${escapeIlike(val)}%`)
       .limit(8)
     setManualResults(data || [])
   }

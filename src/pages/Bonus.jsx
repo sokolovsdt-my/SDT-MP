@@ -66,7 +66,7 @@ function PrizesTab({ userId, userCoins }) {
         return (
           <div key={prize.id} style={{background:'#fff', borderRadius:16, border:'1px solid #f0f0f0', marginBottom:12, overflow:'hidden'}}>
             {prize.image_url && (
-              <img src={prize.image_url} alt="" style={{width:'100%', aspectRatio:'16/9', objectFit:'cover', display:'block'}} />
+              <img loading="lazy" decoding="async" src={prize.image_url} alt="" style={{width:'100%', aspectRatio:'16/9', objectFit:'cover', display:'block'}} />
             )}
             <div style={{padding:14}}>
               <div style={{display:'flex', alignItems:'center', gap:8, marginBottom:4}}>

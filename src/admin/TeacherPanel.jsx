@@ -852,7 +852,7 @@ export default function TeacherPanel({ session }) {
           <div>
             <div style={{background:'#fff',borderRadius:16,border:'1px solid #f0f0f0',overflow:'hidden'}}>
               {profile?.avatar_url ? (
-                <img src={profile.avatar_url} alt="" style={{width:'100%',display:'block',objectFit:'contain',background:'#f0f0f0'}} />
+                <img loading="lazy" decoding="async" src={profile.avatar_url} alt="" style={{width:'100%',display:'block',objectFit:'contain',background:'#f0f0f0'}} />
               ) : (
                 <div style={{width:'100%',height:220,background:'linear-gradient(135deg,#2a2a2a,#444)',display:'flex',alignItems:'center',justifyContent:'center'}}>
                   <div style={{width:80,height:80,background:'#BFD900',borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:30,fontWeight:700,color:'#2a2a2a'}}>

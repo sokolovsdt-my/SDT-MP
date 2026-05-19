@@ -222,7 +222,7 @@ export default function AdminClients() {
                       <div style={{display:'flex', alignItems:'center', gap:10}}>
                         <div style={{width:8, height:8, borderRadius:'50%', flexShrink:0, background: loyalty ? loyalty.color : '#e8e8e8'}} />
                         {c.avatar_url
-                          ? <img src={c.avatar_url} alt="" style={{width:34, height:34, borderRadius:'50%', objectFit:'cover', flexShrink:0}} />
+                          ? <img loading="lazy" decoding="async" src={c.avatar_url} alt="" style={{width:34, height:34, borderRadius:'50%', objectFit:'cover', flexShrink:0}} />
                           : <div style={{width:34, height:34, background:'#f5facc', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:700, color:'#6a7700', flexShrink:0}}>
                               {initials(c)}
                             </div>

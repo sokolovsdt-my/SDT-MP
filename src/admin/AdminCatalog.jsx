@@ -180,7 +180,7 @@ function EventTab({ teachers, session }) {
       <textarea value={f.description} onChange={e => setF({...f,description:e.target.value})} rows={2} placeholder="Для кого, программа, что включено..." style={{...inpS, marginBottom:10, resize:'vertical'}} />
       <label style={lblS}>Фото</label>
       <div onClick={() => imgRef.current?.click()} style={{border:'1.5px dashed #e0e0e0', borderRadius:10, padding:14, textAlign:'center', cursor:'pointer', marginBottom:10, background:'#fafafa'}}>
-        {imgPreview ? <img src={imgPreview} alt="" style={{maxHeight:120, maxWidth:'100%', borderRadius:8, objectFit:'cover'}} /> : <div style={{fontSize:12, color:'#888'}}>📸 Нажмите для загрузки</div>}
+        {imgPreview ? <img loading="lazy" decoding="async" src={imgPreview} alt="" style={{maxHeight:120, maxWidth:'100%', borderRadius:8, objectFit:'cover'}} /> : <div style={{fontSize:12, color:'#888'}}>📸 Нажмите для загрузки</div>}
       </div>
       <input ref={imgRef} type="file" accept="image/*" onChange={onImgChange} style={{display:'none'}} />
       <div style={{marginBottom:10}}>
@@ -244,7 +244,7 @@ function EventTab({ teachers, session }) {
           return (
             <div key={ev.id} style={{background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', overflow:'hidden'}}>
               <div style={{display:'flex', gap:14, alignItems:'flex-start', padding:'14px 16px'}}>
-                {ev.image_url ? <img src={ev.image_url} alt="" style={{width:72, height:72, borderRadius:10, objectFit:'cover', flexShrink:0}} /> : <div style={{width:72, height:72, borderRadius:10, background:'#f5f5f5', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:28}}>🎭</div>}
+                {ev.image_url ? <img loading="lazy" decoding="async" src={ev.image_url} alt="" style={{width:72, height:72, borderRadius:10, objectFit:'cover', flexShrink:0}} /> : <div style={{width:72, height:72, borderRadius:10, background:'#f5f5f5', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:28}}>🎭</div>}
                 <div style={{flex:1, minWidth:0}}>
                   <div style={{display:'flex', alignItems:'center', gap:8, flexWrap:'wrap', marginBottom:4}}>
                     <span style={{fontSize:14, fontWeight:600, color:'#2a2a2a'}}>{ev.name}</span>
@@ -444,7 +444,7 @@ function MerchTab({ session }) {
           <textarea value={form.description} onChange={e => setForm({...form,description:e.target.value})} placeholder="Описание товара..." rows={2} style={{...inpS,marginBottom:10,resize:'vertical'}} />
           <label style={lblS}>Фото товара</label>
           <div onClick={() => fileRef.current?.click()} style={{border:'1.5px dashed #e0e0e0',borderRadius:10,padding:'16px',textAlign:'center',cursor:'pointer',marginBottom:10,background:'#fafafa'}}>
-            {imagePreview ? <img src={imagePreview} alt="" style={{maxHeight:120,maxWidth:'100%',borderRadius:8,objectFit:'contain'}} /> : <><div style={{fontSize:24,marginBottom:4}}>📸</div><div style={{fontSize:12,color:'#888'}}>Нажмите для загрузки фото</div></>}
+            {imagePreview ? <img loading="lazy" decoding="async" src={imagePreview} alt="" style={{maxHeight:120,maxWidth:'100%',borderRadius:8,objectFit:'contain'}} /> : <><div style={{fontSize:24,marginBottom:4}}>📸</div><div style={{fontSize:12,color:'#888'}}>Нажмите для загрузки фото</div></>}
           </div>
           <input ref={fileRef} type="file" accept="image/*" onChange={e=>{const f=e.target.files[0];if(!f)return;setImageFile(f);setImagePreview(URL.createObjectURL(f))}} style={{display:'none'}} />
           <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, marginBottom:10}}>
@@ -479,7 +479,7 @@ function MerchTab({ session }) {
           return (
             <div key={product.id} style={{background:'#fff',borderRadius:14,border:'1px solid #f0f0f0',overflow:'hidden'}}>
               <div style={{display:'flex',gap:14,alignItems:'flex-start',padding:'14px 16px'}}>
-                {product.image_url?<img src={product.image_url} alt="" style={{width:72,height:72,borderRadius:10,objectFit:'cover',flexShrink:0}} />:<div style={{width:72,height:72,borderRadius:10,background:'#f5f5f5',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:28}}>📦</div>}
+                {product.image_url?<img loading="lazy" decoding="async" src={product.image_url} alt="" style={{width:72,height:72,borderRadius:10,objectFit:'cover',flexShrink:0}} />:<div style={{width:72,height:72,borderRadius:10,background:'#f5f5f5',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:28}}>📦</div>}
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:4}}>
                     <span style={{fontSize:14,fontWeight:600,color:'#2a2a2a'}}>{product.name}</span>
@@ -510,7 +510,7 @@ function MerchTab({ session }) {
                   <textarea value={editForm.description} onChange={e=>setEditForm({...editForm,description:e.target.value})} rows={2} style={{...inpS,marginBottom:10,resize:'vertical'}} />
                   <label style={lblS}>Фото товара</label>
                   <div onClick={()=>editFileRef.current?.click()} style={{border:'1.5px dashed #BFD900',borderRadius:10,padding:'12px',textAlign:'center',cursor:'pointer',marginBottom:10,background:'#fff'}}>
-                    {editImagePreview?<img src={editImagePreview} alt="" style={{maxHeight:100,maxWidth:'100%',borderRadius:8,objectFit:'contain'}} />:<div style={{fontSize:12,color:'#888'}}>📸 Нажмите для загрузки фото</div>}
+                    {editImagePreview?<img loading="lazy" decoding="async" src={editImagePreview} alt="" style={{maxHeight:100,maxWidth:'100%',borderRadius:8,objectFit:'contain'}} />:<div style={{fontSize:12,color:'#888'}}>📸 Нажмите для загрузки фото</div>}
                   </div>
                   <input ref={editFileRef} type="file" accept="image/*" onChange={e=>{const f=e.target.files[0];if(!f)return;setEditImageFile(f);setEditImagePreview(URL.createObjectURL(f))}} style={{display:'none'}} />
                   <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10,marginBottom:10}}>
@@ -848,7 +848,7 @@ function IndivTab({ teachers }) {
         return (
           <div key={teacher?.id} style={{background:'#fff',borderRadius:14,border:'1px solid #f0f0f0',overflow:'hidden'}}>
             <div onClick={()=>{setOpenTeacher(isOpen?null:teacher?.id);setEditingPkg(null);setShowAddFor(null)}} style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px',cursor:'pointer',userSelect:'none'}}>
-              {teacher?.avatar_url?<img src={teacher.avatar_url} alt="" style={{width:36,height:36,borderRadius:'50%',objectFit:'cover',flexShrink:0}} />:<div style={{width:36,height:36,borderRadius:'50%',background:'#fafde8',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,fontWeight:700,color:'#6a7700',flexShrink:0}}>{getInitials(teacher?.full_name)}</div>}
+              {teacher?.avatar_url?<img loading="lazy" decoding="async" src={teacher.avatar_url} alt="" style={{width:36,height:36,borderRadius:'50%',objectFit:'cover',flexShrink:0}} />:<div style={{width:36,height:36,borderRadius:'50%',background:'#fafde8',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,fontWeight:700,color:'#6a7700',flexShrink:0}}>{getInitials(teacher?.full_name)}</div>}
               <div style={{flex:1}}>
                 <div style={{fontSize:14,fontWeight:600,color:'#2a2a2a'}}>{teacher?.full_name}</div>
                 <div style={{fontSize:11,color:'#BDBDBD',marginTop:2}}>{activePkgs} из {pkgs.length} пакетов активны · от {minPrice.toLocaleString('ru-RU')} ₽</div>

@@ -49,7 +49,7 @@ export default function Team({ session }) {
       <div style={{position:'relative', background:'#f0f0f0'}}>
         {teacherData.avatar_url ? (
           <div style={{display:'flex', justifyContent:'center', padding:'24px 20px 0', background:'#f8f8f8'}}>
-            <img src={teacherData.avatar_url} alt="" style={{width:200, height:200, objectFit:'cover', borderRadius:16}} />
+            <img loading="lazy" decoding="async" src={teacherData.avatar_url} alt="" style={{width:200, height:200, objectFit:'cover', borderRadius:16}} />
           </div>
         ) : (
           <div style={{width:'100%', height:200, background:'linear-gradient(135deg, #2a2a2a, #444)', display:'flex', alignItems:'center', justifyContent:'center'}}>
@@ -95,7 +95,7 @@ export default function Team({ session }) {
             <div key={t.id} onClick={() => goSelect(t.id)}
               style={{background:'#fff', borderRadius:16, overflow:'hidden', border:'1px solid #f0f0f0', cursor:'pointer', boxShadow:'0 1px 4px rgba(0,0,0,0.04)'}}>
               {t.avatar_url ? (
-                <img src={t.avatar_url} alt="" style={{width:'100%', height:160, objectFit:'cover'}} />
+                <img loading="lazy" decoding="async" src={t.avatar_url} alt="" style={{width:'100%', height:160, objectFit:'cover'}} />
               ) : (
                 <div style={{width:'100%', height:160, background:'linear-gradient(135deg, #2a2a2a, #444)', display:'flex', alignItems:'center', justifyContent:'center'}}>
                   <div style={{width:56, height:56, background:'#BFD900', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, fontWeight:700, color:'#2a2a2a'}}>

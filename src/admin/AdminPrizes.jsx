@@ -250,7 +250,7 @@ export default function AdminPrizes({ session }) {
 
         <label style={lblS}>Фото</label>
         <div onClick={() => ref.current?.click()} style={{border:'1.5px dashed #e0e0e0', borderRadius:10, padding:14, textAlign:'center', cursor:'pointer', marginBottom:10, background:'#fafafa'}}>
-          {preview ? <img src={preview} alt="" style={{maxHeight:100, maxWidth:'100%', borderRadius:8, objectFit:'contain'}} /> : <div style={{fontSize:12, color:'#888'}}>📸 Нажмите для загрузки</div>}
+          {preview ? <img loading="lazy" decoding="async" src={preview} alt="" style={{maxHeight:100, maxWidth:'100%', borderRadius:8, objectFit:'contain'}} /> : <div style={{fontSize:12, color:'#888'}}>📸 Нажмите для загрузки</div>}
         </div>
         <input ref={ref} type="file" accept="image/*" onChange={e => { const file=e.target.files[0]; if(!file) return; setFile(file); setPreview(URL.createObjectURL(file)) }} style={{display:'none'}} />
 
@@ -330,7 +330,7 @@ export default function AdminPrizes({ session }) {
                 <div key={prize.id} style={{background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', overflow:'hidden'}}>
                   <div style={{display:'flex', gap:14, alignItems:'flex-start', padding:'14px 16px'}}>
                     {prize.image_url ? (
-                      <img src={prize.image_url} alt="" style={{width:72, height:72, borderRadius:10, objectFit:'cover', flexShrink:0}} />
+                      <img loading="lazy" decoding="async" src={prize.image_url} alt="" style={{width:72, height:72, borderRadius:10, objectFit:'cover', flexShrink:0}} />
                     ) : (
                       <div style={{width:72, height:72, borderRadius:10, background:'#f5f5f5', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:28}}>🎁</div>
                     )}
@@ -414,7 +414,7 @@ export default function AdminPrizes({ session }) {
                     <div key={req.id} style={{background:'#fff', borderRadius:14, border:'1px solid #f0f0f0', padding:16}}>
                       <div style={{display:'flex', gap:14, alignItems:'flex-start'}}>
                         {prize?.image_url ? (
-                          <img src={prize.image_url} alt="" style={{width:56, height:56, borderRadius:10, objectFit:'cover', flexShrink:0}} />
+                          <img loading="lazy" decoding="async" src={prize.image_url} alt="" style={{width:56, height:56, borderRadius:10, objectFit:'cover', flexShrink:0}} />
                         ) : (
                           <div style={{width:56, height:56, borderRadius:10, background:'#f5f5f5', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:22}}>🎁</div>
                         )}

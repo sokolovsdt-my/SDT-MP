@@ -13,9 +13,36 @@ firebase.initializeApp({
 const messaging = firebase.messaging()
 
 messaging.onBackgroundMessage((payload) => {
-  const { title, body } = payload.notification
-  self.registration.showNotification(title, {
-    body,
-    icon: '/favicon.ico'
+  const { title, body } = payload.notification || {}
+  // data.url пробрасываем дальше в showNotification, чтобы при клике вернуть
+  // пользователя на нужный экран (см. notificationclick ниже).
+  const data = payload.data || {}
+  self.registration.showNotification(title || 'Уведомление', {
+    body: body || '',
+    icon: '/icon-192.png',
+    badge: '/favicon.ico',
+    data,
   })
+})
+
+// S25: клик по пушу теперь фокусирует уже открытую вкладку с приложением
+// или открывает новую на data.url. Раньше клик просто закрывал нотификацию
+// и ничего не происходило.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+  const targetUrl = (event.notification.data && event.notification.data.url) || '/'
+  event.waitUntil((async () => {
+    const allClients = await clients.matchAll({ type: 'window', includeUncontrolled: true })
+    // Если приложение уже открыто — фокусируем и переходим на нужный URL.
+    for (const c of allClients) {
+      if ('focus' in c) {
+        try { await c.navigate(targetUrl) } catch { /* navigate может быть запрещён для cross-origin — игнорируем */ }
+        return c.focus()
+      }
+    }
+    // Иначе — открываем новую вкладку.
+    if (clients.openWindow) {
+      return clients.openWindow(targetUrl)
+    }
+  })())
 })

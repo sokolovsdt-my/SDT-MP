@@ -88,7 +88,7 @@ export default function Home({ session, onNewsAll, onBonus }) {
       <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:18}}>
         <div style={{width:36, height:36, border:'2px dashed #BDBDBD', borderRadius:8, display:'flex', alignItems:'center', justifyContent:'center', color:'#BDBDBD'}}>+</div>
         {profile?.avatar_url
-          ? <img src={profile.avatar_url} alt="" style={{width:36, height:36, borderRadius:'50%', objectFit:'cover'}} />
+          ? <img loading="lazy" decoding="async" src={profile.avatar_url} alt="" style={{width:36, height:36, borderRadius:'50%', objectFit:'cover'}} />
           : <div style={{width:36, height:36, background:'#BFD900', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:700, color:'#2a2a2a'}}>
               {name[0]?.toUpperCase()}
             </div>
