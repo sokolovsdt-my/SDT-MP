@@ -41,13 +41,6 @@ const AD_SOURCE_LABELS = {
   yandex:'Яндекс', '2gis':'2ГИС', other:'Другое',
 }
 
-const toLocalDateStr = (d) => {
-  const y = d.getFullYear()
-  const mo = String(d.getMonth()+1).padStart(2,'0')
-  const dy = String(d.getDate()).padStart(2,'0')
-  return `${y}-${mo}-${dy}`
-}
-
 // ─── SaleModal ────────────────────────────────────────────────────────────────
 function SaleModal({ client, session, onClose, onSuccess }) {
   const [items, setItems] = useState([])
@@ -340,13 +333,15 @@ function VisitsTab({ clientId }) {
 
   const load = async () => {
     setLoading(true)
+    // limit(100) защищает от тяги всей истории на клиентах с многолетним
+    // стажем. Снизу таба показывается «показано последние 100».
     const { data: b } = await supabase.from('bookings')
       .select('*, schedule(id,title,starts_at,ends_at,hall,teacher_id,teacher:teacher_id(full_name)), creator:created_by(full_name,email,role)')
-      .eq('student_id',clientId).order('created_at',{ ascending:false })
+      .eq('student_id',clientId).order('created_at',{ ascending:false }).limit(100)
     setBookings(b||[])
     const { data: a } = await supabase.from('attendance')
-      .select('*, schedule(id,title,starts_at,ends_at,hall,teacher_id,teacher:teacher_id(full_name)), marker:marked_by(full_name,email)')
-      .eq('student_id',clientId).order('created_at',{ ascending:false })
+      .select('*, schedule(id,title,starts_at,ends_at,hall,teacher:teacher_id(full_name)), marker:marked_by(full_name,email)')
+      .eq('student_id',clientId).order('created_at',{ ascending:false }).limit(100)
     setAttendance(a||[])
     setLoading(false)
   }

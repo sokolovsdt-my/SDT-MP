@@ -860,12 +860,15 @@ export default function AdminBroadcasts({ session }) {
     if (sendingTest) return
     if (!title || !content) { alert('Заполни заголовок и текст'); return }
     setSendingTest(true)
+    // Создаём как 'draft' — НЕ ставим 'sent' до того как edge действительно
+    // отправил. send-broadcast.claim() ожидает 'scheduled'/'draft' и сам
+    // переведёт в 'sending' → 'sent'. Если что-то сломалось — статус
+    // останется 'draft', UI отдаст реальную ошибку.
     const { data: testB, error: bErr } = await supabase.from('broadcasts').insert({
       title:   '[ТЕСТ] ' + title,
       content,
       channel: Object.entries(channels).filter(([,v]) => v).map(([k]) => k).join('+') || 'push',
-      status:  'sent',
-      sent_at: new Date().toISOString(),
+      status:  'draft',
       created_by: session.user.id,
       filter_type: 'test',
       filter_payload: { test_only_self: true },
@@ -888,7 +891,10 @@ export default function AdminBroadcasts({ session }) {
     })
     setSendingTest(false)
     if (sendErr || !sendRes?.ok) {
+      // Помечаем как failed, чтобы в истории не висел вечный 'draft'.
+      await supabase.from('broadcasts').update({ status: 'failed' }).eq('id', testB.id)
       alert('Не удалось отправить тестовую рассылку: ' + (sendErr?.message || sendRes?.error || 'неизвестная ошибка'))
+      loadBroadcasts()
       return
     }
     const stats = `Отправлено вам: пуш ${sendRes.sent_push}, email ${sendRes.sent_email}` + (sendRes.failed ? `, неудачно ${sendRes.failed}` : '')

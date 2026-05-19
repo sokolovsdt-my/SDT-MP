@@ -482,10 +482,10 @@ if (!data?.ok) {
   - **`react-hooks/immutability`** — функция используется в `useEffect`/JSX до объявления (`const`-хоистинг работает в JS, но React 19 ругается на риск устаревания ссылки). Чинить: переставлять объявления выше использования.
   - **План фикса (Трек 4):** отдельный refactoring-PR — пройтись по всем `useEffect`/handler'ам, добавить `useCallback`/`useMemo`, исправить impure-вызовы. После — включить `react-hooks/exhaustive-deps` уровнем `error` в eslint.config.js.
 - **Кликабельные `<div>` вместо `<button>`** в карточках списков (новости, продажи, расписание).
-- **AdminClientCard SchedulesTab без `.limit()`** ([AdminClientCard.jsx:343-350](src/admin/AdminClientCard.jsx:343)). **План:** `.limit(100)` + «показать ещё».
-- **AdminCashbox `today + 'T00:00:00'`** ([AdminCashbox.jsx:262](src/admin/AdminCashbox.jsx:262)) — нарушение правила TZ. Та же ошибка в [AdminStaffCard.jsx:649](src/admin/AdminStaffCard.jsx:649).
-- **`AdminBroadcasts.handleSendTest` ставит `status:'sent'` ДО фактической отправки** ([AdminBroadcasts.jsx:863-887](src/admin/AdminBroadcasts.jsx:863)) — на UI рассылка выглядит успешной даже при провале edge; повторный тест уходит дважды (см. S1 про claim).
-- **AdminSchedule грузит ВСЕХ клиентов студии при открытии** ([AdminSchedule.jsx:447](src/admin/AdminSchedule.jsx:447)). **План:** ленивый поиск как в `ClientSearch`.
+- ~~**AdminClientCard SchedulesTab без `.limit()`**~~ — **ЗАКРЫТО (Партия F).** [AdminClientCard SchedulesTab.load](src/admin/AdminClientCard.jsx) использует `.limit(100)` на `bookings` и `attendance` — больше не тянет всю историю клиента со стажем.
+- ~~**AdminCashbox `today + 'T00:00:00'`**~~ — **ЗАКРЫТО (Партия F).** [AdminCashbox.loadTodaySales](src/admin/AdminCashbox.jsx) теперь использует `mskDayStartUtc(todayMsk())`/`mskDayEndUtc(todayMsk())` из `utils/tz.js`. Аналогично [AdminStaffCard StatsTab.load](src/admin/AdminStaffCard.jsx) — `mskDayStartNaive(monthFirst)` для MSK-naive границы месяца.
+- ~~**`AdminBroadcasts.handleSendTest` ставит `status:'sent'` ДО фактической отправки**~~ — **ЗАКРЫТО (Партия F).** [handleSendTest](src/admin/AdminBroadcasts.jsx) теперь создаёт broadcast со `status='draft'` (как ожидает claim в `send-broadcast`), и переводит в `'failed'` если edge упал. Успешный `'sent'` ставит сама edge. UI отдаёт реальную ошибку, история не врёт.
+- ~~**AdminSchedule грузит ВСЕХ клиентов студии при открытии**~~ — **ЗАКРЫТО (частично, Партия F).** Добавлен `.order('full_name').limit(500)` defensive cap. Полный ленивый autocomplete для индив-выбора в `ScheduleForm` отложен в Трек 4 — текущий cap покрывает любую студию до 500 клиентов.
 
 ### 🟢 P3 — низкие, фоном
 
@@ -494,7 +494,7 @@ if (!data?.ok) {
 - **CHECK-констрейнты на enum-статусы** (`bookings.status`, `tasks.status`, `prize_requests.status`, `indiv_requests.status`) — проверить, есть ли в БД.
 - **`firebase` импортируется целиком** — проверить subpath-импорты `firebase/app` + `firebase/messaging`.
 - **AdminLayout polling 30s** при `document.hidden` тоже тикает — добавить pause.
-- **`toLocalDateStr` дубль** в AdminClientCard/AdminCashbox — переключить на `toMskDateStr` из `utils/tz.js`.
+- ~~**`toLocalDateStr` дубль** в AdminClientCard/AdminCashbox~~ — **ЗАКРЫТО (Партия F).** Обе локальные копии удалены, dead code. Если понадобится — использовать `toMskDateStr` из `utils/tz.js`.
 - **Реферальный код `user.id.slice(0,8)`** — 8 hex символов, не криптостойко. Решается вместе с S10.
 - **`profiles.update({role:...})` без RPC** ([AdminClientCard.jsx:197](src/admin/AdminClientCard.jsx:197)) — триггер `prevent_unauthorized_role_change` должен ловить, но логика на клиенте предполагает обход. Лучше — RPC `admin_set_role`.
 - **`AutoTab` последовательные `await` в цикле** ([AdminBroadcasts.jsx:549](src/admin/AdminBroadcasts.jsx:549)) — `Promise.all`.

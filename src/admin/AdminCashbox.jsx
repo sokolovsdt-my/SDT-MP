@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabase'
+import { todayMsk, mskDayStartUtc, mskDayEndUtc } from '../utils/tz'
 
 const inputStyle = { width:'100%', padding:'9px 12px', border:'1px solid #e8e8e8', borderRadius:10, fontSize:13, boxSizing:'border-box', fontFamily:'Inter,sans-serif' }
 const labelStyle = { fontSize:12, color:'#888', marginBottom:6, fontWeight:600, display:'block' }
@@ -26,13 +27,6 @@ const TYPES = [
 const fmtMoney = (n) => (Number(n) || 0).toLocaleString('ru-RU') + ' ₽'
 const fmtDate = (d) => new Date(d).toLocaleDateString('ru-RU', { day:'numeric', month:'short', year:'numeric' })
 const fmtDateTime = (d) => new Date(d).toLocaleString('ru-RU', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })
-
-const toLocalDateStr = (d) => {
-  const y = d.getFullYear()
-  const mo = String(d.getMonth() + 1).padStart(2, '0')
-  const dy = String(d.getDate()).padStart(2, '0')
-  return `${y}-${mo}-${dy}`
-}
 
 function ClientSearch({ onSelect }) {
   const [query, setQuery] = useState('')
@@ -258,11 +252,13 @@ export default function AdminCashbox({ session }) {
 
   const loadTodaySales = async () => {
     setLoadingSales(true)
-    const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' })
+    // sales.sale_date — UTC naive, граница МСК-суток считается через
+    // mskDayStart/EndUtc, иначе у не-МСК браузера выйдет 3-часовое смещение.
+    const today = todayMsk()
     const { data } = await supabase.from('sales')
       .select('*, client:client_id(full_name), creator:created_by(full_name, email), subscription:subscriptions!subscriptions_sale_id_fkey(activated_at, expires_at)')
-      .gte('sale_date', today + 'T00:00:00')
-      .lte('sale_date', today + 'T23:59:59')
+      .gte('sale_date', mskDayStartUtc(today))
+      .lte('sale_date', mskDayEndUtc(today))
       .order('sale_date', { ascending: false })
     setTodaySales((data || []).map(s => ({...s, subscription: s.subscription?.[0] || null})))
     setLoadingSales(false)

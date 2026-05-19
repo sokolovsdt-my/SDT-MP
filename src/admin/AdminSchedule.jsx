@@ -449,7 +449,10 @@ export default function AdminSchedule({ session }) {
         .order('starts_at'),
       supabase.from('profiles').select('id, full_name, email').in('role', ['teacher','owner','manager','admin']),
       supabase.from('staff_roles').select('staff_id').eq('role', 'teacher'),
-      supabase.from('profiles').select('id, full_name, email').eq('role', 'client'),
+      // limit(500) — defensive cap для студии. Большая часть запросов и так
+      // обращается к этому массиву только из selecta «Ученик» в ScheduleForm
+      // для индив-занятий; full ленивый поиск через autocomplete отложен.
+      supabase.from('profiles').select('id, full_name, email').eq('role', 'client').order('full_name').limit(500),
       supabase.from('events').select('*').eq('is_active', true).order('name'),
       supabase.from('event_dates')
         .select('*, event:events!event_dates_event_id_fkey(id, name, hall, teacher_id, teacher:profiles!events_teacher_id_fkey(full_name))')

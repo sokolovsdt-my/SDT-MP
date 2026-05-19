@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import AvatarUpload from '../components/AvatarUpload'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabase'
-import { parseMskNaive } from '../utils/tz'
+import { parseMskNaive, todayMsk, mskDayStartNaive } from '../utils/tz'
 
 const ROLE_LABELS = {
   owner: { label: 'Владелец', color: '#6a7700', bg: '#fafde8' },
@@ -644,9 +644,9 @@ function StatsTab({ staff }) {
   const [stats, setStats] = useState(null)
   useEffect(() => { load() }, [])
   const load = async () => {
-    // schedule.starts_at — MSK naive, граница тоже MSK naive (1 число месяца, 00:00)
-    const now = new Date()
-    const monthStart = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01T00:00:00`
+    // schedule.starts_at — MSK naive, граница тоже MSK naive (1 число месяца, 00:00).
+    const monthFirst = todayMsk().slice(0, 8) + '01'  // 'YYYY-MM-01'
+    const monthStart = mskDayStartNaive(monthFirst)
     const { data: lessons } = await supabase.from('schedule').select('id, is_cancelled, indiv_student_id').eq('teacher_id', staff.id).gte('starts_at', monthStart)
     const total = lessons?.length || 0
     const cancelled = lessons?.filter(l => l.is_cancelled).length || 0
