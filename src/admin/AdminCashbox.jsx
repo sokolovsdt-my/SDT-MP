@@ -523,7 +523,7 @@ export default function AdminCashbox({ session }) {
                   <span>{label}</span><span>{value}</span>
                 </div>
               ))}
-              <div style={{display:'flex', justifyContent:'space-between', marginTop:14, fontSize:22, fontWeight:700, color:'#BFD900'}}>
+              <div style={{display:'flex', justifyContent:'space-between', marginTop:14, fontSize:22, fontWeight:700, color:'#6a7700'}}>
                 <span>К оплате:</span><span>{fmtMoney(afterDiscount)}</span>
               </div>
               {(paymentMethod === 'bonus' || paymentMethod === 'coins') && (

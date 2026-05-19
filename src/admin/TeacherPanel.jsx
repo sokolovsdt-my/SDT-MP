@@ -787,7 +787,7 @@ export default function TeacherPanel({ session }) {
               </div>
               <div style={{background:'#fafde8', borderRadius:16, padding:14, border:'1.5px solid #BFD900'}}>
                 <div style={{fontSize:10, color:'#8a9900', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6}}>В этом месяце</div>
-                <div style={{fontSize:26, fontWeight:300, color:'#2a2a2a'}}>{stats.thisMonth} <span style={{fontSize:12, color:'#BFD900'}}>зан.</span></div>
+                <div style={{fontSize:26, fontWeight:300, color:'#2a2a2a'}}>{stats.thisMonth} <span style={{fontSize:12, color:'#6a7700'}}>зан.</span></div>
               </div>
               <div style={{background: indivPendingCount > 0 ? '#fef9e7' : '#fff', borderRadius:16, padding:14, border: indivPendingCount > 0 ? '1.5px solid #f39c12' : '1px solid #f0f0f0', cursor:'pointer'}} onClick={() => goTab('indivs')}>
                 <div style={{fontSize:10, color: indivPendingCount > 0 ? '#f39c12' : '#BDBDBD', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6}}>Запросов индивов</div>

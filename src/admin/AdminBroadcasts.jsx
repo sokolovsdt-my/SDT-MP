@@ -1070,7 +1070,7 @@ export default function AdminBroadcasts({ session }) {
               <div style={cardStyle}>
                 <div style={{fontSize:14, fontWeight:600, color:'#2a2a2a', marginBottom:14}}>
                   Получатели
-                  <span style={{marginLeft:8, fontSize:13, color:'#BFD900', fontWeight:700}}>{activeRecipients.length}</span>
+                  <span style={{marginLeft:8, fontSize:13, color:'#6a7700', fontWeight:700}}>{activeRecipients.length}</span>
                   <span style={{fontSize:12, color:'#BDBDBD', fontWeight:400}}> из {recipients.length}</span>
                 </div>
 

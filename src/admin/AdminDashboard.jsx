@@ -244,7 +244,7 @@ export default function AdminDashboard({ session }) {
       {userRole === 'owner' && (
         <div style={{display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:12, marginBottom:16}}>
           {[
-            { label: 'Выручка сегодня', value: fmtMoney(revenueToday), sub: `${salesToday} продаж`, color: '#BFD900' },
+            { label: 'Выручка сегодня', value: fmtMoney(revenueToday), sub: `${salesToday} продаж`, color: '#6a7700' },
             { label: 'Выручка за месяц', value: fmtMoney(revenueMonth), color: '#6a7700' },
             { label: 'Активных абонементов', value: activeSubs, color: '#27ae60' },
             { label: 'Истекает за 7 дней', value: expiringSoon, color: '#f39c12', clickable: true },
@@ -359,7 +359,7 @@ export default function AdminDashboard({ session }) {
                 🆕 Новые клиенты
                 <span style={{fontSize:12, color:'#BDBDBD', fontWeight:400, marginLeft:8}}>за 7 дней</span>
               </div>
-              <span style={{fontSize:18, fontWeight:700, color:'#BFD900'}}>{newClients.length}</span>
+              <span style={{fontSize:18, fontWeight:700, color:'#6a7700'}}>{newClients.length}</span>
             </div>
             {newClients.length === 0 ? (
               <div style={{fontSize:12, color:'#BDBDBD'}}>Новых клиентов нет</div>

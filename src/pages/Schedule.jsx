@@ -231,7 +231,7 @@ export default function Schedule({ session, onShop }) {
             }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 11, color: isEvent ? '#7B1FA2' : isIndiv ? '#5A8A7C' : '#BFD900', fontWeight: 600, marginBottom: 4 }}>
+                  <div style={{ fontSize: 11, color: isEvent ? '#7B1FA2' : isIndiv ? '#5A8A7C' : '#6a7700', fontWeight: 600, marginBottom: 4 }}>
                     {formatTime(cls.starts_at)} — {formatTime(cls.ends_at)}
                   </div>
                   <div style={{ fontSize: 14, color: '#2a2a2a', fontWeight: 500, marginBottom: 2 }}>{title}</div>

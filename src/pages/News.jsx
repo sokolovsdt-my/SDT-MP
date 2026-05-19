@@ -97,7 +97,7 @@ export default function News({ session, onBack }) {
             )}
 
             {item.body && item.body.length > 200 && (
-              <div style={{fontSize:12, color:'#BFD900', fontWeight:600, marginTop:6}}>
+              <div style={{fontSize:12, color:'#6a7700', fontWeight:600, marginTop:6}}>
                 {expanded===item.id ? 'Свернуть ↑' : 'Читать далее →'}
               </div>
             )}

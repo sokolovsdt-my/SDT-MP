@@ -216,7 +216,7 @@ function FinanceOverview() {
         <>
           <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12, marginBottom:16}}>
             {[
-              { label:'Выручка', value:revenue, prev:prevRevenue, color:'#BFD900', bg:'#fafde8' },
+              { label:'Выручка', value:revenue, prev:prevRevenue, color:'#6a7700', bg:'#fafde8' },
               { label:'Расходы', value:expenses, prev:prevExpenses, color:'#e74c3c', bg:'#fdecea' },
               { label:'Прибыль', value:profit, prev:prevProfit, color:'#2980b9', bg:'#eaf4fd' },
             ].map(({ label, value, prev, color, bg }) => (

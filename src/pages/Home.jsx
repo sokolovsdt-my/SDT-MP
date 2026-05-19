@@ -96,7 +96,7 @@ export default function Home({ session, onNewsAll, onBonus }) {
       </div>
 
       <div style={{fontSize:21, color:'#2a2a2a', fontWeight:300, marginBottom:22}}>
-        Привет, <span style={{color:'#BFD900', fontWeight:600}}>{name}!</span>
+        Привет, <span style={{color:'#6a7700', fontWeight:600}}>{name}!</span>
       </div>
 
       {/* Следующее занятие */}
@@ -124,11 +124,11 @@ export default function Home({ session, onNewsAll, onBonus }) {
       {/* Статистика */}
       <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:18}}>
         <div style={{background:'#fff', borderRadius:16, padding:14, border:'1px solid #efefef'}}>
-          <div style={{fontSize:22, color:'#2a2a2a', fontWeight:300}}>{stats.thisMonth} <span style={{fontSize:11, color:'#BFD900'}}>зан.</span></div>
+          <div style={{fontSize:22, color:'#2a2a2a', fontWeight:300}}>{stats.thisMonth} <span style={{fontSize:11, color:'#6a7700'}}>зан.</span></div>
           <div style={{fontSize:11, color:'#BDBDBD', marginTop:3}}>В этом месяце</div>
         </div>
         <div style={{background:'#fff', borderRadius:16, padding:14, border:'1px solid #efefef'}}>
-          <div style={{fontSize:22, color:'#2a2a2a', fontWeight:300}}>{stats.totalHours} <span style={{fontSize:11, color:'#BFD900'}}>ч.</span></div>
+          <div style={{fontSize:22, color:'#2a2a2a', fontWeight:300}}>{stats.totalHours} <span style={{fontSize:11, color:'#6a7700'}}>ч.</span></div>
           <div style={{fontSize:11, color:'#BDBDBD', marginTop:3}}>Всего часов</div>
         </div>
       </div>
@@ -142,7 +142,7 @@ export default function Home({ session, onNewsAll, onBonus }) {
             <div style={{fontSize:11, color:'#8a9900', marginTop:2}}>{profile?.bonus_rubles || 0} ₽ · {profile?.bonus_coins || 0} SDTшек</div>
           </div>
         </div>
-        <div style={{color:'#BFD900', fontSize:18}}>›</div>
+        <div style={{color:'#6a7700', fontSize:18}}>›</div>
       </div>
 
       {/* Разделитель */}
@@ -154,7 +154,7 @@ export default function Home({ session, onNewsAll, onBonus }) {
 
       {/* Новости */}
       <div style={{display:'flex', justifyContent:'flex-end', marginBottom:10}}>
-        <div onClick={() => { localStorage.setItem('news_tag', ''); onNewsAll() }} style={{fontSize:12, color:'#BFD900', fontWeight:600, cursor:'pointer'}}>Все новости →</div>
+        <div onClick={() => { localStorage.setItem('news_tag', ''); onNewsAll() }} style={{fontSize:12, color:'#6a7700', fontWeight:600, cursor:'pointer'}}>Все новости →</div>
       </div>
 
       {news.length === 0 ? (
