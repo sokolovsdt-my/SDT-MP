@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { supabase } from './supabase'
 import Home from './pages/Home'
@@ -9,22 +9,24 @@ import Profile from './pages/Profile'
 import Bonus from './pages/Bonus'
 import Team from './pages/Team'
 import BottomNav from './components/BottomNav'
-import AdminLayout from './admin/AdminLayout'
-import AdminDashboard from './admin/AdminDashboard'
-import AdminClients from './admin/AdminClients'
-import AdminClientCard from './admin/AdminClientCard'
-import AdminTasks from './admin/AdminTasks'
-import AdminCatalog from './admin/AdminCatalog'
-import AdminSchedule from './admin/AdminSchedule'
-import AdminStaff from './admin/AdminStaff'
-import AdminStaffCard from './admin/AdminStaffCard'
-import AdminFinance from './admin/AdminFinance'
-import AdminCashbox from './admin/AdminCashbox'
-import AdminGroups from './admin/AdminGroups'
-import AdminBroadcasts from './admin/AdminBroadcasts'
-import AdminNews from './admin/AdminNews'
-import AdminPrizes from './admin/AdminPrizes'
-import TeacherPanel from './admin/TeacherPanel'
+// Админ/teacher страницы — lazy: клиентская мобилка не должна тянуть
+// ~7000 строк админ-кода. Грузится по требованию при роутинге на /admin/* или /teacher.
+const AdminLayout      = lazy(() => import('./admin/AdminLayout'))
+const AdminDashboard   = lazy(() => import('./admin/AdminDashboard'))
+const AdminClients     = lazy(() => import('./admin/AdminClients'))
+const AdminClientCard  = lazy(() => import('./admin/AdminClientCard'))
+const AdminTasks       = lazy(() => import('./admin/AdminTasks'))
+const AdminCatalog     = lazy(() => import('./admin/AdminCatalog'))
+const AdminSchedule    = lazy(() => import('./admin/AdminSchedule'))
+const AdminStaff       = lazy(() => import('./admin/AdminStaff'))
+const AdminStaffCard   = lazy(() => import('./admin/AdminStaffCard'))
+const AdminFinance     = lazy(() => import('./admin/AdminFinance'))
+const AdminCashbox     = lazy(() => import('./admin/AdminCashbox'))
+const AdminGroups      = lazy(() => import('./admin/AdminGroups'))
+const AdminBroadcasts  = lazy(() => import('./admin/AdminBroadcasts'))
+const AdminNews        = lazy(() => import('./admin/AdminNews'))
+const AdminPrizes      = lazy(() => import('./admin/AdminPrizes'))
+const TeacherPanel     = lazy(() => import('./admin/TeacherPanel'))
 import { RequireRole } from './components/RequireRole'
 import { RequireSubRole } from './components/RequireSubRole'
 import { useUserRole } from './hooks/useUserRole'
@@ -116,35 +118,37 @@ function App() {
 
   return (
     <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<RootRedirect session={session} />} />
-        <Route path="/admin" element={
-          <RequireRole session={session} allow={['teacher','admin','manager','owner']}>
-            <AdminLayout session={session} />
-          </RequireRole>
-        }>
-          <Route path="dashboard" element={<AdminDashboard session={session} />} />
-          <Route path="clients" element={<RequireSubRole allow={['admin','manager','owner']}><AdminClients /></RequireSubRole>} />
-          <Route path="clients/:id" element={<RequireSubRole allow={['admin','manager','owner']}><AdminClientCard session={session} /></RequireSubRole>} />
-          <Route path="tasks" element={<AdminTasks session={session} />} />
-          <Route path="catalog" element={<RequireSubRole allow={['admin','manager','owner']}><AdminCatalog /></RequireSubRole>} />
-          <Route path="schedule" element={<AdminSchedule session={session} />} />
-          <Route path="staff" element={<RequireSubRole allow={['admin','manager','owner']}><AdminStaff /></RequireSubRole>} />
-          <Route path="staff/:id" element={<RequireSubRole allow={['admin','manager','owner']}><AdminStaffCard session={session} /></RequireSubRole>} />
-          <Route path="finance" element={<RequireSubRole allow={['owner']}><AdminFinance session={session} /></RequireSubRole>} />
-          <Route path="cashbox" element={<RequireSubRole allow={['admin','manager','owner']}><AdminCashbox session={session} /></RequireSubRole>} />
-          <Route path="groups" element={<RequireSubRole allow={['admin','manager','owner']}><AdminGroups session={session} /></RequireSubRole>} />
-          <Route path="broadcasts" element={<RequireSubRole allow={['admin','manager','owner']}><AdminBroadcasts session={session} /></RequireSubRole>} />
-          <Route path="news" element={<RequireSubRole allow={['admin','manager','owner']}><AdminNews session={session} /></RequireSubRole>} />
-          <Route path="prizes" element={<RequireSubRole allow={['admin','manager','owner']}><AdminPrizes session={session} /></RequireSubRole>} />
-        </Route>
-        <Route path="/teacher" element={
-          <RequireRole session={session} allow={['teacher','admin','manager','owner']}>
-            <TeacherPanel session={session} />
-          </RequireRole>
-        } />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+      <Suspense fallback={<Loader />}>
+        <Routes>
+          <Route path="/" element={<RootRedirect session={session} />} />
+          <Route path="/admin" element={
+            <RequireRole session={session} allow={['teacher','admin','manager','owner']}>
+              <AdminLayout session={session} />
+            </RequireRole>
+          }>
+            <Route path="dashboard" element={<AdminDashboard session={session} />} />
+            <Route path="clients" element={<RequireSubRole allow={['admin','manager','owner']}><AdminClients /></RequireSubRole>} />
+            <Route path="clients/:id" element={<RequireSubRole allow={['admin','manager','owner']}><AdminClientCard session={session} /></RequireSubRole>} />
+            <Route path="tasks" element={<AdminTasks session={session} />} />
+            <Route path="catalog" element={<RequireSubRole allow={['admin','manager','owner']}><AdminCatalog /></RequireSubRole>} />
+            <Route path="schedule" element={<AdminSchedule session={session} />} />
+            <Route path="staff" element={<RequireSubRole allow={['admin','manager','owner']}><AdminStaff /></RequireSubRole>} />
+            <Route path="staff/:id" element={<RequireSubRole allow={['admin','manager','owner']}><AdminStaffCard session={session} /></RequireSubRole>} />
+            <Route path="finance" element={<RequireSubRole allow={['owner']}><AdminFinance session={session} /></RequireSubRole>} />
+            <Route path="cashbox" element={<RequireSubRole allow={['admin','manager','owner']}><AdminCashbox session={session} /></RequireSubRole>} />
+            <Route path="groups" element={<RequireSubRole allow={['admin','manager','owner']}><AdminGroups session={session} /></RequireSubRole>} />
+            <Route path="broadcasts" element={<RequireSubRole allow={['admin','manager','owner']}><AdminBroadcasts session={session} /></RequireSubRole>} />
+            <Route path="news" element={<RequireSubRole allow={['admin','manager','owner']}><AdminNews session={session} /></RequireSubRole>} />
+            <Route path="prizes" element={<RequireSubRole allow={['admin','manager','owner']}><AdminPrizes session={session} /></RequireSubRole>} />
+          </Route>
+          <Route path="/teacher" element={
+            <RequireRole session={session} allow={['teacher','admin','manager','owner']}>
+              <TeacherPanel session={session} />
+            </RequireRole>
+          } />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Suspense>
     </BrowserRouter>
   )
 }

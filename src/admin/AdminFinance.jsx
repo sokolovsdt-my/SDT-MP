@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabase'
 import { todayMsk, toMskDateStr, mskDayStartUtc, mskDayEndUtc, mskDayStartNaive, mskDayEndNaive } from '../utils/tz'
@@ -366,34 +366,39 @@ function FinanceSales({ session }) {
     load()
   }
 
-  // Фильтрация
-  const filtered = sales.filter(s => {
-    if (s.is_cancelled) return false
-    if (onlyAcquiring && s.payment_method !== 'online') return false
-    if (filterMethod !== 'all' && s.payment_method !== filterMethod) return false
-    if (filterType !== 'all' && s.product_type !== filterType) return false
-    if (filterSeller !== 'all' && s.creator?.id !== filterSeller) return false
-    if (search) {
-      const q = search.toLowerCase()
-      const name = (s.client?.full_name || s.client?.email || '').toLowerCase()
-      if (!name.includes(q)) return false
+  // Все агрегаты считаем за один проход и кэшируем по фильтрам/поиску.
+  // Без useMemo на 1000+ продаж filter().reduce()*4 + sort() крутились на
+  // каждый re-render родителя (polling бейджей в AdminLayout каждые 30с,
+  // hover в дочерних элементах).
+  const { filtered, total, totalNet, avgCheck, top5 } = useMemo(() => {
+    const q = search ? search.toLowerCase() : ''
+    const filtered = sales.filter(s => {
+      if (s.is_cancelled) return false
+      if (onlyAcquiring && s.payment_method !== 'online') return false
+      if (filterMethod !== 'all' && s.payment_method !== filterMethod) return false
+      if (filterType !== 'all' && s.product_type !== filterType) return false
+      if (filterSeller !== 'all' && s.creator?.id !== filterSeller) return false
+      if (q) {
+        const name = (s.client?.full_name || s.client?.email || '').toLowerCase()
+        if (!name.includes(q)) return false
+      }
+      return true
+    })
+
+    let total = 0
+    let totalNet = 0
+    const byClient = {}
+    for (const x of filtered) {
+      total    += Number(x.amount_paid)
+      totalNet += Number(x.total_net)
+      const name = x.client?.full_name || x.client?.email || 'Неизвестен'
+      byClient[name] = (byClient[name] || 0) + Number(x.amount_paid)
     }
-    return true
-  })
+    const avgCheck = filtered.length > 0 ? total / filtered.length : 0
+    const top5 = Object.entries(byClient).sort((a, b) => b[1] - a[1]).slice(0, 5)
 
-  const total = filtered.reduce((s, x) => s + Number(x.amount_paid), 0)
-  const totalNet = filtered.reduce((s, x) => s + Number(x.total_net), 0)
-  // Без Math.round: fmtMoney форматирует numeric с двумя дробными если нужно,
-  // и копейки не теряются в среднем чеке.
-  const avgCheck = filtered.length > 0 ? total / filtered.length : 0
-
-  // Топ-5 клиентов
-  const byClient = {}
-  filtered.forEach(s => {
-    const name = s.client?.full_name || s.client?.email || 'Неизвестен'
-    byClient[name] = (byClient[name] || 0) + Number(s.amount_paid)
-  })
-  const top5 = Object.entries(byClient).sort((a, b) => b[1] - a[1]).slice(0, 5)
+    return { filtered, total, totalNet, avgCheck, top5 }
+  }, [sales, onlyAcquiring, filterMethod, filterType, filterSeller, search])
 
   return (
     <div>
