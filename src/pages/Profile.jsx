@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
 import AvatarUpload from '../components/AvatarUpload'
-import { requestPermission } from '../firebase'
 import { plural } from '../utils/plural'
 import { nowMskNaive, parseMskNaive } from '../utils/tz'
 
@@ -607,48 +606,6 @@ function MyIndivs({ session, onBack }) {
   )
 }
 
-function Referral({ session, onBack }) {
-  const refLink = `https://sdt-mp.vercel.app?ref=${session.user.id.slice(0, 8)}`
-  return (
-    <div style={{ fontFamily: 'Inter,sans-serif', maxWidth: 480, margin: '0 auto' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 20px', borderBottom: '1px solid #f0f0f0' }}>
-        <div onClick={onBack} style={{ cursor: 'pointer', color: '#BDBDBD', fontSize: 20 }}>←</div>
-        <div style={{ fontSize: 16, color: '#2a2a2a', fontWeight: 500 }}>Привести друга</div>
-      </div>
-      <div style={{ padding: '16px 20px' }}>
-        <div style={{ background: '#fafde8', border: '1px solid #BFD900', borderRadius: 16, padding: 16, marginBottom: 16 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: '#2a2a2a', marginBottom: 8 }}>Как это работает</div>
-          <div style={{ fontSize: 12, color: '#555', lineHeight: 1.7 }}>
-            Поделитесь ссылкой с другом. Когда он купит абонемент — вы получите <strong>10% от стоимости</strong> на бонусный счёт. Друг тоже получит <strong>10% бонусов</strong> на первый месяц! 🎉
-          </div>
-        </div>
-        <div style={{ fontSize: 11, color: '#BDBDBD', marginBottom: 8 }}>Ваша реферальная ссылка</div>
-        <div style={{ background: '#f9f9f9', borderRadius: 12, padding: '12px 14px', fontSize: 12, color: '#2a2a2a', marginBottom: 12, wordBreak: 'break-all' }}>
-          {refLink}
-        </div>
-        <button onClick={() => { navigator.clipboard.writeText(refLink); alert('Ссылка скопирована!') }}
-          style={{ width: '100%', padding: 13, background: '#BFD900', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700, color: '#2a2a2a', cursor: 'pointer', fontFamily: 'Inter,sans-serif', marginBottom: 16 }}>
-          Скопировать ссылку
-        </button>
-        <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 16, padding: 16 }}>
-          <div style={{ fontSize: 13, color: '#2a2a2a', fontWeight: 500, marginBottom: 8 }}>
-            🔔 Узнавайте первыми об изменениях в расписании и отменах занятий
-          </div>
-          <button onClick={async () => {
-            const token = await requestPermission()
-            if (!token) return
-            const { error } = await supabase.rpc('register_push_token', { p_token: token })
-            if (error) { alert('Не удалось включить уведомления: ' + error.message); return }
-            alert('Уведомления включены! ✅')
-          }} style={{ width: '100%', padding: 12, background: '#BFD900', border: 'none', borderRadius: 12, fontSize: 13, fontWeight: 700, color: '#2a2a2a', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
-            Включить уведомления
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 export default function Profile({ session }) {
   const [screen, setScreen] = useState(() => localStorage.getItem('profileScreen') || null)
   const [profile, setProfile] = useState(null)
@@ -726,7 +683,6 @@ export default function Profile({ session }) {
   if (screen === 'lessons') return <MyLessons session={session} onBack={() => goScreen(null)} />
   if (screen === 'indivs') return <MyIndivs session={session} onBack={() => goScreen(null)} />
   if (screen === 'stats') return <MyStats session={session} onBack={() => goScreen(null)} />
-  if (screen === 'referral') return <Referral session={session} onBack={() => goScreen(null)} />
   if (screen === 'editing') return (
     <div style={{ fontFamily: 'Inter,sans-serif', padding: 20, maxWidth: 480, margin: '0 auto' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
@@ -802,7 +758,6 @@ export default function Profile({ session }) {
         { label: 'Мои занятия', action: () => goScreen('lessons') },
         { label: 'Мои индивы', action: () => goScreen('indivs') },
         { label: 'Моя статистика', action: () => goScreen('stats') },
-        { label: 'Привести друга ✦', accent: true, action: () => goScreen('referral') },
       ].map((item, i) => (
         <div key={i} onClick={item.action} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px', borderBottom: '1px solid #f5f5f5', cursor: 'pointer' }}>
           <div style={{ fontSize: 14, color: item.accent ? '#6a7700' : '#3a3a3a', fontWeight: item.accent ? 600 : 400 }}>{item.label}</div>
